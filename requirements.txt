@@ -1,0 +1,8 @@
+pandas
+numpy
+matplotlib
+seaborn
+selenium
+undetected-chromedriver
+sqlalchemy
+psycopg2-binary
