@@ -32,3 +32,10 @@ matplotlib, seaborn
 sqlalchemy
 
 psycopg2-binary	
+
+## Used softwares
+- pgAdmin 4
+- Dbeaver
+- Visual Studio Code
+- Power BI Desktop
+- Docker Desktop
