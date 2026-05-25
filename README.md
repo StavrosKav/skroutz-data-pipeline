@@ -183,3 +183,9 @@ Each row becomes one `price_snapshots` record in PostgreSQL, linked to its `prod
 | Smartwatches | 6,171 | 49,759 | 95% |
 | Tablets | 1,724 | 11,132 | 100% |
 | **Total** | **19,268** | **138,492** | — |
+
+---
+
+## Disclaimer
+
+This project is for **personal learning and portfolio purposes only**. No scraped data is stored in this repository — all CSVs are excluded via `.gitignore`. The scraper accesses only publicly visible listing pages and makes no attempt to bypass authentication or access private data. Use responsibly and in accordance with the target site's Terms of Service.
