@@ -159,6 +159,21 @@ schtasks /create /tn "SkroutzDailyPipeline" /tr "C:\path\to\run_pipeline.bat" /s
 
 ---
 
+## Sample Output
+
+After the clean stage, each row in the phones CSV looks like this:
+
+| Brand | Model | RAM | Storage | Price (€) | Rating | Reviews | Date |
+|---|---|---|---|---|---|---|---|
+| Xiaomi | Redmi Note 14 Pro 5G | 8 GB | 256 GB | 256.63 | 4.7 | 133 | 2025-06-13 |
+| Xiaomi | Redmi 14C NFC | 8 GB | 256 GB | 107.82 | 4.6 | 176 | 2025-06-13 |
+| Apple | iPhone 16 Pro Max | 8 GB | 256 GB | 1352.00 | 4.7 | 165 | 2025-06-13 |
+| Samsung | Galaxy A55 5G | 8 GB | 128 GB | 332.99 | 4.7 | 1139 | 2025-06-13 |
+
+Each row becomes one `price_snapshots` record in PostgreSQL, linked to its `products` entry by foreign key. Running the pipeline daily appends ~19k new rows.
+
+---
+
 ## Data Coverage (May 2026)
 
 | Category | Products | Snapshots | Model Coverage |
