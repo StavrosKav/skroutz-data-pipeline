@@ -9,6 +9,8 @@ set "PROJECT=%PROJECT:~0,-1%"
 set PYTHON=C:\Users\StavrosKV\anaconda33\python.exe
 set LOG_DIR=%PROJECT%\logs
 
+cd /d "%PROJECT%"
+
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
 :: Build a timestamp for the log filename (YYYY-MM-DD)
