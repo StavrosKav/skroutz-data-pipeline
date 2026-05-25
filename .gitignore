@@ -1,0 +1,46 @@
+# Credentials — never commit
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Raw scraped CSVs (regenerated daily by the pipeline)
+Phones_skroutz/
+Laptops_skroutz/
+Smartwatches_skroutz/
+Tablets_skroutz/
+
+# Cleaned CSVs (regenerated daily by the pipeline)
+Clean/
+
+# Pipeline logs
+logs/
+logs4/
+*.log
+
+# Old project subfolder with logs
+SkroutzProject/
+
+# Unrelated projects / datasets in this directory
+sleap_healthPJ/
+student_habits_performance.csv
+data/
+skroutz-data-pipeline
+
+# Old / superseded scripts
+TestALLinONE.py
+skroutz_SmartwachesFOR.py
+Jupiter_PIP_install_File.ipynb
+
+# Claude memory
+.claude/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
