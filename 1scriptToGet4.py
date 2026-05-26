@@ -75,6 +75,7 @@ def run_all_scrapers():
         time.sleep(LAUNCH_DELAY)
 
     # Wait for all scrapers to finish and report their exit status
+    any_failed = False
     for name, proc, log_file in procs:
         ret = proc.wait()
         log_file.close()
@@ -82,6 +83,8 @@ def run_all_scrapers():
             logging.info(f"{name} completed successfully.")
         else:
             logging.error(f"{name} exited with code {ret} — check its log file.")
+            any_failed = True
+    return any_failed
 
 
 def main():
@@ -90,7 +93,8 @@ def main():
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    run_all_scrapers()
+    if run_all_scrapers():
+        sys.exit(1)
 
 
 if __name__ == "__main__":
