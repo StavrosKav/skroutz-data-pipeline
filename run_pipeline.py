@@ -39,6 +39,7 @@ import os
 import smtplib
 from email.message import EmailMessage
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
 
 load_dotenv()
 
@@ -100,6 +101,72 @@ def send_failure_alert(stage, returncode):
         logger.warning(f"Could not send alert email: {e}")
 
 
+def run_charts():
+    """Regenerate price trend charts. Non-fatal — pipeline result is unaffected if this fails."""
+    logger.info("=== Charts started ===")
+    result = subprocess.run([sys.executable, os.path.join(BASE, "charts_from_db.py")])
+    if result.returncode != 0:
+        logger.warning("Charts step failed — pipeline result is unaffected.")
+    else:
+        logger.info("=== Charts complete ===")
+
+
+def send_drop_digest():
+    """Email today's top price drops after a successful pipeline run. No-ops if password not set."""
+    if not GMAIL_APP_PASSWORD:
+        return
+    db_url = (
+        f"postgresql+psycopg2://{os.environ.get('DB_USER', 'postgres')}:"
+        f"{os.environ.get('DB_PASSWORD', '')}@"
+        f"{os.environ.get('DB_HOST', 'localhost')}:"
+        f"{os.environ.get('DB_PORT', '5432')}/"
+        f"{os.environ.get('DB_NAME', 'SkroutzPR')}"
+    )
+    try:
+        engine = create_engine(db_url)
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
+                "FROM vw_biggest_drops "
+                "WHERE drop_date = CURRENT_DATE "
+                "ORDER BY drop_eur ASC LIMIT 10"
+            )).fetchall()
+    except Exception as e:
+        logger.warning(f"Drop digest: DB query failed — {e}")
+        return
+    if not rows:
+        logger.info("No price drops today — digest not sent.")
+        return
+    header = f"{'Brand':<20} {'Model':<30} {'Cat':<12} {'Was €':>8} {'Now €':>8} {'Drop €':>8} {'Drop %':>7}"
+    sep    = "-" * len(header)
+    lines  = [header, sep]
+    for r in rows:
+        brand = (r.brand or "")[:20]
+        model = (r.model or "")[:30]
+        lines.append(
+            f"{brand:<20} {model:<30} {r.category:<12} "
+            f"{float(r.prev_price):>8.2f} {float(r.new_price):>8.2f} "
+            f"{float(r.drop_eur):>8.2f} {float(r.drop_pct):>7.1f}%"
+        )
+    msg = EmailMessage()
+    msg["Subject"] = f"[Skroutz] {len(rows)} price drops today — {datetime.date.today()}"
+    msg["From"]    = ALERT_FROM
+    msg["To"]      = ALERT_TO
+    msg.set_content(
+        f"Top price drops from today's scrape ({datetime.date.today()}):\n\n"
+        + "\n".join(lines)
+        + "\n\nFull history: query vw_biggest_drops in the database."
+    )
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+            smtp.starttls()
+            smtp.login(ALERT_FROM, GMAIL_APP_PASSWORD)
+            smtp.send_message(msg)
+        logger.info(f"Drop digest sent — {len(rows)} deals.")
+    except Exception as e:
+        logger.warning(f"Could not send drop digest: {e}")
+
+
 def run_stage(label, script):
     """
     Run a single pipeline stage as a subprocess.
@@ -119,5 +186,7 @@ if __name__ == "__main__":
     start = datetime.datetime.now()
     for label, script in STAGES:
         run_stage(label, script)
+    run_charts()
+    send_drop_digest()
     elapsed = datetime.datetime.now() - start
     logger.info(f"Pipeline finished in {elapsed}")
