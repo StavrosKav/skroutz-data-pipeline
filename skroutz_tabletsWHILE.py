@@ -21,6 +21,7 @@ import re
 import datetime
 import os
 import logging
+import subprocess
 
 # Log to both console and a persistent file so failures are traceable
 logging.basicConfig(
@@ -34,12 +35,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _chrome_major():
+    """Return the installed Chrome major version so undetected_chromedriver fetches the matching driver."""
+    try:
+        v = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command",
+             r'(Get-Item "C:\Program Files\Google\Chrome\Application\chrome.exe").VersionInfo.ProductVersion'],
+            text=True, stderr=subprocess.DEVNULL, timeout=5,
+        ).strip()
+        return int(v.split(".")[0])
+    except Exception:
+        return 0
+
+
 def scrape():
     # --headless is intentionally omitted because it triggers bot-detection on skroutz
     options = uc.ChromeOptions()
     options.add_argument("--disable-gpu")
 
-    driver = uc.Chrome(options=options)
+    driver = uc.Chrome(options=options, version_main=_chrome_major())
     driver.get("https://www.skroutz.gr/c/1105/tablet.html")
 
     products = []

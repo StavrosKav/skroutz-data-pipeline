@@ -24,6 +24,10 @@ Abort behaviour:
 Typical usage:
   python run_pipeline.py
 
+  Set SKIP_SCRAPE=1 to skip the scraping stage and run only Clean + Load.
+  This is set automatically in docker-compose.yml (Chrome cannot run headless
+  without triggering bot-detection).
+
 For automation, configure Windows Task Scheduler to run this script daily.
 """
 
@@ -48,11 +52,17 @@ logger = logging.getLogger(__name__)
 # Resolve script paths relative to this file so the pipeline works from any working directory
 BASE = os.path.dirname(os.path.abspath(__file__))
 
-STAGES = [
+_ALL_STAGES = [
     ("Scrape",   os.path.join(BASE, "1scriptToGet4.py")),
     ("Clean",    os.path.join(BASE, "1scriptToGet4MANIPULATION.py")),
     ("Load SQL", os.path.join(BASE, "4csvsTOsql.py")),
 ]
+
+# Set SKIP_SCRAPE=1 in environments where Chrome cannot run (e.g. Docker)
+_skip_scrape = os.environ.get("SKIP_SCRAPE", "").lower() in ("1", "true", "yes")
+if _skip_scrape:
+    logger.info("SKIP_SCRAPE=1 — skipping Scrape stage, running Clean + Load only")
+STAGES = [s for s in _ALL_STAGES if not (_skip_scrape and s[0] == "Scrape")]
 
 # ── Email alerts ───────────────────────────────────────────────────────────────
 # Set ALERT_EMAIL and GMAIL_APP_PASSWORD in your .env file to enable alerts.

@@ -21,6 +21,7 @@ services:
     env_file: .env
     environment:
       DB_HOST: db
+      SKIP_SCRAPE: "1"   # Chrome cannot run in Docker; scrape on Windows then mount CSVs
     depends_on:
       db:
         condition: service_healthy
