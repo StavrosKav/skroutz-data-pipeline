@@ -1,6 +1,6 @@
 # Skroutz Price Tracker
 
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)
 ![Selenium](https://img.shields.io/badge/Selenium-4.41-43B02A?logo=selenium&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
@@ -8,7 +8,7 @@
 
 An end-to-end Python data engineering pipeline that scrapes daily product listings from [Skroutz.gr](https://www.skroutz.gr) (Greece's largest e-commerce aggregator), cleans and enriches the data, and stores it in a normalized PostgreSQL database for long-term price trend analysis.
 
-**19,268 products tracked · 138,492 price snapshots · 4 categories · daily since June 2025**
+**19,607 products tracked · 146,405 price snapshots · 4 categories · daily since June 2025**
 
 ---
 
@@ -79,7 +79,7 @@ Static metadata is stored once; price history grows by ~19k rows per day.
 
 | Layer | Tools |
 |---|---|
-| Scraping | Python 3.11, Selenium 4.41, undetected-chromedriver 3.5 |
+| Scraping | Python 3.13, Selenium 4.41, undetected-chromedriver 3.5 |
 | Processing | pandas 2.3, numpy 2.3, re |
 | Database | PostgreSQL, SQLAlchemy 2.0, psycopg2 2.9 |
 | Orchestration | subprocess, Windows Task Scheduler |
@@ -178,11 +178,69 @@ Each row becomes one `price_snapshots` record in PostgreSQL, linked to its `prod
 
 | Category | Products | Snapshots | Model Coverage |
 |---|---|---|---|
-| Phones | 5,166 | 44,307 | 100% |
-| Laptops | 6,207 | 33,294 | 100% |
-| Smartwatches | 6,171 | 49,759 | 95% |
-| Tablets | 1,724 | 11,132 | 100% |
-| **Total** | **19,268** | **138,492** | — |
+| Phones | 5,265 | 44,307 | 100% |
+| Laptops | 6,320 | 55,744 | 100% |
+| Smartwatches | 6,244 | 35,031 | 95% |
+| Tablets | 1,778 | 11,323 | 100% |
+| **Total** | **19,607** | **146,405** | — |
+
+---
+
+## Analytics Views
+
+`analytics.sql` defines five PostgreSQL views that turn the raw snapshots into actionable insights. Run it once against the database.
+
+| View | What it answers |
+|---|---|
+| `vw_latest_prices` | Current price, rating, and snapshot date for every product |
+| `vw_price_history` | Full daily price history with day-over-day change (uses `LAG()`) |
+| `vw_biggest_drops` | Products with the largest single-day price drop, across all time |
+| `vw_brand_summary` | Avg / median / min / max price per brand per category |
+| `vw_disappeared` | Products not seen in the last 7 days (likely delisted) |
+
+### Sample Queries
+
+```sql
+-- Top 10 cheapest laptops right now
+SELECT brand, model, price_eur
+FROM vw_latest_prices
+WHERE category = 'laptop'
+ORDER BY price_eur ASC
+LIMIT 10;
+```
+
+```sql
+-- Biggest price drops this week
+SELECT brand, model, drop_date, prev_price, new_price, drop_eur, drop_pct
+FROM vw_biggest_drops
+WHERE drop_date >= CURRENT_DATE - 7
+LIMIT 20;
+```
+
+```sql
+-- Average phone price per brand, cheapest first
+SELECT brand, product_count, avg_price, median_price
+FROM vw_brand_summary
+WHERE category = 'phone'
+ORDER BY median_price ASC;
+```
+
+---
+
+## Exploratory Data Analysis
+
+Charts generated from a single day's phone data (1,260 products):
+
+**Price distribution**
+![Price distribution](charts/price_distribution.png)
+
+**Phone listings by brand (top 12)**
+![Phones by brand](charts/phones_by_brand.png)
+
+**Average price by brand (top 12)**
+![Average price by brand](charts/avg_price_by_brand.png)
+
+Run `Skroutz_data_EDA.py` to regenerate charts from any clean CSV. Output is saved to `charts/`.
 
 ---
 
