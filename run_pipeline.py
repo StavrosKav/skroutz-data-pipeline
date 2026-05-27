@@ -37,6 +37,7 @@ import logging
 import datetime
 import os
 import smtplib
+import json
 from email.message import EmailMessage
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
@@ -167,26 +168,27 @@ def send_drop_digest():
         logger.warning(f"Could not send drop digest: {e}")
 
 
-def run_stage(label, script):
-    """
-    Run a single pipeline stage as a subprocess.
-    On failure: sends an alert email then exits, so downstream stages
-    never run against incomplete input data.
-    """
-    logger.info(f"=== {label} started ===")
-    result = subprocess.run([sys.executable, script])
-    if result.returncode != 0:
-        logger.error(f"{label} failed (exit {result.returncode}). Aborting pipeline.")
-        send_failure_alert(label, result.returncode)
-        sys.exit(result.returncode)
-    logger.info(f"=== {label} complete ===")
+def _get_engine():
+    """Return a SQLAlchemy engine using .env credentials."""
+    return create_engine(
+        f"postgresql+psycopg2://{os.environ.get('DB_USER', 'postgres')}:"
+        f"{os.environ.get('DB_PASSWORD', '')}@"
+        f"{os.environ.get('DB_HOST', 'localhost')}:"
+        f"{os.environ.get('DB_PORT', '5432')}/"
+        f"{os.environ.get('DB_NAME', 'SkroutzPR')}"
+    )
 
 
-if __name__ == "__main__":
-    start = datetime.datetime.now()
-    for label, script in STAGES:
-        run_stage(label, script)
-    run_charts()
-    send_drop_digest()
-    elapsed = datetime.datetime.now() - start
-    logger.info(f"Pipeline finished in {elapsed}")
+def _send_email(subject, body):
+    """Send a plain-text email via Gmail. No-ops if password not set."""
+    if not GMAIL_APP_PASSWORD:
+        return
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"]    = ALERT_FROM
+    msg["To"]      = ALERT_TO
+    msg.set_content(body)
+    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+        smtp.starttls()
+        smtp.login(ALERT_FROM, GMAIL_APP_PASSWORD)
+     
