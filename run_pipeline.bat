@@ -14,12 +14,10 @@ cd /d "%PROJECT%"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
 :: Build a timestamp for the log filename (YYYY-MM-DD)
-for /f "tokens=1-3 delims=/-" %%a in ("%DATE%") do (
-    set DD=%%a
-    set MM=%%b
-    set YYYY=%%c
-)
-set LOGFILE=%LOG_DIR%\pipeline_%YYYY%-%MM%-%DD%.log
+:: %DATE% is locale-dependent (e.g. "Τετ 27/05/2026" on Greek Windows),
+:: so use PowerShell for a reliable ISO date instead.
+for /f "usebackq" %%D in (`powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd'"`) do set LOGDATE=%%D
+set LOGFILE=%LOG_DIR%\pipeline_%LOGDATE%.log
 
 echo Pipeline started at %DATE% %TIME% >> "%LOGFILE%"
 "%PYTHON%" "%PROJECT%\run_pipeline.py" >> "%LOGFILE%" 2>&1

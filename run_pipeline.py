@@ -191,4 +191,182 @@ def _send_email(subject, body):
     with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
         smtp.starttls()
         smtp.login(ALERT_FROM, GMAIL_APP_PASSWORD)
-     
+        smtp.send_message(msg)
+
+
+def send_watchlist_alerts():
+    """
+    Check watchlist.json against today's prices and email when a product
+    is at or below its threshold.
+
+    watchlist.json format (array of objects):
+      [
+        {
+          "url":           "https://www.skroutz.gr/s/...",
+          "label":         "iPhone 17 Pro Max 512GB",
+          "threshold_eur": 1650.00
+        },
+        ...
+      ]
+
+    Edit watchlist.json to add or remove tracked products.
+    """
+    watchlist_path = os.path.join(BASE, "watchlist.json")
+    if not os.path.exists(watchlist_path):
+        logger.info("watchlist.json not found — skipping watchlist check.")
+        return
+    try:
+        with open(watchlist_path, encoding="utf-8") as f:
+            items = json.load(f)
+    except Exception as e:
+        logger.warning(f"Watchlist: could not read watchlist.json — {e}")
+        return
+    if not items:
+        return
+
+    try:
+        engine = _get_engine()
+        with engine.connect() as conn:
+            hits = []
+            for item in items:
+                url       = item.get("url", "").strip()
+                label     = item.get("label", url)
+                threshold = float(item.get("threshold_eur", 0))
+                if not url:
+                    continue
+                row = conn.execute(text(
+                    "SELECT brand, model, category, price_eur, skroutz_link "
+                    "FROM vw_latest_prices "
+                    "WHERE skroutz_link = :url"
+                ), {"url": url}).fetchone()
+                if row is None:
+                    logger.warning(f"Watchlist: '{label}' not found in DB (URL may not match).")
+                    continue
+                if float(row.price_eur) <= threshold:
+                    hits.append({
+                        "label":     label,
+                        "brand":     row.brand or "",
+                        "model":     row.model or "",
+                        "category":  row.category,
+                        "price":     float(row.price_eur),
+                        "threshold": threshold,
+                        "url":       row.skroutz_link,
+                    })
+    except Exception as e:
+        logger.warning(f"Watchlist: DB query failed — {e}")
+        return
+
+    if not hits:
+        logger.info("Watchlist: no thresholds crossed today.")
+        return
+
+    lines = [f"{'Product':<45} {'Now €':>8} {'Target €':>9}", "-" * 65]
+    for h in hits:
+        name = f"{h['brand']} {h['model']}".strip() or h["label"]
+        lines.append(f"{name[:45]:<45} {h['price']:>8.2f} {h['threshold']:>9.2f}")
+        lines.append(f"  → {h['url']}")
+    body = (
+        f"{len(hits)} watchlist item(s) hit their target price on {datetime.date.today()}:\n\n"
+        + "\n".join(lines)
+        + "\n\nUpdate watchlist.json to change thresholds or remove items."
+    )
+    try:
+        _send_email(
+            subject=f"[Skroutz] 🎯 {len(hits)} price target(s) reached — {datetime.date.today()}",
+            body=body,
+        )
+        logger.info(f"Watchlist alert sent — {len(hits)} hit(s).")
+    except Exception as e:
+        logger.warning(f"Watchlist: could not send email — {e}")
+
+
+def send_disappeared_alert():
+    """
+    Email a summary of products that disappeared from Skroutz in the last 2 days.
+    Useful for spotting discontinued models or unusually cheap listings that
+    got pulled. Non-fatal — pipeline result is unaffected if this fails.
+    """
+    if not GMAIL_APP_PASSWORD:
+        return
+    try:
+        engine = _get_engine()
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT brand, model, category, product_name, last_seen, "
+                "       days_since_last_seen, skroutz_link "
+                "FROM vw_disappeared "
+                "WHERE days_since_last_seen BETWEEN 1 AND 2 "
+                "ORDER BY category, last_seen DESC"
+            )).fetchall()
+    except Exception as e:
+        logger.warning(f"Disappeared alert: DB query failed — {e}")
+        return
+
+    if not rows:
+        logger.info("No newly disappeared products today.")
+        return
+
+    header = f"{'Brand':<18} {'Model':<28} {'Cat':<12} {'Last seen':>10}"
+    sep    = "-" * len(header)
+    lines  = [header, sep]
+    for r in rows:
+        brand = (r.brand or "")[:18]
+        model = (r.model or r.product_name or "")[:28]
+        lines.append(
+            f"{brand:<18} {model:<28} {r.category:<12} {str(r.last_seen):>10}"
+        )
+        lines.append(f"  → {r.skroutz_link}")
+
+    body = (
+        f"{len(rows)} product(s) disappeared from Skroutz in the last 2 days "
+        f"({datetime.date.today()}):\n\n"
+        + "\n".join(lines)
+        + "\n\nThese products have not appeared in any scrape for 1–2 days. "
+        "They may be discontinued, out of stock, or temporarily unlisted."
+    )
+    try:
+        _send_email(
+            subject=f"[Skroutz] ⚠️ {len(rows)} product(s) disappeared — {datetime.date.today()}",
+            body=body,
+        )
+        logger.info(f"Disappeared alert sent — {len(rows)} product(s).")
+    except Exception as e:
+        logger.warning(f"Disappeared alert: could not send email — {e}")
+
+
+def run_dashboard():
+    """Generate the HTML dashboard. Non-fatal — pipeline result is unaffected if this fails."""
+    logger.info("=== Dashboard started ===")
+    result = subprocess.run([sys.executable, os.path.join(BASE, "generate_dashboard.py")])
+    if result.returncode != 0:
+        logger.warning("Dashboard generation failed — pipeline result is unaffected.")
+    else:
+        logger.info("=== Dashboard complete ===")
+
+
+def run_stage(label, script):
+    """
+    Run a single pipeline stage as a subprocess.
+    On failure: sends an alert email then exits, so downstream stages
+    never run against incomplete input data.
+    """
+    logger.info(f"=== {label} started ===")
+    result = subprocess.run([sys.executable, script])
+    if result.returncode != 0:
+        logger.error(f"{label} failed (exit {result.returncode}). Aborting pipeline.")
+        send_failure_alert(label, result.returncode)
+        sys.exit(result.returncode)
+    logger.info(f"=== {label} complete ===")
+
+
+if __name__ == "__main__":
+    start = datetime.datetime.now()
+    for label, script in STAGES:
+        run_stage(label, script)
+    run_charts()
+    send_drop_digest()
+    send_watchlist_alerts()
+    send_disappeared_alert()
+    run_dashboard()
+    elapsed = datetime.datetime.now() - start
+    logger.info(f"Pipeline finished in {elapsed}")
