@@ -81,7 +81,8 @@ def scrape():
                     name = a.get_attribute("title").strip()
                     href = a.get_attribute("href").strip()
                     # Some hrefs are relative paths; ensure we always store a full URL
-                    link = href if href.startswith("http") else "https://www.skroutz.gr" + href
+                    full = href if href.startswith("http") else "https://www.skroutz.gr" + href
+                    link = full.split("?")[0]   # strip tracking params before storing
                 except Exception:
                     name = link = "N/A"
 

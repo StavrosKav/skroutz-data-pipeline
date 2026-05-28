@@ -322,8 +322,9 @@ def _load_watchlist(conn):
         try:
             row = conn.execute(text(
                 "SELECT brand, model, category, ROUND(price_eur, 2) AS price_eur "
-                "FROM vw_latest_prices WHERE skroutz_link = :url"
-            ), {"url": url}).fetchone()
+                "FROM vw_latest_prices "
+                "WHERE skroutz_link = :url OR skroutz_link LIKE :url_prefix"
+            ), {"url": url, "url_prefix": url.split("?")[0] + "%"}).fetchone()
         except Exception:
             row = None
         price = float(row.price_eur) if row and row.price_eur else None

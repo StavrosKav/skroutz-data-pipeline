@@ -44,15 +44,23 @@ from sqlalchemy import create_engine, text
 
 load_dotenv()
 
+# Resolve script paths relative to this file so the pipeline works from any working directory
+BASE = os.path.dirname(os.path.abspath(__file__))
+
+_log_dir = os.path.join(BASE, "logs")
+os.makedirs(_log_dir, exist_ok=True)
+_log_file = os.path.join(_log_dir, f"pipeline_{datetime.date.today()}.log")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(_log_file, encoding="utf-8"),
+    ],
 )
 logger = logging.getLogger(__name__)
-
-# Resolve script paths relative to this file so the pipeline works from any working directory
-BASE = os.path.dirname(os.path.abspath(__file__))
 
 _ALL_STAGES = [
     ("Scrape",   os.path.join(BASE, "1scriptToGet4.py")),
@@ -233,8 +241,9 @@ def send_watchlist_alerts():
                 row = conn.execute(text(
                     "SELECT brand, model, category, price_eur, skroutz_link "
                     "FROM vw_latest_prices "
-                    "WHERE skroutz_link = :url"
-                ), {"url": url}).fetchone()
+                    "WHERE skroutz_link = :url "
+                    "   OR skroutz_link LIKE :url_prefix"
+                ), {"url": url, "url_prefix": url.split("?")[0] + "%"}).fetchone()
                 if row is None:
                     logger.warning(f"Watchlist: '{label}' not found in DB (URL may not match).")
                     continue
