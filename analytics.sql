@@ -10,6 +10,9 @@
 --   vw_biggest_drops       — products with the largest single-day price drops
 --   vw_brand_summary       — price stats per brand per category
 --   vw_disappeared         — products that have not been seen in the last 7 days
+--   vw_price_volatility    — 30-day coefficient of variation per product (deal quality signal)
+--   vw_brand_price_trend   — daily avg price per brand/category (brand comparison over time)
+--   vw_hot_deals           — products with price drop + review surge in the last 7 days
 -- =============================================================================
 
 
@@ -17,8 +20,9 @@
 -- One row per product showing its most recent price, rating, and snapshot date.
 -- Foundation for "what does the market look like right now?" queries.
 
+-- DISTINCT ON replaces the correlated subquery (O(N) per row) for a single sorted scan
 CREATE OR REPLACE VIEW vw_latest_prices AS
-SELECT
+SELECT DISTINCT ON (p.id)
     p.id,
     p.category,
     p.brand,
@@ -36,11 +40,7 @@ SELECT
     p.skroutz_link
 FROM products p
 JOIN price_snapshots s ON s.product_id = p.id
-WHERE s.date = (
-    SELECT MAX(s2.date)
-    FROM price_snapshots s2
-    WHERE s2.product_id = p.id
-);
+ORDER BY p.id, s.date DESC;
 
 
 -- ── 2. Full price history with day-over-day change ────────────────────────────
@@ -145,6 +145,96 @@ WHERE last_seen < CURRENT_DATE - INTERVAL '7 days'
 ORDER BY last_seen DESC;
 
 
+-- ── 6. Price volatility (30-day coefficient of variation) ────────────────────
+-- Measures how "noisy" a product's price has been over the last 30 days.
+-- cv_pct = (stddev / avg) * 100.  Low cv = stable price, high cv = volatile.
+-- Useful for flagging genuine deals vs. normal price fluctuation.
+
+CREATE OR REPLACE VIEW vw_price_volatility AS
+SELECT
+    product_id,
+    ROUND(STDDEV(price_eur)::NUMERIC, 2)                                       AS stddev_price,
+    ROUND((STDDEV(price_eur) / NULLIF(AVG(price_eur), 0) * 100)::NUMERIC, 1)  AS cv_pct,
+    COUNT(*)                                                                    AS snap_count
+FROM price_snapshots
+WHERE date >= CURRENT_DATE - 30
+GROUP BY product_id;
+
+
+-- ── 7. Brand average price trend (daily) ─────────────────────────────────────
+-- Daily average price per brand per category.  Use this to draw side-by-side
+-- trend lines comparing e.g. Samsung vs. Apple over the last 90 days.
+
+CREATE OR REPLACE VIEW vw_brand_price_trend AS
+SELECT
+    p.category,
+    p.brand,
+    ps.date,
+    ROUND(AVG(ps.price_eur)::NUMERIC, 2) AS avg_price,
+    COUNT(DISTINCT ps.product_id)         AS product_count
+FROM price_snapshots ps
+JOIN products p ON p.id = ps.product_id
+WHERE p.brand IS NOT NULL
+GROUP BY p.category, p.brand, ps.date;
+
+
+-- ── 8. Hot deals (price drop + review surge vs. previous scrape) ─────────────
+-- Products where the price fell AND new reviews appeared since the prior batch.
+-- Compares the two most recent distinct scrape dates so the view always has
+-- results regardless of how many days apart those dates are.
+-- hot_score combines both signals: bigger drop + more reviews = higher score.
+
+CREATE OR REPLACE VIEW vw_hot_deals AS
+WITH latest_dates AS (
+    SELECT DISTINCT date
+    FROM price_snapshots
+    ORDER BY date DESC
+    LIMIT 2
+),
+date_pair AS (
+    SELECT
+        MAX(date) AS d_new,
+        MIN(date) AS d_old
+    FROM latest_dates
+),
+recent AS (
+    SELECT
+        ps.product_id,
+        MAX(ps.price_eur)  FILTER (WHERE ps.date = dp.d_old) AS price_prev,
+        MAX(ps.price_eur)  FILTER (WHERE ps.date = dp.d_new) AS price_latest,
+        MAX(ps.reviews)    FILTER (WHERE ps.date = dp.d_old) AS reviews_prev,
+        MAX(ps.reviews)    FILTER (WHERE ps.date = dp.d_new) AS reviews_latest
+    FROM price_snapshots ps, date_pair dp
+    WHERE ps.date IN (dp.d_old, dp.d_new)
+    GROUP BY ps.product_id
+)
+SELECT
+    p.id,
+    p.category,
+    p.brand,
+    p.model,
+    p.product_name,
+    p.skroutz_link,
+    dp.d_old                                                                               AS prev_date,
+    dp.d_new                                                                               AS latest_date,
+    r.price_prev,
+    r.price_latest,
+    ROUND(((r.price_latest - r.price_prev) / NULLIF(r.price_prev, 0) * 100)::NUMERIC, 1) AS price_chg_pct,
+    COALESCE(r.reviews_latest - r.reviews_prev, 0)                                        AS new_reviews,
+    ROUND((
+        -1.0 * ((r.price_latest - r.price_prev) / NULLIF(r.price_prev, 0) * 50)
+        + LEAST(COALESCE(r.reviews_latest - r.reviews_prev, 0), 50)
+    )::NUMERIC, 1)                                                                         AS hot_score
+FROM recent r
+JOIN products p ON p.id = r.product_id
+CROSS JOIN date_pair dp
+WHERE r.price_latest IS NOT NULL
+  AND r.price_prev   IS NOT NULL
+  AND r.price_latest < r.price_prev
+  AND COALESCE(r.reviews_latest - r.reviews_prev, 0) > 0
+ORDER BY hot_score DESC;
+
+
 -- =============================================================================
 -- Sample queries using the views above
 -- =============================================================================
@@ -176,3 +266,16 @@ ORDER BY last_seen DESC;
 -- FROM vw_disappeared
 -- WHERE days_since_last_seen <= 30
 -- ORDER BY last_seen DESC;
+
+
+-- =============================================================================
+-- Indexes (run once; safe to re-run — all use IF NOT EXISTS)
+-- =============================================================================
+
+-- Speeds up vw_latest_prices (DISTINCT ON … ORDER BY p.id, s.date DESC)
+-- and any query that filters or groups price snapshots by date.
+CREATE INDEX IF NOT EXISTS idx_price_snapshots_date
+    ON price_snapshots(date);
+
+CREATE INDEX IF NOT EXISTS idx_price_snapshots_product_date
+    ON price_snapshots(product_id, date);
