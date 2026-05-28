@@ -96,8 +96,22 @@ def plot_brand_trend(df, category, output_path):
     ax.set_xlabel("Date", fontsize=11, color="#555555", labelpad=8)
     ax.set_ylabel("Avg Price (€)", fontsize=11, color="#555555", labelpad=8)
 
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    # Clamp x-axis to actual data range (+ 1 day padding each side) so the
+    # chart doesn't show a 180-day blank window when only a few days exist.
+    date_min = df["date"].min()
+    date_max = df["date"].max()
+    span_days = (date_max - date_min).days
+    ax.set_xlim(date_min - pd.Timedelta(days=1), date_max + pd.Timedelta(days=2))
+
+    if span_days <= 14:
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    elif span_days <= 60:
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=0))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    else:
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
     fig.autofmt_xdate(rotation=30)
 
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"€{x:,.0f}"))
