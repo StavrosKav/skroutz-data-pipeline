@@ -22,6 +22,12 @@ services:
     environment:
       DB_HOST: db
       SKIP_SCRAPE: "1"   # Chrome cannot run in Docker; scrape on Windows then mount CSVs
+    volumes:
+      - ./Phones_skroutz:/app/Phones_skroutz:ro
+      - ./Laptops_skroutz:/app/Laptops_skroutz:ro
+      - ./Smartwatches_skroutz:/app/Smartwatches_skroutz:ro
+      - ./Tablets_skroutz:/app/Tablets_skroutz:ro
+      - ./Clean:/app/Clean
     depends_on:
       db:
         condition: service_healthy
