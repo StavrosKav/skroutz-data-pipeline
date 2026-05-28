@@ -279,3 +279,117 @@ CREATE INDEX IF NOT EXISTS idx_price_snapshots_date
 
 CREATE INDEX IF NOT EXISTS idx_price_snapshots_product_date
     ON price_snapshots(product_id, date);
+
+
+-- =============================================================================
+-- Additional analytical views (v2)
+-- =============================================================================
+
+-- ── 9. All-time low per product ───────────────────────────────────────────────
+-- Per-product floor price over all recorded snapshots.
+-- Used to compute "% above ATL" for the Near-ATL intelligence section.
+
+CREATE OR REPLACE VIEW vw_price_floor AS
+SELECT
+    product_id,
+    ROUND(MIN(price_eur)::NUMERIC, 2) AS all_time_low,
+    ROUND(MAX(price_eur)::NUMERIC, 2) AS all_time_high,
+    COUNT(*)                           AS snapshot_count
+FROM price_snapshots
+GROUP BY product_id;
+
+
+-- ── 10. Brand discount frequency (last 90 days) ───────────────────────────────
+-- What fraction of tracked days did each brand actually have a price drop ≥3%?
+-- Answers: "which brands discount often (Xiaomi) vs. almost never (Apple)?"
+
+CREATE OR REPLACE VIEW vw_brand_discount_freq AS
+WITH drops AS (
+    SELECT p.category, p.brand,
+           COUNT(DISTINCT ph.date) AS discount_days
+    FROM vw_price_history ph
+    JOIN products p ON p.id = ph.product_id
+    WHERE ph.pct_change <= -3
+      AND ph.date >= CURRENT_DATE - 90
+      AND p.brand IS NOT NULL
+    GROUP BY p.category, p.brand
+),
+totals AS (
+    SELECT p.category, p.brand,
+           COUNT(DISTINCT ps.date) AS tracked_days
+    FROM price_snapshots ps
+    JOIN products p ON p.id = ps.product_id
+    WHERE ps.date >= CURRENT_DATE - 90 AND p.brand IS NOT NULL
+    GROUP BY p.category, p.brand
+)
+SELECT
+    t.category,
+    t.brand,
+    COALESCE(d.discount_days, 0)                                                       AS discount_days,
+    t.tracked_days,
+    ROUND(COALESCE(d.discount_days, 0)::NUMERIC / NULLIF(t.tracked_days, 0) * 100, 1) AS discount_freq_pct
+FROM totals t
+LEFT JOIN drops d ON d.category = t.category AND d.brand = t.brand
+ORDER BY discount_freq_pct DESC NULLS LAST;
+
+
+-- ── 11. Review velocity (fastest-rising products) ────────────────────────────
+-- Products with the highest review growth in the last 14 days.
+-- Distinguishes genuine demand traction from products that are merely popular.
+
+CREATE OR REPLACE VIEW vw_review_velocity AS
+WITH bounds AS (
+    SELECT MAX(date) AS latest_date,
+           MAX(date) - INTERVAL '14 days' AS cutoff_date
+    FROM price_snapshots
+),
+agg AS (
+    SELECT ps.product_id,
+           MAX(ps.reviews) FILTER (WHERE ps.date = b.latest_date)  AS rev_now,
+           MAX(ps.reviews) FILTER (WHERE ps.date <= b.cutoff_date) AS rev_14d
+    FROM price_snapshots ps, bounds b
+    GROUP BY ps.product_id
+)
+SELECT
+    p.id              AS product_id,
+    p.category, p.brand, p.model, p.product_name, p.skroutz_link,
+    a.rev_now,
+    a.rev_14d,
+    COALESCE(a.rev_now - a.rev_14d, 0)                                             AS new_reviews_14d,
+    ROUND(COALESCE(a.rev_now - a.rev_14d, 0)::NUMERIC / 14.0, 2)                  AS reviews_per_day
+FROM agg a
+JOIN products p ON p.id = a.product_id
+WHERE a.rev_now IS NOT NULL
+  AND a.rev_14d IS NOT NULL
+  AND a.rev_now > a.rev_14d
+ORDER BY new_reviews_14d DESC;
+
+
+-- ── 12. Restock pricing ───────────────────────────────────────────────────────
+-- Products that disappeared (gap ≥ 3 days between consecutive snapshots) then
+-- returned.  Compares price before and after the gap to detect restock markups.
+
+CREATE OR REPLACE VIEW vw_restock_pricing AS
+WITH consecutive AS (
+    SELECT
+        product_id,
+        date                                                                    AS before_gap,
+        LEAD(date)      OVER (PARTITION BY product_id ORDER BY date)           AS after_gap,
+        price_eur                                                               AS price_before,
+        LEAD(price_eur) OVER (PARTITION BY product_id ORDER BY date)           AS price_after
+    FROM price_snapshots
+)
+SELECT
+    p.id, p.category, p.brand, p.model, p.product_name, p.skroutz_link,
+    c.before_gap,
+    c.after_gap,
+    (c.after_gap - c.before_gap)                                                AS gap_days,
+    c.price_before,
+    c.price_after,
+    ROUND(((c.price_after - c.price_before) / NULLIF(c.price_before, 0) * 100)::NUMERIC, 1) AS price_chg_pct
+FROM consecutive c
+JOIN products p ON p.id = c.product_id
+WHERE (c.after_gap - c.before_gap) >= 3
+  AND c.price_before IS NOT NULL
+  AND c.price_after  IS NOT NULL
+ORDER BY c.after_gap DESC, ABS(c.price_after - c.price_before) DESC;

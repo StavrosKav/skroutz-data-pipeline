@@ -18,7 +18,9 @@ import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
+
+from db import get_engine
 
 load_dotenv()
 
@@ -26,16 +28,6 @@ BASE       = Path(__file__).parent
 CHARTS_DIR = BASE / "charts"
 OUT_DIR    = BASE / "dashboard"
 OUT_DIR.mkdir(exist_ok=True)
-
-
-def get_engine():
-    return create_engine(
-        f"postgresql+psycopg2://{os.environ.get('DB_USER','postgres')}:"
-        f"{os.environ.get('DB_PASSWORD','')}@"
-        f"{os.environ.get('DB_HOST','localhost')}:"
-        f"{os.environ.get('DB_PORT','5432')}/"
-        f"{os.environ.get('DB_NAME','SkroutzPR')}"
-    )
 
 
 def _coerce_drops(rows):
@@ -143,21 +135,41 @@ def fetch_data(conn):
         LEFT JOIN vw_price_volatility pv ON pv.product_id = lp.id
         ORDER BY lp.reviews DESC NULLS LAST
     """)).fetchall()
+
+    try:
+        conn.execute(text("SAVEPOINT sp_floor"))
+        floor_rows = conn.execute(text(
+            "SELECT product_id, all_time_low FROM vw_price_floor"
+        )).fetchall()
+        floor_map = {r.product_id: float(r.all_time_low)
+                     for r in floor_rows if r.all_time_low}
+    except Exception:
+        conn.execute(text("ROLLBACK TO SAVEPOINT sp_floor"))
+        floor_map = {}
+
     products = []
     for r in lp_rows:
+        price = float(r.price_eur) if r.price_eur else None
+        atl   = floor_map.get(r.id)
+        floor_pct = (
+            round((price - atl) / atl * 100, 1)
+            if price is not None and atl and atl > 0 else None
+        )
         products.append({
-            "id":       r.id,
-            "category": r.category or "",
-            "brand":    r.brand or "",
-            "model":    r.model or "",
-            "name":     r.product_name or "",
-            "price":    float(r.price_eur) if r.price_eur else None,
-            "rating":   float(r.rating)    if r.rating    else None,
-            "reviews":  r.reviews,
-            "monthly":  float(r.installments_per_month) if r.installments_per_month else None,
-            "url":      r.skroutz_link or "",
-            "color":    r.color or "",
-            "cv":       float(r.cv_pct) if r.cv_pct else 0.0,
+            "id":        r.id,
+            "category":  r.category or "",
+            "brand":     r.brand or "",
+            "model":     r.model or "",
+            "name":      r.product_name or "",
+            "price":     price,
+            "rating":    float(r.rating)    if r.rating    else None,
+            "reviews":   r.reviews,
+            "monthly":   float(r.installments_per_month) if r.installments_per_month else None,
+            "url":       r.skroutz_link or "",
+            "color":     r.color or "",
+            "cv":        float(r.cv_pct) if r.cv_pct else 0.0,
+            "floor_pct": floor_pct,
+            "atl":       atl,
         })
 
     # New arrivals (first seen in last 7 days)
@@ -285,6 +297,83 @@ def fetch_data(conn):
             brand_trend[cat][r.brand] = []
         brand_trend[cat][r.brand].append({"date": r.date, "price": float(r.avg_price)})
 
+    # Brand discount frequency — gracefully absent until analytics.sql v2 is applied
+    try:
+        conn.execute(text("SAVEPOINT sp_disc"))
+        disc_rows = conn.execute(text("""
+            SELECT category, brand, discount_days, tracked_days, discount_freq_pct
+            FROM vw_brand_discount_freq
+            WHERE brand IS NOT NULL
+            ORDER BY category, discount_freq_pct DESC NULLS LAST
+        """)).fetchall()
+        discount_data = {}
+        for r in disc_rows:
+            cat = r.category
+            if cat not in discount_data:
+                discount_data[cat] = []
+            if len(discount_data[cat]) < 12:
+                discount_data[cat].append({
+                    "brand":     r.brand,
+                    "disc_days": int(r.discount_days or 0),
+                    "freq_pct":  float(r.discount_freq_pct or 0),
+                })
+    except Exception:
+        conn.execute(text("ROLLBACK TO SAVEPOINT sp_disc"))
+        discount_data = {}
+
+    # Review velocity — gracefully absent until analytics.sql v2 is applied
+    try:
+        conn.execute(text("SAVEPOINT sp_vel"))
+        vel_rows = conn.execute(text("""
+            SELECT category, brand, model, product_name,
+                   rev_now, new_reviews_14d, reviews_per_day, skroutz_link
+            FROM vw_review_velocity
+            LIMIT 30
+        """)).fetchall()
+        review_velocity = []
+        for r in vel_rows:
+            review_velocity.append({
+                "category": r.category or "",
+                "brand":    r.brand or "",
+                "model":    r.model or r.product_name or "",
+                "reviews":  int(r.rev_now or 0),
+                "new_14d":  int(r.new_reviews_14d or 0),
+                "per_day":  float(r.reviews_per_day or 0),
+                "url":      r.skroutz_link or "",
+            })
+    except Exception:
+        conn.execute(text("ROLLBACK TO SAVEPOINT sp_vel"))
+        review_velocity = []
+
+    # Restock pricing — gracefully absent until analytics.sql v2 is applied
+    try:
+        conn.execute(text("SAVEPOINT sp_restock"))
+        restock_rows = conn.execute(text("""
+            SELECT category, brand, model, product_name, skroutz_link,
+                   before_gap::text AS before_gap,
+                   after_gap::text  AS after_gap,
+                   gap_days, price_before, price_after, price_chg_pct
+            FROM vw_restock_pricing
+            LIMIT 30
+        """)).fetchall()
+        restock_products = []
+        for r in restock_rows:
+            restock_products.append({
+                "category":     r.category or "",
+                "brand":        r.brand or "",
+                "model":        r.model or r.product_name or "",
+                "url":          r.skroutz_link or "",
+                "gap_before":   r.before_gap or "",
+                "gap_after":    r.after_gap or "",
+                "gap_days":     int(r.gap_days or 0),
+                "price_before": float(r.price_before or 0),
+                "price_after":  float(r.price_after or 0),
+                "chg_pct":      float(r.price_chg_pct or 0),
+            })
+    except Exception:
+        conn.execute(text("ROLLBACK TO SAVEPOINT sp_restock"))
+        restock_products = []
+
     return {
         "generated":       str(today),
         "total_products":  total_products,
@@ -299,8 +388,11 @@ def fetch_data(conn):
         "products":        products,
         "new_products":    new_products,
         "disappeared":     disappeared,
-        "watchlist":       watchlist,
-        "history":         history,
+        "watchlist":        watchlist,
+        "history":          history,
+        "discount_data":    discount_data,
+        "review_velocity":  review_velocity,
+        "restock_products": restock_products,
     }
 
 
@@ -583,6 +675,36 @@ tr:hover td { background: #ffffff08; }
 }
 .brand-chk-btn.sel { border-color:var(--accent); color:var(--accent); background:#4f8ef714; }
 
+/* Intelligence tab */
+.intel-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:14px; }
+.intel-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px; }
+.intel-card h4 { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:10px; }
+
+/* ATL proximity bar */
+.atl-bar-bg { flex:1; height:6px; border-radius:3px; background:var(--surface2); }
+.atl-bar-fill { height:100%; border-radius:3px; }
+.atl-bar-wrap { display:flex; align-items:center; gap:8px; min-width:80px; }
+
+/* Price vs Rating scatter legend */
+.scatter-legend { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+.scatter-legend-item { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--muted); }
+.scatter-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+
+/* Tab count badges */
+.tab-count {
+  display:inline-block; font-size:10px; font-weight:600;
+  padding:1px 6px; border-radius:10px; margin-left:5px;
+  background:var(--surface2); color:var(--muted);
+}
+.tab-btn.active .tab-count { background:#ffffff25; color:#ffffffcc; }
+
+/* ATL badge */
+.atl-badge {
+  display:inline-block; padding:1px 6px; border-radius:10px;
+  font-size:10px; font-weight:700; margin-left:5px;
+  background:#22c55e18; color:#22c55e; white-space:nowrap;
+}
+
 /* Responsive */
 @media (max-width: 700px) {
   .charts-grid { grid-template-columns: 1fr; }
@@ -608,10 +730,11 @@ tr:hover td { background: #ffffff08; }
 
 <nav class="tab-nav">
   <button class="tab-btn active"  data-tab="overview"  onclick="showTab(this)">Overview</button>
-  <button class="tab-btn"         data-tab="drops"     onclick="showTab(this)">Price Drops</button>
-  <button class="tab-btn"         data-tab="products"  onclick="showTab(this)">Products</button>
-  <button class="tab-btn"         data-tab="new-gone"  onclick="showTab(this)">New &amp; Gone</button>
-  <button class="tab-btn"         data-tab="insights"  onclick="showTab(this)">Insights</button>
+  <button class="tab-btn"         data-tab="drops"     onclick="showTab(this)">Price Drops<span class="tab-count" id="tc-drops"></span></button>
+  <button class="tab-btn"         data-tab="products"  onclick="showTab(this)">Products<span class="tab-count" id="tc-products"></span></button>
+  <button class="tab-btn"         data-tab="new-gone"  onclick="showTab(this)">New &amp; Gone<span class="tab-count" id="tc-new-gone"></span></button>
+  <button class="tab-btn"         data-tab="insights"     onclick="showTab(this)">Insights</button>
+  <button class="tab-btn"         data-tab="intelligence" onclick="showTab(this)">Intelligence<span class="tab-count" id="tc-intel"></span></button>
 </nav>
 
 <!-- ── Overview ─────────────────────────────────────────────────────────────── -->
@@ -684,6 +807,7 @@ tr:hover td { background: #ffffff08; }
         <input type="checkbox" id="chk-stable" onchange="filterProducts()"> Stable price
       </label>
       <span class="search-count" id="search-count"></span>
+      <button onclick="exportCSV()" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer">&#11015; CSV</button>
     </div>
     <div class="table-wrap">
       <table>
@@ -775,6 +899,72 @@ tr:hover td { background: #ffffff08; }
   </div>
 </div>
 
+<!-- ── Intelligence ──────────────────────────────────────────────────────────── -->
+<div id="tab-intelligence" class="tab-content">
+
+  <div class="section">
+    <div class="section-title">&#127775; Near All-Time Low &mdash; Within 10%
+      <span class="count-badge" id="atl-badge"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Brand</th><th>Model</th><th>Category</th>
+          <th>Current &euro;</th><th>ATL &euro;</th><th>Above ATL</th><th>Proximity</th>
+        </tr></thead>
+        <tbody id="atl-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#127380; Brand Discount Frequency &mdash; Last 90 Days</div>
+    <div class="intel-grid" id="discount-freq-charts"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#128203; Price Tier Distribution</div>
+    <div class="intel-grid" id="tier-dist-charts"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#11088; Price vs Rating</div>
+    <div class="scatter-legend" id="scatter-legend"></div>
+    <div style="max-height:400px;position:relative"><canvas id="price-rating-chart"></canvas></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#128200; Review Velocity &mdash; Rising Stars (14d)
+      <span class="count-badge" id="vel-badge"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Brand</th><th>Model</th><th>Category</th>
+          <th>Total Reviews</th><th>New (14d)</th><th>Per Day</th>
+        </tr></thead>
+        <tbody id="vel-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section" id="restock-section" style="display:none">
+    <div class="section-title">&#128260; Restock Pricing &mdash; Products That Came Back
+      <span class="count-badge" id="restock-badge"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Brand</th><th>Model</th><th>Category</th>
+          <th>Before &euro;</th><th>After &euro;</th><th>Change</th><th>Gap</th>
+        </tr></thead>
+        <tbody id="restock-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
 </div><!-- /container -->
 
 <!-- History modal -->
@@ -810,6 +1000,7 @@ function showTab(btn) {
   document.querySelectorAll('.tab-btn').forEach(e => e.classList.remove('active'));
   document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
   btn.classList.add('active');
+  history.replaceState(null, '', '#' + btn.dataset.tab);
 }
 
 // ── Stat cards ─────────────────────────────────────────────────────────────────
@@ -991,16 +1182,21 @@ function renderProductTable() {
   }
   tb.innerHTML = filteredProds.map(p => {
     const name    = (p.model || p.name).slice(0, 48);
-    const price   = p.price   != null ? '€' + p.price.toFixed(2)   : '—';
     const rating  = p.rating  != null ? '★ ' + p.rating.toFixed(1) : '—';
     const reviews = p.reviews != null ? p.reviews.toLocaleString()  : '—';
     const monthly = p.monthly ? `€${p.monthly.toFixed(0)}/mo` : '—';
     const color   = p.color ? `<span class="color-tag">${p.color}</span>` : '—';
+    let priceHtml = p.price != null ? '€' + p.price.toFixed(2) : '—';
+    const hist = HISTORY[p.id];
+    if (hist && hist.length > 1 && p.price != null) {
+      const atl = Math.min(...hist.map(h => h.price));
+      if (p.price <= atl * 1.03) priceHtml += '<span class="atl-badge">ATL</span>';
+    }
     return `<tr>
       <td>${p.brand}</td>
       <td><a href="${p.url}" target="_blank">${name}</a></td>
       <td>${catBadge(p.category)}</td>
-      <td class="price">${price}</td>
+      <td class="price">${priceHtml}</td>
       <td>${rating}</td>
       <td>${reviews}</td>
       <td class="muted">${monthly}</td>
@@ -1192,6 +1388,10 @@ function showHistory(id) {
         borderColor:'#4f8ef7', backgroundColor:'#4f8ef718',
         fill:true, tension:0.3,
         pointRadius: pts.length > 30 ? 0 : 3, pointHoverRadius:4,
+      }, {
+        label:'All-time Low', data:pts.map(() => minP),
+        borderColor:'#ef444660', backgroundColor:'transparent',
+        borderDash:[6,3], pointRadius:0, fill:false, tension:0,
       }],
     },
     options: {
@@ -1211,7 +1411,12 @@ function showHistory(id) {
 }
 
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  const tabMap = {'1':'overview','2':'drops','3':'products','4':'new-gone','5':'insights'};
+  if (tabMap[e.key]) { const btn = document.querySelector(`.tab-btn[data-tab="${tabMap[e.key]}"]`); if (btn) showTab(btn); }
+});
 
 // ── Hot Deals ──────────────────────────────────────────────────────────────────
 function buildHotDeals() {
@@ -1372,6 +1577,239 @@ function renderCompareCharts() {
   }
 }
 
+// ── Intelligence tab ──────────────────────────────────────────────────────────
+let discountFreqInst = [], tierDistInst = [], priceRatingInst = null;
+
+function buildIntelligence() {
+  buildNearATL();
+  buildDiscountFreqCharts();
+  buildPriceTierDist();
+  buildPriceVsRating();
+  buildReviewVelocity();
+  buildRestockPricing();
+}
+
+function buildNearATL() {
+  const near = DATA.products
+    .filter(p => p.floor_pct != null && p.floor_pct <= 10 && p.price != null)
+    .sort((a, b) => a.floor_pct - b.floor_pct)
+    .slice(0, 60);
+  document.getElementById('atl-badge').textContent = near.length;
+  const el = document.getElementById('tc-intel');
+  if (el && near.length) el.textContent = near.length;
+  const tb = document.getElementById('atl-body');
+  if (!near.length) {
+    tb.innerHTML = '<tr><td colspan="7" class="no-data">No products near ATL right now — run analytics.sql v2 to enable.</td></tr>';
+    return;
+  }
+  tb.innerHTML = near.map(p => {
+    const pct      = p.floor_pct.toFixed(1);
+    const barPct   = Math.min(100, p.floor_pct / 10 * 100);
+    const barColor = p.floor_pct <= 2 ? 'var(--rise)' : p.floor_pct <= 5 ? '#f59e0b' : 'var(--muted)';
+    const name     = (p.model || p.name).slice(0, 44);
+    return `<tr>
+      <td>${p.brand}</td>
+      <td><a href="${p.url}" target="_blank">${name}</a></td>
+      <td>${catBadge(p.category)}</td>
+      <td class="price">&euro;${p.price.toFixed(2)}</td>
+      <td class="muted">&euro;${p.atl.toFixed(2)}</td>
+      <td style="color:${barColor};font-weight:600">+${pct}%</td>
+      <td><div class="atl-bar-wrap">
+        <div class="atl-bar-bg"><div class="atl-bar-fill" style="width:${barPct}%;background:${barColor}"></div></div>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function buildDiscountFreqCharts() {
+  const el = document.getElementById('discount-freq-charts');
+  discountFreqInst.forEach(c => c.destroy());
+  discountFreqInst = [];
+  const data = DATA.discount_data || {};
+  if (!Object.keys(data).length) {
+    el.innerHTML = '<p class="no-data" style="padding:20px">No discount data yet — run analytics.sql v2 and accumulate 90 days of data.</p>';
+    return;
+  }
+  el.innerHTML = Object.entries(data)
+    .filter(([,brands]) => brands.length)
+    .map(([cat]) =>
+      `<div class="intel-card"><h4>${cat.charAt(0).toUpperCase()+cat.slice(1)}s &mdash; % days with &ge;3% drop</h4><canvas id="dfc-${cat}"></canvas></div>`
+    ).join('');
+  for (const [cat, brands] of Object.entries(data)) {
+    if (!brands.length) continue;
+    const ctx = document.getElementById('dfc-' + cat)?.getContext('2d');
+    if (!ctx) continue;
+    const sorted = [...brands].sort((a, b) => b.freq_pct - a.freq_pct).slice(0, 10);
+    discountFreqInst.push(new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: sorted.map(b => b.brand),
+        datasets: [{ label:'Discount Freq %', data: sorted.map(b => b.freq_pct),
+                     backgroundColor: sorted.map((_, i) => PALETTE[i % PALETTE.length]), borderRadius: 4 }],
+      },
+      options: {
+        indexAxis: 'y', responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => ` ${c.raw.toFixed(1)}% of days had a drop` } },
+        },
+        scales: {
+          x: { max: 100, ticks:{ color:'#64748b', callback: v => v+'%' }, grid:{ color:'#2a2d3a' } },
+          y: { ticks:{ color:'#64748b', font:{size:10} }, grid:{ display:false } },
+        },
+      },
+    }));
+  }
+}
+
+function buildPriceTierDist() {
+  const el = document.getElementById('tier-dist-charts');
+  tierDistInst.forEach(c => c.destroy());
+  tierDistInst = [];
+  const TIERS = [
+    { label:'<€200',     min:0,    max:200 },
+    { label:'€200–500',  min:200,  max:500 },
+    { label:'€500–1k',   min:500,  max:1000 },
+    { label:'€1k–2k',    min:1000, max:2000 },
+    { label:'>€2000',    min:2000, max:Infinity },
+  ];
+  const TIER_COLORS = ['#22c55e','#4f8ef7','#f59e0b','#a78bfa','#ef4444'];
+  const cats = ['phone','laptop','smartwatch','tablet'];
+  el.innerHTML = cats.map(cat =>
+    `<div class="intel-card"><h4>${cat.charAt(0).toUpperCase()+cat.slice(1)}s</h4><canvas id="td-${cat}"></canvas></div>`
+  ).join('');
+  for (const cat of cats) {
+    const ctx = document.getElementById('td-' + cat)?.getContext('2d');
+    if (!ctx) continue;
+    const counts = TIERS.map(t =>
+      DATA.products.filter(p => p.category === cat && p.price != null && p.price >= t.min && p.price < t.max).length
+    );
+    tierDistInst.push(new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: TIERS.map(t => t.label),
+        datasets: [{ label:'Products', data: counts, backgroundColor: TIER_COLORS, borderRadius: 4 }],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display:false },
+          tooltip: { callbacks: { label: c => ` ${c.raw} products` } },
+        },
+        scales: {
+          x: { ticks:{ color:'#64748b', font:{size:10} }, grid:{ color:'#2a2d3a' } },
+          y: { ticks:{ color:'#64748b' }, grid:{ color:'#2a2d3a' } },
+        },
+      },
+    }));
+  }
+}
+
+function buildPriceVsRating() {
+  if (priceRatingInst) { priceRatingInst.destroy(); priceRatingInst = null; }
+  const catColors = { phone:'#3b82f6', laptop:'#a78bfa', smartwatch:'#22c55e', tablet:'#f59e0b' };
+  const cats = ['phone','laptop','smartwatch','tablet'];
+  document.getElementById('scatter-legend').innerHTML = cats.map(cat =>
+    `<div class="scatter-legend-item">
+       <div class="scatter-dot" style="background:${catColors[cat]}"></div>
+       ${cat.charAt(0).toUpperCase()+cat.slice(1)}s
+     </div>`
+  ).join('');
+  const datasets = cats.map(cat => ({
+    label: cat.charAt(0).toUpperCase() + cat.slice(1) + 's',
+    data: DATA.products
+      .filter(p => p.category === cat && p.price != null && p.rating != null && p.rating > 0)
+      .map(p => ({ x: p.price, y: p.rating })),
+    backgroundColor: catColors[cat] + '99',
+    borderColor: catColors[cat],
+    borderWidth: 1, pointRadius: 4, pointHoverRadius: 6,
+  }));
+  priceRatingInst = new Chart(
+    document.getElementById('price-rating-chart').getContext('2d'), {
+      type: 'scatter',
+      data: { datasets },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display:false },
+          tooltip: { callbacks: { label: c => `€${c.parsed.x.toFixed(0)} · ★${c.parsed.y.toFixed(1)}` } },
+        },
+        scales: {
+          x: { title:{ display:true, text:'Price (€)', color:'#64748b' }, ticks:{ color:'#64748b', callback:v=>'€'+v }, grid:{ color:'#2a2d3a' } },
+          y: { title:{ display:true, text:'Rating', color:'#64748b' }, ticks:{ color:'#64748b' }, grid:{ color:'#2a2d3a' }, min:0, max:5 },
+        },
+      },
+    }
+  );
+}
+
+function buildReviewVelocity() {
+  const vel = DATA.review_velocity || [];
+  document.getElementById('vel-badge').textContent = vel.length;
+  const tb = document.getElementById('vel-body');
+  if (!vel.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="no-data">No velocity data yet — needs 14+ days of scraping + analytics.sql v2.</td></tr>';
+    return;
+  }
+  tb.innerHTML = vel.map(v => `<tr>
+    <td>${v.brand}</td>
+    <td><a href="${v.url}" target="_blank">${v.model.slice(0,44)}</a></td>
+    <td>${catBadge(v.category)}</td>
+    <td class="muted">${(v.reviews||0).toLocaleString()}</td>
+    <td style="color:var(--rise)">+${v.new_14d.toLocaleString()}</td>
+    <td style="color:var(--rise)">+${v.per_day.toFixed(2)}/d</td>
+  </tr>`).join('');
+}
+
+function buildRestockPricing() {
+  const rows = DATA.restock_products || [];
+  if (!rows.length) return;
+  document.getElementById('restock-section').style.display = 'block';
+  document.getElementById('restock-badge').textContent = rows.length;
+  document.getElementById('restock-body').innerHTML = rows.map(r => {
+    const chgColor = r.chg_pct > 0.5 ? 'var(--drop)' : r.chg_pct < -0.5 ? 'var(--rise)' : 'var(--muted)';
+    const chgSign  = r.chg_pct > 0 ? '+' : '';
+    return `<tr>
+      <td>${r.brand}</td>
+      <td><a href="${r.url}" target="_blank">${r.model.slice(0,44)}</a></td>
+      <td>${catBadge(r.category)}</td>
+      <td class="price muted">&euro;${r.price_before.toFixed(2)}</td>
+      <td class="price">&euro;${r.price_after.toFixed(2)}</td>
+      <td style="color:${chgColor};font-weight:600">${chgSign}${r.chg_pct.toFixed(1)}%</td>
+      <td class="muted">${r.gap_days}d</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Tab badge counts ───────────────────────────────────────────────────────────
+function updateTabBadges() {
+  const drops = DATA.drops.length + (DATA.hot_deals?.length || 0);
+  const el = document.getElementById('tc-drops');
+  if (el && drops) el.textContent = drops;
+  const pel = document.getElementById('tc-products');
+  if (pel) pel.textContent = DATA.products.length.toLocaleString();
+  const nel = document.getElementById('tc-new-gone');
+  const newGone = DATA.new_products.length + DATA.disappeared.length;
+  if (nel && newGone) nel.textContent = newGone;
+}
+
+// ── CSV export ─────────────────────────────────────────────────────────────────
+function exportCSV() {
+  const cols   = ['brand','model','category','price','rating','reviews','cv','url'];
+  const header = ['Brand','Model','Category','Price (EUR)','Rating','Reviews','CV%','Link'];
+  const rows   = filteredProds.map(p => cols.map(c => {
+    const v = p[c] ?? '';
+    return typeof v === 'string' && (v.includes(',') || v.includes('"'))
+      ? '"' + v.replace(/"/g,'""') + '"' : v;
+  }));
+  const csv = [header, ...rows].map(r => r.join(',')).join('\\n');
+  const a   = document.createElement('a');
+  a.href    = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = 'skroutz_products.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────────
 buildStats();
 buildTrendCharts();
@@ -1382,6 +1820,12 @@ buildNewGone();
 buildBrandCharts();
 buildMarketShare();
 buildBrandComparison();
+buildIntelligence();
+updateTabBadges();
+(function restoreTab() {
+  const hash = location.hash.slice(1);
+  if (hash) { const btn = document.querySelector(`.tab-btn[data-tab="${hash}"]`); if (btn) showTab(btn); }
+})();
 </script>
 </body>
 </html>"""
