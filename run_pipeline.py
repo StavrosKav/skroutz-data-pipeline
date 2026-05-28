@@ -116,15 +116,8 @@ def send_drop_digest():
     """Email today's top price drops after a successful pipeline run. No-ops if password not set."""
     if not GMAIL_APP_PASSWORD:
         return
-    db_url = (
-        f"postgresql+psycopg2://{os.environ.get('DB_USER', 'postgres')}:"
-        f"{os.environ.get('DB_PASSWORD', '')}@"
-        f"{os.environ.get('DB_HOST', 'localhost')}:"
-        f"{os.environ.get('DB_PORT', '5432')}/"
-        f"{os.environ.get('DB_NAME', 'SkroutzPR')}"
-    )
     try:
-        engine = create_engine(db_url)
+        engine = _get_engine()
         with engine.connect() as conn:
             rows = conn.execute(text(
                 "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "

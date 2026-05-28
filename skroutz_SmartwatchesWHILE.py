@@ -24,13 +24,15 @@ import os
 import logging
 import subprocess
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+
 # Log to both console and a persistent file so failures are traceable
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("scraper_smartwatches.log", encoding="utf-8"),
+        logging.FileHandler(os.path.join(HERE, "scraper_smartwatches.log"), encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -150,7 +152,7 @@ def scrape():
                 break
 
         # Save raw data; date-stamp prevents overwrites and enables historical comparison
-        output_folder = os.path.join(".", "Smartwatches_skroutz")
+        output_folder = os.path.join(HERE, "Smartwatches_skroutz")
         os.makedirs(output_folder, exist_ok=True)
         today = datetime.date.today().isoformat()
         df = pd.DataFrame(products)
