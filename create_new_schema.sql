@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS price_snapshots (
 --   1. Time-series queries for a single product ("show me price history for product X")
 --   2. Filtering / aggregation by brand or category
 
-CREATE INDEX IF NOT EXISTS idx_snapshots_product_date
+-- Name matches analytics.sql so the IF NOT EXISTS there is a no-op (no duplicate index)
+CREATE INDEX IF NOT EXISTS idx_price_snapshots_product_date
     ON price_snapshots (product_id, date);
 
 CREATE INDEX IF NOT EXISTS idx_products_brand

@@ -25,11 +25,26 @@ import seaborn as sns
 import os
 
 # ── Data source ───────────────────────────────────────────────────────────────
-# Update this path to analyse a different date or category
-FILE_PATH = r'C:\Users\StavrosKV\Documents\Projects\ProjectsPY\Clean\Phones_skroutz_clean\clean_2026-05-26.csv'
+# Auto-discovers the most recent clean phone CSV so the script always works
+# without needing a date update. Override FILE_PATH with an absolute path to
+# analyse a specific date or category.
 
-CHARTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "charts")
+HERE       = os.path.dirname(os.path.abspath(__file__))
+CHARTS_DIR = os.path.join(HERE, "charts")
 os.makedirs(CHARTS_DIR, exist_ok=True)
+
+_clean_dir = os.path.join(HERE, "Clean", "Phones_skroutz_clean")
+_candidates = sorted(
+    (f for f in os.listdir(_clean_dir) if f.startswith("clean_") and f.endswith(".csv"))
+) if os.path.isdir(_clean_dir) else []
+
+if not _candidates:
+    raise FileNotFoundError(
+        f"No clean phone CSVs found in {_clean_dir}. "
+        "Run the pipeline first to generate data."
+    )
+FILE_PATH = os.path.join(_clean_dir, _candidates[-1])   # most recent date
+print(f"Using: {FILE_PATH}")
 
 data = pd.read_csv(FILE_PATH)
 

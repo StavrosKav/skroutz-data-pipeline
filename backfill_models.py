@@ -83,6 +83,9 @@ def backfill(conn):
         if model is None:
             skipped += 1
             continue
+        # Null out scraper artefact: "N/A" product names extract as Brand="N"
+        if brand in ("N", "N/A"):
+            brand = None
         # Keep existing brand if already set; only fill in if missing
         final_brand = existing_brand if existing_brand else brand
         updates.append({"id": row_id, "brand": final_brand, "model": model})
@@ -95,7 +98,6 @@ def backfill(conn):
             text("UPDATE products SET brand = :brand, model = :model WHERE id = :id"),
             updates,
         )
-        conn.commit()
         print(f"  Updated {len(updates)} rows.")
     else:
         print("  Nothing to update.")
@@ -115,6 +117,6 @@ def verify(conn):
 
 
 if __name__ == "__main__":
-    with engine.connect() as conn:
+    with engine.begin() as conn:   # atomic: commit on success, rollback on exception
         backfill(conn)
         verify(conn)

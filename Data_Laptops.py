@@ -18,7 +18,8 @@ import datetime
 import os
 
 today = datetime.date.today().isoformat()
-base_folder = os.path.join('.', 'Laptops_skroutz')
+BASE = os.path.dirname(os.path.abspath(__file__))
+base_folder = os.path.join(BASE, 'Laptops_skroutz')
 file_path = os.path.join(base_folder, f"skroutz_laptos_{today}.csv")
 
 data = pd.read_csv(file_path, sep=",", quotechar='"', on_bad_lines='skip', engine='python')
@@ -67,6 +68,11 @@ extracted.loc[remaining, ['Brand', 'Model']] = (
 data['Brand'] = extracted['Brand']
 data['Model'] = extracted['Model']
 
+# Scraper stores "N/A" when a product field couldn't be read.
+# After regex splitting this becomes Brand="N", Model="/A" — clean it up.
+_na_rows = data['Product'].isin(['N/A']) | data['Brand'].isin(['N', 'N/A'])
+data.loc[_na_rows, ['Brand', 'Model']] = None
+
 
 # ── INSTALLMENTS / RATINGS ────────────────────────────────────────────────────
 # Raw installment values use Greek decimal commas (e.g. "77,83" = 77.83 €).
@@ -90,7 +96,7 @@ final_columns = [
 ]
 data_export = data[final_columns]
 
-output_folder = os.path.join('.', 'Clean', 'Laptops_skroutz_clean')
+output_folder = os.path.join(BASE, 'Clean', 'Laptops_skroutz_clean')
 os.makedirs(output_folder, exist_ok=True)
 output_path = os.path.join(output_folder, f"clean_{today}.csv")
 data_export.to_csv(output_path, index=False, encoding="utf-8-sig")

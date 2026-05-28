@@ -33,7 +33,8 @@ DB_PORT     = os.environ.get("DB_PORT", "5432")
 DB_NAME     = os.environ.get("DB_NAME", "SkroutzPR")
 
 today = datetime.date.today().isoformat()
-base  = os.path.join('.', 'Clean')
+BASE  = os.path.dirname(os.path.abspath(__file__))
+base  = os.path.join(BASE, 'Clean')
 
 # Map each product category to its cleaned CSV file for today
 CATEGORY_FILES = [
@@ -174,14 +175,13 @@ def load_category(conn, category, file_path):
         })
         snapshots += 1
 
-    conn.commit()
     print(f"{category:12s}: {new_products} new products | {snapshots} snapshots loaded")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    with engine.connect() as conn:
+    with engine.begin() as conn:   # atomic: all categories commit together or all roll back
         for category, file_path in CATEGORY_FILES:
             load_category(conn, category, file_path)
     print("Done.")
