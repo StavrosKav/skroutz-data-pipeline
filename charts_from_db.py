@@ -35,10 +35,6 @@ DB_HOST     = os.environ.get("DB_HOST", "localhost")
 DB_PORT     = os.environ.get("DB_PORT", "5432")
 DB_NAME     = os.environ.get("DB_NAME", "SkroutzPR")
 
-engine = create_engine(
-    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
-
 CHARTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "charts")
 os.makedirs(CHARTS_DIR, exist_ok=True)
 
@@ -96,6 +92,9 @@ def plot_trend(df, category, output_path):
 
 
 def main():
+    engine = create_engine(
+        f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    )
     with engine.connect() as conn:
         for category in CATEGORIES:
             print(f"Plotting {category}...")

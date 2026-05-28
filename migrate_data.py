@@ -173,24 +173,27 @@ def migrate_table(conn, df, category):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
-    with engine.connect() as conn:
-        for old_table, category in OLD_TABLES:
-            print(f"\n--- Migrating '{old_table}' → category='{category}' ---")
+    for old_table, category in OLD_TABLES:
+        print(f"\n--- Migrating '{old_table}' → category='{category}' ---")
+
+        # Read-only fetch uses a plain connection so it doesn't hold a write lock
+        with engine.connect() as read_conn:
             try:
-                df = pd.read_sql(f'SELECT * FROM "{old_table}"', conn)
+                df = pd.read_sql(f'SELECT * FROM "{old_table}"', read_conn)
             except Exception as e:
                 print(f"  Could not read {old_table}: {e}")
                 continue
 
-            if df.empty:
-                print(f"  Empty table, skipping.")
-                continue
+        if df.empty:
+            print(f"  Empty table, skipping.")
+            continue
 
+        # Each table migrates atomically — a failure here doesn't affect other tables
+        with engine.begin() as conn:
             pu, si, sk = migrate_table(conn, df, category)
-            conn.commit()
-            print(f"  Products upserted : {pu}")
-            print(f"  Snapshots inserted: {si}")
-            print(f"  Snapshots skipped (duplicate): {sk}")
+        print(f"  Products upserted : {pu}")
+        print(f"  Snapshots inserted: {si}")
+        print(f"  Snapshots skipped (duplicate): {sk}")
 
     print("\nMigration complete.")
     print("Verify in DBeaver, then you can DROP the old flat tables when ready.")

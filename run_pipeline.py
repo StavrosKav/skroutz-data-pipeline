@@ -147,7 +147,7 @@ def send_drop_digest():
         lines.append(
             f"{brand:<20} {model:<30} {r.category:<12} "
             f"{float(r.prev_price):>8.2f} {float(r.new_price):>8.2f} "
-            f"{float(r.drop_eur):>8.2f} {float(r.drop_pct):>7.1f}%"
+            f"{abs(float(r.drop_eur)):>8.2f} {float(r.drop_pct):>7.1f}%"
         )
     msg = EmailMessage()
     msg["Subject"] = f"[Skroutz] {len(rows)} price drops today — {datetime.date.today()}"
@@ -188,10 +188,13 @@ def _send_email(subject, body):
     msg["From"]    = ALERT_FROM
     msg["To"]      = ALERT_TO
     msg.set_content(body)
-    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
-        smtp.starttls()
-        smtp.login(ALERT_FROM, GMAIL_APP_PASSWORD)
-        smtp.send_message(msg)
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+            smtp.starttls()
+            smtp.login(ALERT_FROM, GMAIL_APP_PASSWORD)
+            smtp.send_message(msg)
+    except Exception as e:
+        logger.warning(f"_send_email failed: {e}")
 
 
 def send_watchlist_alerts():

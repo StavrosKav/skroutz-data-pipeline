@@ -20,7 +20,8 @@ import datetime
 import os
 
 today = datetime.date.today().isoformat()
-base_folder = os.path.join('.', 'Phones_skroutz')
+BASE = os.path.dirname(os.path.abspath(__file__))
+base_folder = os.path.join(BASE, 'Phones_skroutz')
 file_path = os.path.join(base_folder, f"skroutz_phones_{today}.csv")
 
 data = pd.read_csv(file_path, engine='python')
@@ -62,7 +63,8 @@ def extract_ram_storage(row):
     text = str(row['Product']) + " " + str(row.get('Memory_Info', '')) + " " + str(row.get('Specs', ''))
 
     # Pattern 1: "(RAM/StorageGB)"  e.g. "(12/512GB)" or "(8/1TB)"
-    match = re.search(r'\((\d+)/(\d+)(GB|TB)?\)', text, re.IGNORECASE)
+    # Unit is REQUIRED (not optional) so display-size patterns like "(6.7/128)" don't match
+    match = re.search(r'\((\d+)/(\d+)(GB|TB)\)', text, re.IGNORECASE)
     if match:
         ram, storage = int(match.group(1)), int(match.group(2))
         if (match.group(3) or '').upper() == 'TB':
@@ -104,6 +106,11 @@ extracted.loc[remaining, ['Brand', 'Model']] = (
 data['Brand'] = extracted['Brand']
 data['Model'] = extracted['Model']
 data['Color'] = extracted['Color']   # NULL for listings without an explicit colour variant
+
+# Scraper stores "N/A" when a product field couldn't be read.
+# After regex splitting this becomes Brand="N", Model="/A" — clean it up.
+_na_rows = data['Product'].isin(['N/A', 'N/A']) | data['Brand'].isin(['N', 'N/A'])
+data.loc[_na_rows, ['Brand', 'Model', 'Color']] = None
 
 
 # ── SPECS ─────────────────────────────────────────────────────────────────────
@@ -163,7 +170,7 @@ final_columns = [
 ]
 data_export = data[final_columns]
 
-output_folder = os.path.join('.', 'Clean', 'Phones_skroutz_clean')
+output_folder = os.path.join(BASE, 'Clean', 'Phones_skroutz_clean')
 os.makedirs(output_folder, exist_ok=True)
 output_path = os.path.join(output_folder, f"clean_{today}.csv")
 data_export.to_csv(output_path, index=False, encoding="utf-8-sig")
