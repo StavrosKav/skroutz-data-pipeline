@@ -129,15 +129,19 @@ def fetch_data(conn):
                 "median_price":  float(r.median_price or 0),
             })
 
-    # All latest prices for search table
+    # All latest prices for search table (+ color + 30-day price volatility)
     lp_rows = conn.execute(text("""
-        SELECT id, category, brand, model, product_name,
-               ROUND(price_eur, 2)      AS price_eur,
-               rating, reviews,
-               installments_per_month,
-               skroutz_link
-        FROM vw_latest_prices
-        ORDER BY reviews DESC NULLS LAST
+        SELECT lp.id, lp.category, lp.brand, lp.model, lp.product_name,
+               ROUND(lp.price_eur, 2)              AS price_eur,
+               lp.rating, lp.reviews,
+               lp.installments_per_month,
+               lp.skroutz_link,
+               p.color,
+               COALESCE(ROUND(pv.cv_pct, 1), 0.0) AS cv_pct
+        FROM vw_latest_prices lp
+        JOIN products p ON p.id = lp.id
+        LEFT JOIN vw_price_volatility pv ON pv.product_id = lp.id
+        ORDER BY lp.reviews DESC NULLS LAST
     """)).fetchall()
     products = []
     for r in lp_rows:
@@ -152,6 +156,8 @@ def fetch_data(conn):
             "reviews":  r.reviews,
             "monthly":  float(r.installments_per_month) if r.installments_per_month else None,
             "url":      r.skroutz_link or "",
+            "color":    r.color or "",
+            "cv":       float(r.cv_pct) if r.cv_pct else 0.0,
         })
 
     # New arrivals (first seen in last 7 days)
@@ -227,6 +233,58 @@ def fetch_data(conn):
 
     watchlist = _load_watchlist(conn)
 
+    # Hot deals — price drop + review surge between the two most recent scrapes
+    hot_rows = conn.execute(text("""
+        SELECT category, brand, model, product_name,
+               ROUND(price_prev,    2) AS price_prev,
+               ROUND(price_latest,  2) AS price_latest,
+               price_chg_pct, new_reviews, hot_score, skroutz_link,
+               prev_date::text   AS prev_date,
+               latest_date::text AS latest_date
+        FROM vw_hot_deals
+        LIMIT 20
+    """)).fetchall()
+    hot_deals = []
+    for r in hot_rows:
+        hot_deals.append({
+            "category":   r.category or "",
+            "brand":      r.brand or "",
+            "model":      r.model or r.product_name or "",
+            "price_prev": float(r.price_prev)    if r.price_prev    else None,
+            "price_now":  float(r.price_latest)  if r.price_latest  else None,
+            "chg_pct":    float(r.price_chg_pct) if r.price_chg_pct else 0.0,
+            "new_rev":    int(r.new_reviews or 0),
+            "score":      float(r.hot_score) if r.hot_score else 0.0,
+            "url":        r.skroutz_link or "",
+            "from_date":  r.prev_date    or "",
+            "to_date":    r.latest_date  or "",
+        })
+
+    # Brand avg-price trend for comparison charts (top 8 brands/category, last 90 days)
+    trend_rows = conn.execute(text("""
+        WITH ranked AS (
+            SELECT category, brand,
+                   ROW_NUMBER() OVER (PARTITION BY category ORDER BY product_count DESC) AS rn
+            FROM vw_brand_summary
+            WHERE brand IS NOT NULL
+        )
+        SELECT bt.category, bt.brand, bt.date::text AS date,
+               ROUND(bt.avg_price, 2) AS avg_price
+        FROM vw_brand_price_trend bt
+        JOIN ranked r ON r.category = bt.category AND r.brand = bt.brand
+        WHERE r.rn <= 8
+          AND bt.date >= CURRENT_DATE - 90
+        ORDER BY bt.category, bt.brand, bt.date
+    """)).fetchall()
+    brand_trend = {}
+    for r in trend_rows:
+        cat = r.category
+        if cat not in brand_trend:
+            brand_trend[cat] = {}
+        if r.brand not in brand_trend[cat]:
+            brand_trend[cat][r.brand] = []
+        brand_trend[cat][r.brand].append({"date": r.date, "price": float(r.avg_price)})
+
     return {
         "generated":       str(today),
         "total_products":  total_products,
@@ -235,7 +293,9 @@ def fetch_data(conn):
         "by_category":     by_category,
         "drops":           drops,
         "weekly_drops":    weekly_drops,
+        "hot_deals":       hot_deals,
         "brand_data":      brand_data,
+        "brand_trend":     brand_trend,
         "products":        products,
         "new_products":    new_products,
         "disappeared":     disappeared,
@@ -493,6 +553,35 @@ tr:hover td { background: #ffffff08; }
 .hs-val.rise { color: var(--rise); }
 .hs-lbl { font-size: 10px; color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: .04em; }
 
+/* Volatility badges */
+.vol-badge { display:inline-block; padding:2px 7px; border-radius:20px; font-size:10px; font-weight:600; white-space:nowrap; }
+.vol-stable   { background:#22c55e18; color:#22c55e; }
+.vol-volatile { background:#ef444418; color:#ef4444; }
+
+/* Color badge */
+.color-tag { display:inline-block; padding:2px 7px; border-radius:20px; font-size:10px;
+             background:var(--surface2); color:var(--muted); white-space:nowrap; }
+
+/* Hot deals score bar */
+.score-bar-wrap { display:flex; align-items:center; gap:6px; }
+.score-bar { height:6px; border-radius:3px; background:linear-gradient(90deg,#4f8ef7,#22c55e); min-width:3px; }
+
+/* Market share donuts */
+.donut-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
+.donut-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px; }
+.donut-card h4 { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:10px; }
+
+/* Brand compare */
+.compare-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px; }
+.compare-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px; }
+.compare-card h4 { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:10px; }
+.brand-selector { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+.brand-chk-btn {
+  background:var(--surface); border:1px solid var(--border); color:var(--muted);
+  padding:3px 10px; border-radius:20px; cursor:pointer; font-size:11px; user-select:none;
+}
+.brand-chk-btn.sel { border-color:var(--accent); color:var(--accent); background:#4f8ef714; }
+
 /* Responsive */
 @media (max-width: 700px) {
   .charts-grid { grid-template-columns: 1fr; }
@@ -534,6 +623,22 @@ tr:hover td { background: #ffffff08; }
 
 <!-- ── Price Drops ───────────────────────────────────────────────────────────── -->
 <div id="tab-drops" class="tab-content">
+  <div class="section" id="hot-deals-section" style="display:none">
+    <div class="section-title">&#128293; Hot Deals &mdash; Price Drop + Review Surge
+      <span class="count-badge" id="hot-badge"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Brand</th><th>Model</th><th>Category</th>
+          <th>Was &euro;</th><th>Now &euro;</th><th>Change</th>
+          <th>New Reviews</th><th>Score</th>
+        </tr></thead>
+        <tbody id="hot-body"></tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="section">
     <div class="section-title" id="drops-title">&#128315; Price Drops</div>
     <div class="sub-tabs">
@@ -562,12 +667,21 @@ tr:hover td { background: #ffffff08; }
         <option value="smartwatch">Smartwatches</option>
         <option value="tablet">Tablets</option>
       </select>
+      <select id="color-filter" onchange="filterProducts()">
+        <option value="">All colors</option>
+      </select>
       <div class="price-range">
         <span style="color:var(--muted);font-size:12px">&euro;</span>
         <input id="price-min" type="number" placeholder="Min" min="0" oninput="filterProducts()"/>
         <span style="color:var(--muted);font-size:12px">&ndash;</span>
         <input id="price-max" type="number" placeholder="Max" min="0" oninput="filterProducts()"/>
       </div>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer">
+        <input type="checkbox" id="chk-financing" onchange="filterProducts()"> Financing
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer">
+        <input type="checkbox" id="chk-stable" onchange="filterProducts()"> Stable price
+      </label>
       <span class="search-count" id="search-count"></span>
     </div>
     <div class="table-wrap">
@@ -581,6 +695,8 @@ tr:hover td { background: #ffffff08; }
             <th class="sortable" onclick="sortProducts('rating')">Rating <span id="sarr-rating"></span></th>
             <th class="sortable" onclick="sortProducts('reviews')">Reviews <span id="sarr-reviews"></span></th>
             <th>Monthly</th>
+            <th>Color</th>
+            <th class="sortable" onclick="sortProducts('cv')">Stability <span id="sarr-cv"></span></th>
             <th>History</th>
           </tr>
         </thead>
@@ -644,6 +760,17 @@ tr:hover td { background: #ffffff08; }
       <button class="metric-btn"        data-metric="range"  onclick="setBrandMetric(this)">Price Range</button>
     </div>
     <div class="brand-grid" id="brand-charts"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#127381; Market Share &mdash; Products by Brand</div>
+    <div class="donut-grid" id="donut-charts"></div>
+  </div>
+
+  <div class="section" id="compare-section" style="display:none">
+    <div class="section-title">&#128202; Brand Price Trends &mdash; Compare Over Time</div>
+    <div id="compare-selectors"></div>
+    <div class="compare-grid" id="compare-charts"></div>
   </div>
 </div>
 
@@ -796,6 +923,17 @@ function buildDropsTable() {
 let filteredProds = DATA.products.slice(0, 100);
 let prodSortCol = 'reviews', prodSortDir = -1;
 
+// Populate color dropdown once on load
+(function populateColors() {
+  const colors = [...new Set(DATA.products.map(p => p.color).filter(Boolean))].sort();
+  const sel = document.getElementById('color-filter');
+  colors.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c; o.textContent = c;
+    sel.appendChild(o);
+  });
+})();
+
 function sortProducts(col) {
   document.querySelectorAll('[id^="sarr-"]').forEach(e => e.textContent = '');
   document.querySelectorAll('th.sorted').forEach(e => e.classList.remove('sorted'));
@@ -810,15 +948,21 @@ function sortProducts(col) {
 }
 
 function filterProducts() {
-  const q   = document.getElementById('q').value.toLowerCase().trim();
-  const cat = document.getElementById('cat-filter').value;
-  const mn  = parseFloat(document.getElementById('price-min').value) || 0;
-  const mx  = parseFloat(document.getElementById('price-max').value) || Infinity;
+  const q         = document.getElementById('q').value.toLowerCase().trim();
+  const cat       = document.getElementById('cat-filter').value;
+  const color     = document.getElementById('color-filter').value;
+  const mn        = parseFloat(document.getElementById('price-min').value) || 0;
+  const mx        = parseFloat(document.getElementById('price-max').value) || Infinity;
+  const financing = document.getElementById('chk-financing').checked;
+  const stable    = document.getElementById('chk-stable').checked;
 
   let result = DATA.products.filter(p => {
     if (cat && p.category !== cat) return false;
+    if (color && p.color !== color) return false;
     if (p.price != null && p.price < mn) return false;
     if (p.price != null && p.price > mx) return false;
+    if (financing && !p.monthly) return false;
+    if (stable && p.cv >= 5) return false;
     if (q) return (p.brand + ' ' + p.model + ' ' + p.name).toLowerCase().includes(q);
     return true;
   });
@@ -831,20 +975,26 @@ function filterProducts() {
   renderProductTable();
 }
 
+function volBadge(cv) {
+  if (cv < 5)  return `<span class="vol-badge vol-stable">STABLE</span>`;
+  if (cv >= 15) return `<span class="vol-badge vol-volatile">VOLATILE</span>`;
+  return '';
+}
+
 function renderProductTable() {
   document.getElementById('search-count').textContent = filteredProds.length + ' results';
   const tb = document.getElementById('products-body');
   if (!filteredProds.length) {
-    tb.innerHTML = '<tr><td colspan="8" class="no-data">No products found.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="10" class="no-data">No products found.</td></tr>';
     return;
   }
   tb.innerHTML = filteredProds.map(p => {
-    const name = (p.model || p.name).slice(0, 48);
-    const price = p.price != null ? '€' + p.price.toFixed(2) : '—';
-    const rating = p.rating != null ? '★ ' + p.rating.toFixed(1) : '—';
-    const reviews = p.reviews != null ? p.reviews.toLocaleString() : '—';
+    const name    = (p.model || p.name).slice(0, 48);
+    const price   = p.price   != null ? '€' + p.price.toFixed(2)   : '—';
+    const rating  = p.rating  != null ? '★ ' + p.rating.toFixed(1) : '—';
+    const reviews = p.reviews != null ? p.reviews.toLocaleString()  : '—';
     const monthly = p.monthly ? `€${p.monthly.toFixed(0)}/mo` : '—';
-    const esc = (p.brand + ' ' + p.model).replace(/'/g, "\\'");
+    const color   = p.color ? `<span class="color-tag">${p.color}</span>` : '—';
     return `<tr>
       <td>${p.brand}</td>
       <td><a href="${p.url}" target="_blank">${name}</a></td>
@@ -853,7 +1003,9 @@ function renderProductTable() {
       <td>${rating}</td>
       <td>${reviews}</td>
       <td class="muted">${monthly}</td>
-      <td><button onclick="showHistory(${p.id},'${esc}','${p.url}')"
+      <td>${color}</td>
+      <td>${volBadge(p.cv)}</td>
+      <td><button onclick="showHistory(${p.id})"
             style="background:var(--accent);color:#fff;border:none;border-radius:6px;
                    padding:3px 10px;cursor:pointer;font-size:11px">Chart</button></td>
     </tr>`;
@@ -987,8 +1139,14 @@ function buildBrandCharts() {
 // ── History modal ──────────────────────────────────────────────────────────────
 let histInst = null;
 
-function showHistory(id, name, url) {
-  document.getElementById('modal-title').innerHTML = `<a href="${url}" target="_blank">${name}</a>`;
+function showHistory(id) {
+  // Look up the product from the embedded data — avoids injecting arbitrary strings into onclick attributes
+  const _p  = DATA.products.find(p => p.id === id) || {};
+  const name = ((_p.brand || '') + ' ' + (_p.model || _p.name || '')).trim();
+  const url  = _p.url || '';
+  // Sanitize before inserting as innerHTML
+  const safeName = name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  document.getElementById('modal-title').innerHTML = `<a href="${url}" target="_blank">${safeName}</a>`;
   const pts = HISTORY[id] || [];
 
   if (!pts.length) {
@@ -1054,13 +1212,175 @@ function showHistory(id, name, url) {
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
+// ── Hot Deals ──────────────────────────────────────────────────────────────────
+function buildHotDeals() {
+  const deals = DATA.hot_deals || [];
+  if (!deals.length) return;
+  document.getElementById('hot-deals-section').style.display = 'block';
+  document.getElementById('hot-badge').textContent = deals.length;
+  const maxScore = deals.reduce((m, d) => Math.max(m, d.score), 1);
+  document.getElementById('hot-body').innerHTML = deals.map(d => {
+    const barW = Math.round(d.score / maxScore * 60);
+    return `<tr>
+      <td>${d.brand}</td>
+      <td><a href="${d.url}" target="_blank">${(d.model).slice(0,44)}</a></td>
+      <td>${catBadge(d.category)}</td>
+      <td class="price muted">€${(d.price_prev||0).toFixed(2)}</td>
+      <td class="price">€${(d.price_now||0).toFixed(2)}</td>
+      <td class="drop-pct">${d.chg_pct.toFixed(1)}%</td>
+      <td style="color:var(--rise)">+${d.new_rev} &#9733;</td>
+      <td><div class="score-bar-wrap"><div class="score-bar" style="width:${barW}px"></div>${d.score.toFixed(1)}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Market Share donuts ────────────────────────────────────────────────────────
+let donutInst = [];
+function buildMarketShare() {
+  const el = document.getElementById('donut-charts');
+  donutInst.forEach(c => c.destroy());
+  donutInst = [];
+
+  const DONUT_PALETTE = ['#4f8ef7','#a78bfa','#22c55e','#f59e0b','#ef4444','#38bdf8','#fb923c'];
+
+  el.innerHTML = Object.entries(DATA.brand_data)
+    .filter(([,brands]) => brands.length)
+    .map(([cat]) => `<div class="donut-card"><h4>${cat.charAt(0).toUpperCase()+cat.slice(1)}s</h4><canvas id="dn-${cat}" height="180"></canvas></div>`)
+    .join('');
+
+  for (const [cat, brands] of Object.entries(DATA.brand_data)) {
+    if (!brands.length) continue;
+    const ctx = document.getElementById('dn-' + cat)?.getContext('2d');
+    if (!ctx) continue;
+    const top6    = brands.slice(0, 6);
+    const otherCt = brands.slice(6).reduce((s, b) => s + b.product_count, 0);
+    const labels  = [...top6.map(b => b.brand), ...(otherCt ? ['Other'] : [])];
+    const counts  = [...top6.map(b => b.product_count), ...(otherCt ? [otherCt] : [])];
+    donutInst.push(new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data: counts, backgroundColor: DONUT_PALETTE, borderWidth: 1, borderColor: '#1a1d27' }] },
+      options: {
+        cutout: '62%',
+        plugins: {
+          legend: { position:'bottom', labels:{ color:'#64748b', font:{size:10}, boxWidth:10, padding:8 } },
+          tooltip: { callbacks: { label: c => ` ${c.label}: ${c.raw} products` } },
+        },
+      },
+    }));
+  }
+}
+
+// ── Brand Comparison line charts ───────────────────────────────────────────────
+let compareInst = [];
+const compareSelected = {};  // cat -> Set of selected brands
+
+function buildBrandComparison() {
+  const trend = DATA.brand_trend || {};
+  if (!Object.keys(trend).length) return;
+  document.getElementById('compare-section').style.display = 'block';
+
+  // Init selection per category (default top 3)
+  for (const [cat, brands] of Object.entries(trend)) {
+    if (!compareSelected[cat]) {
+      compareSelected[cat] = new Set(Object.keys(brands).slice(0, 3));
+    }
+  }
+
+  renderCompareSelectors();
+  renderCompareCharts();
+}
+
+function renderCompareSelectors() {
+  const trend = DATA.brand_trend || {};
+  document.getElementById('compare-selectors').innerHTML = Object.entries(trend).map(([cat, brands]) => {
+    const title = cat.charAt(0).toUpperCase() + cat.slice(1) + 's';
+    const btns  = Object.keys(brands).map(brand => {
+      const sel = compareSelected[cat]?.has(brand) ? 'sel' : '';
+      return `<button class="brand-chk-btn ${sel}" data-cat="${cat}" data-brand="${brand}"
+                onclick="toggleCompareBrand(this)">${brand}</button>`;
+    }).join('');
+    return `<div style="margin-bottom:10px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${title}</div>
+      <div class="brand-selector">${btns}</div>
+    </div>`;
+  }).join('');
+}
+
+function toggleCompareBrand(btn) {
+  const cat   = btn.dataset.cat;
+  const brand = btn.dataset.brand;
+  if (!compareSelected[cat]) compareSelected[cat] = new Set();
+  if (compareSelected[cat].has(brand)) {
+    if (compareSelected[cat].size <= 1) return;
+    compareSelected[cat].delete(brand);
+    btn.classList.remove('sel');
+  } else {
+    compareSelected[cat].add(brand);
+    btn.classList.add('sel');
+  }
+  renderCompareCharts();
+}
+
+function renderCompareCharts() {
+  const trend = DATA.brand_trend || {};
+  const el    = document.getElementById('compare-charts');
+  compareInst.forEach(c => c.destroy());
+  compareInst = [];
+
+  el.innerHTML = Object.entries(trend)
+    .filter(([,brands]) => Object.keys(brands).length)
+    .map(([cat]) => `<div class="compare-card"><h4>${cat.charAt(0).toUpperCase()+cat.slice(1)}s &mdash; Avg Price Trend</h4><canvas id="cmp-${cat}" height="160"></canvas></div>`)
+    .join('');
+
+  for (const [cat, brands] of Object.entries(trend)) {
+    const ctx = document.getElementById('cmp-' + cat)?.getContext('2d');
+    if (!ctx) continue;
+    const sel = compareSelected[cat] || new Set();
+    const allDates = [...new Set(Object.values(brands).flat().map(p => p.date))].sort();
+
+    const datasets = Object.entries(brands)
+      .filter(([brand]) => sel.has(brand))
+      .map(([brand, pts], i) => {
+        const byDate = Object.fromEntries(pts.map(p => [p.date, p.price]));
+        return {
+          label: brand,
+          data:  allDates.map(d => byDate[d] ?? null),
+          borderColor: PALETTE[i % PALETTE.length],
+          backgroundColor: 'transparent',
+          tension: 0.3, pointRadius: allDates.length > 20 ? 0 : 3,
+          spanGaps: true,
+        };
+      });
+
+    compareInst.push(new Chart(ctx, {
+      type: 'line',
+      data: { labels: allDates, datasets },
+      options: {
+        responsive: true,
+        interaction: { mode:'index', intersect:false },
+        plugins: {
+          legend: { labels:{ color:'#94a3b8', font:{size:10}, boxWidth:12 } },
+          tooltip: { callbacks: { label: c => ` ${c.dataset.label}: €${c.raw?.toFixed(2) ?? '—'}` } },
+        },
+        scales: {
+          x: { ticks:{ color:'#64748b', maxTicksLimit:6, font:{size:10} }, grid:{ color:'#2a2d3a' } },
+          y: { ticks:{ color:'#64748b', callback:v => '€'+v }, grid:{ color:'#2a2d3a' } },
+        },
+      },
+    }));
+  }
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────────
 buildStats();
 buildTrendCharts();
 buildDropsTable();
+buildHotDeals();
 filterProducts();
 buildNewGone();
 buildBrandCharts();
+buildMarketShare();
+buildBrandComparison();
 </script>
 </body>
 </html>"""
