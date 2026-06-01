@@ -40,7 +40,9 @@ import smtplib
 import json
 from email.message import EmailMessage
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
+
+from db import get_engine
 
 load_dotenv()
 
@@ -57,7 +59,10 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(_log_file, encoding="utf-8"),
+        # FileHandler uses delay=True so it only opens the file on the first write,
+        # avoiding a PermissionError when run_pipeline.bat has already opened the
+        # same log file for its own stdout redirect (Windows file-handle conflict).
+        logging.FileHandler(_log_file, encoding="utf-8", delay=True),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -125,7 +130,7 @@ def send_drop_digest():
     if not GMAIL_APP_PASSWORD:
         return
     try:
-        engine = _get_engine()
+        engine = get_engine()
         with engine.connect() as conn:
             rows = conn.execute(text(
                 "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
@@ -167,17 +172,6 @@ def send_drop_digest():
         logger.info(f"Drop digest sent — {len(rows)} deals.")
     except Exception as e:
         logger.warning(f"Could not send drop digest: {e}")
-
-
-def _get_engine():
-    """Return a SQLAlchemy engine using .env credentials."""
-    return create_engine(
-        f"postgresql+psycopg2://{os.environ.get('DB_USER', 'postgres')}:"
-        f"{os.environ.get('DB_PASSWORD', '')}@"
-        f"{os.environ.get('DB_HOST', 'localhost')}:"
-        f"{os.environ.get('DB_PORT', '5432')}/"
-        f"{os.environ.get('DB_NAME', 'SkroutzPR')}"
-    )
 
 
 def _send_email(subject, body):
@@ -229,7 +223,7 @@ def send_watchlist_alerts():
         return
 
     try:
-        engine = _get_engine()
+        engine = get_engine()
         with engine.connect() as conn:
             hits = []
             for item in items:
@@ -294,7 +288,7 @@ def send_disappeared_alert():
     if not GMAIL_APP_PASSWORD:
         return
     try:
-        engine = _get_engine()
+        engine = get_engine()
         with engine.connect() as conn:
             rows = conn.execute(text(
                 "SELECT brand, model, category, product_name, last_seen, "
@@ -347,6 +341,33 @@ def run_dashboard():
         logger.warning("Dashboard generation failed — pipeline result is unaffected.")
     else:
         logger.info("=== Dashboard complete ===")
+
+
+def send_success_summary(elapsed):
+    """Email a brief daily summary after a successful pipeline run. No-ops if password not set."""
+    if not GMAIL_APP_PASSWORD:
+        return
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            snaps     = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CURRENT_DATE")).scalar()
+            new_prods = conn.execute(text("SELECT COUNT(*) FROM products WHERE first_seen = CURRENT_DATE")).scalar()
+            drops     = conn.execute(text("SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE")).scalar()
+    except Exception as e:
+        logger.warning(f"Success summary: DB query failed — {e}")
+        return
+    _send_email(
+        subject=f"[Skroutz] Pipeline OK — {datetime.date.today()}",
+        body=(
+            f"Daily pipeline completed successfully in {elapsed}.\n\n"
+            f"  Snapshots loaded : {snaps:,}\n"
+            f"  New products     : {new_prods:,}\n"
+            f"  Price drops today: {drops}\n\n"
+            f"Date: {datetime.datetime.now():%Y-%m-%d %H:%M}\n"
+            f"Log:  logs/pipeline_{datetime.date.today()}.log\n"
+        ),
+    )
+    logger.info(f"Success summary sent — {snaps:,} snapshots, {new_prods:,} new products, {drops} drops.")
 
 
 def run_stage(label, script):

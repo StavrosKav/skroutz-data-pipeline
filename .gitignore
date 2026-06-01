@@ -34,6 +34,16 @@ TestALLinONE.py
 skroutz_SmartwachesFOR.py
 Jupiter_PIP_install_File.ipynb
 
+# One-time report generator and its output (not part of the pipeline)
+generate_report.py
+Skroutz_Enhancement_Report.pdf
+
+# Daily dated dashboard snapshots (regenerated each run; only dashboard_latest.html is tracked)
+dashboard/dashboard_2*.html
+
+# Unrelated files that may appear in this directory
+claude_pro_setup_guide.html
+
 # Claude memory
 .claude/
 
