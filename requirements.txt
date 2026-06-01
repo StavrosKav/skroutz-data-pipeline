@@ -7,3 +7,4 @@ undetected-chromedriver==3.5.5
 sqlalchemy==2.0.43
 psycopg2-binary==2.9.12
 python-dotenv==1.1.0
+streamlit>=1.35.0
