@@ -143,6 +143,7 @@ def fetch_data(conn):
         )).fetchall()
         floor_map = {r.product_id: float(r.all_time_low)
                      for r in floor_rows if r.all_time_low}
+        conn.execute(text("RELEASE SAVEPOINT sp_floor"))
     except Exception:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_floor"))
         floor_map = {}
@@ -317,6 +318,7 @@ def fetch_data(conn):
                     "disc_days": int(r.discount_days or 0),
                     "freq_pct":  float(r.discount_freq_pct or 0),
                 })
+        conn.execute(text("RELEASE SAVEPOINT sp_disc"))
     except Exception:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_disc"))
         discount_data = {}
@@ -341,6 +343,7 @@ def fetch_data(conn):
                 "per_day":  float(r.reviews_per_day or 0),
                 "url":      r.skroutz_link or "",
             })
+        conn.execute(text("RELEASE SAVEPOINT sp_vel"))
     except Exception:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_vel"))
         review_velocity = []
@@ -370,6 +373,7 @@ def fetch_data(conn):
                 "price_after":  float(r.price_after or 0),
                 "chg_pct":      float(r.price_chg_pct or 0),
             })
+        conn.execute(text("RELEASE SAVEPOINT sp_restock"))
     except Exception:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_restock"))
         restock_products = []
