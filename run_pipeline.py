@@ -43,6 +43,7 @@ from dotenv import load_dotenv
 from sqlalchemy import text
 
 from db import get_engine
+import notifications as _notif
 
 load_dotenv()
 
@@ -161,15 +162,17 @@ def _send_html_email(subject: str, html: str, plain: str) -> None:
             smtp.starttls()
             smtp.login(ALERT_FROM, GMAIL_APP_PASSWORD)
             smtp.send_message(msg)
-    except Exception as e:
+    except (smtplib.SMTPException, OSError, ConnectionError) as e:
         logger.warning(f"_send_html_email failed: {e}")
 
 
 def send_failure_alert(stage, returncode):
-    if not GMAIL_APP_PASSWORD:
-        logger.warning("Alert email not sent — GMAIL_APP_PASSWORD is not configured.")
-        return
     log_path = os.path.join(BASE, "logs", f"pipeline_{datetime.date.today()}.log")
+    _notif.tg_failure(stage, returncode, log_path)
+    if not GMAIL_APP_PASSWORD:
+        if not _notif._TOKEN:
+            logger.warning("Alert not sent — neither TELEGRAM_BOT_TOKEN nor GMAIL_APP_PASSWORD is configured.")
+        return
     now_str  = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
     body_html = f"""
@@ -229,7 +232,7 @@ def run_charts():
 
 
 def send_drop_digest():
-    if not GMAIL_APP_PASSWORD:
+    if not GMAIL_APP_PASSWORD and not _notif._TOKEN:
         return
     try:
         engine = get_engine()
@@ -246,6 +249,7 @@ def send_drop_digest():
     if not rows:
         logger.info("No price drops today — digest not sent.")
         return
+    _notif.tg_drops(rows)
 
     CAT_ICON = {"phone": "📱", "laptop": "💻", "smartwatch": "⌚", "tablet": "📟"}
     thead = """
@@ -378,6 +382,8 @@ def send_watchlist_alerts():
         logger.info("Watchlist: no thresholds crossed today.")
         return
 
+    _notif.tg_watchlist(hits)
+
     thead = """
       <thead>
         <tr style="background:#0d1b2a;">
@@ -445,7 +451,7 @@ def send_disappeared_alert():
     Useful for spotting discontinued models or unusually cheap listings that
     got pulled. Non-fatal — pipeline result is unaffected if this fails.
     """
-    if not GMAIL_APP_PASSWORD:
+    if not GMAIL_APP_PASSWORD and not _notif._TOKEN:
         return
     try:
         engine = get_engine()
@@ -464,6 +470,8 @@ def send_disappeared_alert():
     if not rows:
         logger.info("No newly disappeared products today.")
         return
+
+    _notif.tg_disappeared(rows)
 
     CAT_ICON = {"phone": "📱", "laptop": "💻", "smartwatch": "⌚", "tablet": "📟"}
     thead = """
@@ -548,8 +556,8 @@ def run_dashboard():
 
 
 def send_success_summary(elapsed):
-    """Email a brief daily summary after a successful pipeline run. No-ops if password not set."""
-    if not GMAIL_APP_PASSWORD:
+    """Email + Telegram daily summary after a successful pipeline run."""
+    if not GMAIL_APP_PASSWORD and not _notif._TOKEN:
         return
     try:
         engine = get_engine()
@@ -561,6 +569,7 @@ def send_success_summary(elapsed):
         logger.warning(f"Success summary: DB query failed — {e}")
         return
     elapsed_str = str(elapsed).split(".")[0]  # trim microseconds
+    _notif.tg_success(snaps, new_prods, drops, elapsed_str)
     now_str     = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
     def _stat_card(value, label, color="#0d1b2a"):
@@ -599,15 +608,19 @@ def send_success_summary(elapsed):
         f"Date: {now_str}\n"
         f"Log:  logs/pipeline_{datetime.date.today()}.log\n"
     )
-    _send_html_email(
-        subject = f"[Skroutz] Pipeline OK — {datetime.date.today()}",
-        html    = _html_shell(
-            title    = "Pipeline Completed",
-            subtitle = f"All stages passed · {elapsed_str} total · {now_str}",
-            body     = body_html,
-        ),
-        plain = plain,
-    )
+    try:
+        _send_html_email(
+            subject = f"[Skroutz] Pipeline OK — {datetime.date.today()}",
+            html    = _html_shell(
+                title    = "Pipeline Completed",
+                subtitle = f"All stages passed · {elapsed_str} total · {now_str}",
+                body     = body_html,
+            ),
+            plain = plain,
+        )
+    except Exception as e:
+        logger.warning(f"Success summary: could not send email — {e}")
+        return
     logger.info(f"Success summary sent — {snaps:,} snapshots, {new_prods:,} new products, {drops} drops.")
 
 
@@ -626,10 +639,37 @@ def run_stage(label, script):
     logger.info(f"=== {label} complete ===")
 
 
+def run_dbt_tests():
+    """
+    Run dbt tests after the Load SQL stage.
+    Aborts the pipeline if any test fails so the dashboard never renders corrupt data.
+    Skipped silently if dbt is not installed or dbt_project/ does not exist.
+    """
+    dbt_dir = os.path.join(BASE, "dbt_project")
+    if not os.path.isdir(dbt_dir):
+        return
+    import shutil
+    if not shutil.which("dbt"):
+        logger.warning("dbt not found on PATH — skipping data quality tests. Install with: pip install dbt-postgres")
+        return
+    logger.info("=== dbt tests started ===")
+    env = {**os.environ, "DBT_PROFILES_DIR": dbt_dir}
+    result = subprocess.run(
+        ["dbt", "test", "--project-dir", dbt_dir, "--profiles-dir", dbt_dir],
+        env=env,
+    )
+    if result.returncode != 0:
+        logger.error("dbt tests FAILED — aborting pipeline to protect dashboard integrity.")
+        send_failure_alert("dbt test", result.returncode)
+        sys.exit(result.returncode)
+    logger.info("=== dbt tests passed ===")
+
+
 if __name__ == "__main__":
     start = datetime.datetime.now()
     for label, script in STAGES:
         run_stage(label, script)
+    run_dbt_tests()
     run_charts()
     send_drop_digest()
     send_watchlist_alerts()
