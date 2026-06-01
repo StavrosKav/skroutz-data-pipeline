@@ -19,18 +19,21 @@ Run after the cleaning scripts have produced today's CSV files.
 
 import pandas as pd
 import datetime
+import logging
 import os
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from dotenv import load_dotenv
+
+from db import get_engine
 
 load_dotenv()
 
-# ── Database connection ────────────────────────────────────────────────────────
-DB_USER     = os.environ.get("DB_USER", "postgres")
-DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
-DB_HOST     = os.environ.get("DB_HOST", "localhost")
-DB_PORT     = os.environ.get("DB_PORT", "5432")
-DB_NAME     = os.environ.get("DB_NAME", "SkroutzPR")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 today = datetime.date.today().isoformat()
 BASE  = os.path.dirname(os.path.abspath(__file__))
@@ -43,10 +46,6 @@ CATEGORY_FILES = [
     ("smartwatch", os.path.join(base, "Smartwatches_skroutz_clean", f"clean_{today}.csv")),
     ("tablet",     os.path.join(base, "Tablets_skroutz_clean",      f"clean_{today}.csv")),
 ]
-
-engine = create_engine(
-    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
 
 
 # ── Helper functions for safe type conversion ──────────────────────────────────
@@ -99,7 +98,7 @@ def load_category(conn, category, file_path):
     file_path : path to today's cleaned CSV for this category
     """
     if not os.path.exists(file_path):
-        print(f"SKIP (not found): {file_path}")
+        logger.warning(f"SKIP (not found): {file_path}")
         return
 
     df = pd.read_csv(file_path)
@@ -175,13 +174,13 @@ def load_category(conn, category, file_path):
         })
         snapshots += 1
 
-    print(f"{category:12s}: {new_products} new products | {snapshots} snapshots loaded")
+    logger.info(f"{category:12s}: {new_products} new products | {snapshots} snapshots loaded")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    with engine.begin() as conn:   # atomic: all categories commit together or all roll back
+    with get_engine().begin() as conn:   # atomic: all categories commit together or all roll back
         for category, file_path in CATEGORY_FILES:
             load_category(conn, category, file_path)
-    print("Done.")
+    logger.info("Done.")

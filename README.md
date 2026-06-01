@@ -110,16 +110,21 @@ Run `create_new_schema.sql` against your PostgreSQL instance in pgAdmin or psql.
 python run_pipeline.py
 ```
 
-### 5. Run with Docker (optional)
-Spins up PostgreSQL + the pipeline in one command — no local Postgres install needed:
-```bash
-cp .env.example .env   # fill in DB_PASSWORD (other DB vars have sensible defaults)
-docker compose up --build
-```
-The schema is applied automatically on first run via the `initdb` mount.
+### 5. Run with Docker (optional — Clean + Load only)
 
-> **Note:** The scrapers open a real Chrome window and cannot run headless (skroutz bot-detection).
-> Docker is most useful for running only the Clean + Load stages against CSVs you already have.
+The scrapers require a real Chrome window and **cannot run inside Docker** (Skroutz bot-detection blocks headless Chrome). Docker therefore skips Stage 1 automatically via `SKIP_SCRAPE=1` and only runs the Clean and Load stages.
+
+**Typical workflow:**
+1. Run the scrapers on Windows first to produce the raw CSVs:
+   ```bash
+   python 1scriptToGet4.py
+   ```
+2. Then use Docker to clean and load the CSVs into PostgreSQL (no local Postgres install needed):
+   ```bash
+   cp .env.example .env   # fill in DB_PASSWORD (other DB vars have sensible defaults)
+   docker compose up --build
+   ```
+   The schema is applied automatically on first run via the `initdb` mount, and the raw CSV folders are mounted read-only into the container.
 
 ### 6. Automate (Windows Task Scheduler)
 Edit `run_pipeline.bat` and update the `PYTHON` path to your interpreter, then register:
