@@ -36,6 +36,7 @@ import sys
 import logging
 import datetime
 import os
+import re
 import smtplib
 import json
 from email.message import EmailMessage
@@ -50,7 +51,9 @@ load_dotenv()
 # Resolve script paths relative to this file so the pipeline works from any working directory
 BASE = os.path.dirname(os.path.abspath(__file__))
 
-os.makedirs(os.path.join(BASE, "logs"), exist_ok=True)
+_log_dir  = os.path.join(BASE, "logs")
+_log_file = os.path.join(_log_dir, f"pipeline_{datetime.date.today()}.log")
+os.makedirs(_log_dir, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,9 +61,30 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(),
+        logging.FileHandler(_log_file, encoding="utf-8", delay=True),
     ],
 )
 logger = logging.getLogger(__name__)
+
+
+def _cleanup_old_logs(days: int = 30) -> None:
+    """Delete pipeline and scraper log files older than `days` days."""
+    cutoff = datetime.date.today() - datetime.timedelta(days=days)
+    removed = 0
+    for fname in os.listdir(_log_dir):
+        if not fname.endswith(".log"):
+            continue
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", fname)
+        if not m:
+            continue
+        try:
+            if datetime.date.fromisoformat(m.group(1)) < cutoff:
+                os.remove(os.path.join(_log_dir, fname))
+                removed += 1
+        except Exception:
+            pass
+    if removed:
+        logger.info(f"Cleaned up {removed} log file(s) older than {days} days.")
 
 _ALL_STAGES = [
     ("Scrape",   os.path.join(BASE, "1scriptToGet4.py")),
@@ -661,6 +685,7 @@ def run_dbt_tests():
 
 if __name__ == "__main__":
     start = datetime.datetime.now()
+    _cleanup_old_logs()
     _notif.tg_pipeline_start()
     for label, script in STAGES:
         run_stage(label, script)

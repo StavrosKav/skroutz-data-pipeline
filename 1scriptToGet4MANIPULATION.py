@@ -75,9 +75,18 @@ def run_all_cleaners():
         time.sleep(LAUNCH_DELAY)
 
     # Wait for all cleaners to finish and report their exit status
+    TIMEOUT = 1800  # 30-minute hard ceiling per cleaner
     any_failed = False
     for name, proc, log_file in procs:
-        ret = proc.wait()
+        try:
+            ret = proc.wait(timeout=TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            log_file.write(f"\n[TIMEOUT] {name} killed after {TIMEOUT}s\n")
+            logging.error(f"{name} timed out after {TIMEOUT//60}m — killed.")
+            any_failed = True
+            log_file.close()
+            continue
         log_file.close()
         if ret == 0:
             logging.info(f"{name} completed successfully.")
