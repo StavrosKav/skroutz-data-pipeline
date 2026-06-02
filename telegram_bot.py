@@ -206,25 +206,43 @@ def _cmd_status() -> str:
     return f"📋 <b>Pipeline status — {today}</b>\n{status}\n\n{tail}"
 
 
-def _cmd_drops() -> str:
+_CAT_ALIASES = {
+    "phone": "phone", "phones": "phone",
+    "laptop": "laptop", "laptops": "laptop",
+    "smartwatch": "smartwatch", "smartwatches": "smartwatch", "watches": "smartwatch",
+    "tablet": "tablet", "tablets": "tablet",
+}
+_CAT_ICON  = {"phone": "📱", "laptop": "💻", "smartwatch": "⌚", "tablet": "📟"}
+_CAT_LABEL = {"phone": "Phones", "laptop": "Laptops", "smartwatch": "Smartwatches", "tablet": "Tablets"}
+
+
+def _cmd_drops(args: str = "") -> str:
+    cat = args.strip().lower()
+    resolved = _CAT_ALIASES.get(cat)
+    if cat and not resolved:
+        return "Usage: <code>/drops</code> or <code>/drops phones|laptops|smartwatches|tablets</code>"
+
+    where  = "AND category = :cat" if resolved else ""
+    params = {"cat": resolved} if resolved else {}
+    label  = _CAT_LABEL.get(resolved, resolved) if resolved else "all categories"
+
     try:
         engine = get_engine()
         with engine.connect() as conn:
             rows = conn.execute(text(
-                "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
-                "FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE "
-                "ORDER BY drop_eur ASC LIMIT 10"
-            )).fetchall()
+                f"SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
+                f"FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE {where} "
+                f"ORDER BY drop_eur ASC LIMIT 10"
+            ), params).fetchall()
     except Exception as e:
         return f"❌ DB error: {_e(str(e))}"
 
     if not rows:
-        return "No price drops recorded today."
+        return f"No price drops recorded today for {label}."
 
-    CAT_ICON = {"phone": "📱", "laptop": "💻", "smartwatch": "⌚", "tablet": "📟"}
-    lines = [f"<b>Top {len(rows)} drops today:</b>\n"]
+    lines = [f"<b>Top {len(rows)} drops today — {label}:</b>\n"]
     for r in rows:
-        icon = CAT_ICON.get(r.category, "🏷️")
+        icon = _CAT_ICON.get(r.category, "🏷️")
         lines.append(
             f"{icon} <b>{_e(r.brand or '')} {_e(r.model or '')}</b>\n"
             f"  {float(r.prev_price):.0f}€ → <b>{float(r.new_price):.0f}€</b>"
@@ -314,46 +332,120 @@ def _cmd_find(args: str) -> str:
     try:
         engine = get_engine()
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                "SELECT brand, model, category, price_eur, skroutz_link "
-                "FROM vw_latest_prices "
-                "WHERE brand ILIKE :q OR model ILIKE :q "
-                "   OR (brand || ' ' || model) ILIKE :q "
-                "ORDER BY price_eur "
-                "LIMIT 5"
-            ), {"q": f"%{q}%"}).fetchall()
+            rows = conn.execute(text("""
+                SELECT lp.brand, lp.model, lp.category, lp.price_eur,
+                       pf.all_time_low,
+                       ROUND(100.0*(lp.price_eur-pf.all_time_low)
+                             /NULLIF(pf.all_time_low,0),1) AS pct_above_atl
+                FROM vw_latest_prices lp
+                LEFT JOIN vw_price_floor pf ON pf.product_id = lp.id
+                WHERE lp.brand ILIKE :q OR lp.model ILIKE :q
+                   OR (lp.brand || ' ' || lp.model) ILIKE :q
+                ORDER BY lp.price_eur
+                LIMIT 5
+            """), {"q": f"%{q}%"}).fetchall()
     except Exception as e:
         return f"❌ DB error: {_e(str(e))}"
 
     if not rows:
         return f"No products found matching <b>{_e(q)}</b>."
 
-    CAT_ICON = {"phone": "📱", "laptop": "💻", "smartwatch": "⌚", "tablet": "📟"}
     lines = [f"🔍 <b>Results for \"{_e(q)}\":</b>\n"]
     for r in rows:
-        icon = CAT_ICON.get(r.category, "🏷️")
+        icon  = _CAT_ICON.get(r.category, "🏷️")
+        price = float(r.price_eur)
+        if r.all_time_low and r.pct_above_atl is not None:
+            pct = float(r.pct_above_atl)
+            atl = float(r.all_time_low)
+            deal = "🔥 <i>at ATL</i>" if pct < 1 else f"<i>+{pct:.0f}% above ATL {atl:.0f}€</i>"
+        else:
+            deal = ""
         lines.append(
             f"{icon} <b>{_e(r.brand or '')} {_e(r.model or '')}</b>  "
-            f"<b>{float(r.price_eur):.0f}€</b>"
+            f"<b>{price:.0f}€</b>  {deal}"
         )
     if len(rows) == 5:
-        lines.append("\n<i>Top 5 shown — refine search for more specific results.</i>")
-    lines.append("\n<i>Send a product URL to add it to your watchlist.</i>")
+        lines.append("\n<i>Top 5 — refine search for more specific results.</i>")
+    lines.append("\n<i>Tip: /history &lt;name&gt; for full price timeline.</i>")
+    return "\n".join(lines)
+
+
+def _cmd_history(args: str) -> str:
+    q = args.strip()
+    if not q:
+        return "Usage: <code>/history &lt;name&gt;</code>\nExample: <code>/history iphone 16</code>"
+
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            meta = conn.execute(text("""
+                SELECT product_id, brand, model, category
+                FROM vw_price_history
+                WHERE brand ILIKE :q OR model ILIKE :q
+                   OR (brand || ' ' || model) ILIKE :q
+                ORDER BY date DESC
+                LIMIT 1
+            """), {"q": f"%{q}%"}).fetchone()
+
+            if not meta:
+                return f"No product found matching <b>{_e(q)}</b>."
+
+            pid   = meta.product_id
+            label = f"{meta.brand or ''} {meta.model or ''}".strip()
+
+            stats = conn.execute(text("""
+                SELECT all_time_low AS atl, all_time_high AS ath, snapshot_count AS snaps
+                FROM vw_price_floor WHERE product_id = :pid
+            """), {"pid": pid}).fetchone()
+
+            history = conn.execute(text("""
+                SELECT date, price_eur, pct_change
+                FROM vw_price_history
+                WHERE product_id = :pid
+                ORDER BY date DESC LIMIT 14
+            """), {"pid": pid}).fetchall()
+
+    except Exception as e:
+        return f"❌ DB error: {_e(str(e))}"
+
+    if not history:
+        return f"No price history found for <b>{_e(label)}</b>."
+
+    current      = float(history[0].price_eur)
+    atl          = float(stats.atl)
+    ath          = float(stats.ath)
+    pct_from_atl = 100 * (current - atl) / atl if atl else 0
+    pct_from_ath = 100 * (current - ath) / ath if ath else 0
+    icon         = _CAT_ICON.get(meta.category, "🏷️")
+
+    lines = [f"📈 {icon} <b>{_e(label)}</b>\n"]
+    lines.append(f"Current: <b>{current:.0f}€</b>")
+    lines.append(
+        f"ATL: <b>{atl:.0f}€</b>  |  ATH: {ath:.0f}€  |  {stats.snaps} snapshots"
+    )
+    if pct_from_atl < 1:
+        lines.append("⚡ <b>Currently at all-time low!</b>")
+    else:
+        lines.append(f"Above ATL: <b>+{pct_from_atl:.1f}%</b>  |  Below ATH: {abs(pct_from_ath):.1f}%")
+
+    lines.append("\n<b>Last snapshots:</b>")
+    for r in reversed(history):
+        chg = float(r.pct_change) if r.pct_change else 0
+        if chg < -0.1:
+            arrow = f"↓{abs(chg):.1f}%"
+        elif chg > 0.1:
+            arrow = f"↑{chg:.1f}%"
+        else:
+            arrow = "→"
+        lines.append(f"  <code>{r.date}</code>  <b>{float(r.price_eur):.0f}€</b>  <i>{arrow}</i>")
+
     return "\n".join(lines)
 
 
 def _cmd_best(args: str) -> str:
     """Products closest to their all-time low. Optional category filter."""
     cat = args.strip().lower()
-    CAT_ALIASES = {
-        "phone": "phone", "phones": "phone",
-        "laptop": "laptop", "laptops": "laptop",
-        "smartwatch": "smartwatch", "smartwatches": "smartwatch", "watches": "smartwatch",
-        "tablet": "tablet", "tablets": "tablet",
-    }
-    CAT_ICON = {"phone": "📱", "laptop": "💻", "smartwatch": "⌚", "tablet": "📟"}
-
-    resolved = CAT_ALIASES.get(cat)
+    resolved = _CAT_ALIASES.get(cat)
     if cat and not resolved:
         return (
             "❌ Unknown category.\n"
@@ -392,10 +484,10 @@ def _cmd_best(args: str) -> str:
     if not rows:
         return "No data found. Run the pipeline at least a few times to build price history."
 
-    cat_label = resolved.title() + "s" if resolved else "all categories"
+    cat_label = _CAT_LABEL.get(resolved, resolved) if resolved else "all categories"
     lines = [f"🏆 <b>Closest to all-time low — {cat_label}:</b>\n"]
     for r in rows:
-        icon    = CAT_ICON.get(r.category, "🏷️")
+        icon    = _CAT_ICON.get(r.category, "🏷️")
         pct     = float(r.pct_above_atl)
         atl     = float(r.all_time_low)
         price   = float(r.price_eur)
@@ -439,20 +531,38 @@ def _cmd_help() -> str:
     return (
         "🤖 <b>Skroutz Price Tracker Bot</b>\n\n"
         "<b>Pipeline</b>\n"
-        "/status         — last pipeline run result\n"
-        "/drops          — today's top price drops\n"
-        "/stats          — database snapshot counts\n\n"
+        "/status              — last pipeline run result\n"
+        "/drops [category]    — today's top price drops\n"
+        "/stats               — database snapshot counts\n\n"
         "<b>Watchlist</b>\n"
-        "/watchlist      — numbered list with live prices\n"
-        "/add &lt;url&gt; &lt;€&gt;  — add a product\n"
-        "/remove &lt;n&gt;     — remove item #n\n"
-        "/cancel         — cancel in-progress flow\n\n"
+        "/watchlist           — numbered list with live prices\n"
+        "/add &lt;url&gt; &lt;€&gt;       — add a product\n"
+        "/remove &lt;n&gt;          — remove item #n\n"
+        "/cancel              — cancel in-progress flow\n\n"
         "<b>Search &amp; Discovery</b>\n"
-        "/find &lt;name&gt;    — search products by name\n"
-        "/best           — top deals closest to all-time low\n"
-        "/best &lt;cat&gt;   — filter by phones/laptops/smartwatches/tablets\n\n"
-        "<i>Tip: send any skroutz.gr URL and I'll guide you through adding it.</i>"
+        "/find &lt;name&gt;         — search products by name + ATL context\n"
+        "/history &lt;name&gt;     — full price timeline for a product\n"
+        "/best [category]     — products closest to all-time low\n\n"
+        "<i>Tip: send any skroutz.gr URL and I'll guide you through adding it.</i>\n"
+        "<i>Categories: phones · laptops · smartwatches · tablets</i>"
     )
+
+
+def _set_commands() -> None:
+    """Register the bot's command list with Telegram for the / autocomplete menu."""
+    _post("setMyCommands", {"commands": [
+        {"command": "status",    "description": "Last pipeline run result"},
+        {"command": "drops",     "description": "Today's price drops (opt: category)"},
+        {"command": "watchlist", "description": "Watchlist with live prices"},
+        {"command": "best",      "description": "Products closest to all-time low"},
+        {"command": "find",      "description": "Search products by name"},
+        {"command": "history",   "description": "Full price timeline for a product"},
+        {"command": "add",       "description": "Add product to watchlist"},
+        {"command": "remove",    "description": "Remove watchlist item by number"},
+        {"command": "stats",     "description": "Database snapshot counts"},
+        {"command": "cancel",    "description": "Cancel in-progress conversation"},
+        {"command": "help",      "description": "List all commands"},
+    ]})
 
 
 # ── Conversation flow ──────────────────────────────────────────────────────────
@@ -497,12 +607,13 @@ def _dispatch(text_: str, chat_id: str) -> None:
             "/start":     lambda: _cmd_help(),
             "/help":      lambda: _cmd_help(),
             "/status":    lambda: _cmd_status(),
-            "/drops":     lambda: _cmd_drops(),
+            "/drops":     lambda: _cmd_drops(args),
             "/watchlist": lambda: _cmd_watchlist(),
             "/stats":     lambda: _cmd_stats(),
             "/add":       lambda: _cmd_add(args),
             "/remove":    lambda: _cmd_remove(args),
             "/find":      lambda: _cmd_find(args),
+            "/history":   lambda: _cmd_history(args),
             "/best":      lambda: _cmd_best(args),
             "/cancel":    lambda: "Cancelled.",
         }
@@ -536,6 +647,7 @@ def run() -> None:
         return
 
     logger.info("Telegram bot polling started.")
+    _set_commands()
     _send("🤖 <b>Skroutz bot online.</b> Send /help for available commands.")
 
     offset = 0
