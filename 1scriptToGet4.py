@@ -75,9 +75,18 @@ def run_all_scrapers():
         time.sleep(LAUNCH_DELAY)
 
     # Wait for all scrapers to finish and report their exit status
+    TIMEOUT = 7200  # 2-hour hard ceiling per scraper
     any_failed = False
     for name, proc, log_file in procs:
-        ret = proc.wait()
+        try:
+            ret = proc.wait(timeout=TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            log_file.write(f"\n[TIMEOUT] {name} killed after {TIMEOUT}s\n")
+            logging.error(f"{name} timed out after {TIMEOUT//3600}h — killed.")
+            any_failed = True
+            log_file.close()
+            continue
         log_file.close()
         if ret == 0:
             logging.info(f"{name} completed successfully.")
