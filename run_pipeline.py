@@ -50,9 +50,7 @@ load_dotenv()
 # Resolve script paths relative to this file so the pipeline works from any working directory
 BASE = os.path.dirname(os.path.abspath(__file__))
 
-_log_dir = os.path.join(BASE, "logs")
-os.makedirs(_log_dir, exist_ok=True)
-_log_file = os.path.join(_log_dir, f"pipeline_{datetime.date.today()}.log")
+os.makedirs(os.path.join(BASE, "logs"), exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,10 +58,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(),
-        # FileHandler uses delay=True so it only opens the file on the first write,
-        # avoiding a PermissionError when run_pipeline.bat has already opened the
-        # same log file for its own stdout redirect (Windows file-handle conflict).
-        logging.FileHandler(_log_file, encoding="utf-8", delay=True),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -667,6 +661,7 @@ def run_dbt_tests():
 
 if __name__ == "__main__":
     start = datetime.datetime.now()
+    _notif.tg_pipeline_start()
     for label, script in STAGES:
         run_stage(label, script)
     run_dbt_tests()
