@@ -410,6 +410,8 @@ def _cmd_history(args: str) -> str:
 
     if not history:
         return f"No price history found for <b>{_e(label)}</b>."
+    if not stats:
+        return f"No price floor data for <b>{_e(label)}</b> — run the pipeline first."
 
     current      = float(history[0].price_eur)
     atl          = float(stats.atl)
