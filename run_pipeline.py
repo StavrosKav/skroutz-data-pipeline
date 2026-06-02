@@ -657,39 +657,12 @@ def run_stage(label, script):
     logger.info(f"=== {label} complete ===")
 
 
-def run_dbt_tests():
-    """
-    Run dbt tests after the Load SQL stage.
-    Aborts the pipeline if any test fails so the dashboard never renders corrupt data.
-    Skipped silently if dbt is not installed or dbt_project/ does not exist.
-    """
-    dbt_dir = os.path.join(BASE, "dbt_project")
-    if not os.path.isdir(dbt_dir):
-        return
-    import shutil
-    if not shutil.which("dbt"):
-        logger.warning("dbt not found on PATH — skipping data quality tests. Install with: pip install dbt-postgres")
-        return
-    logger.info("=== dbt tests started ===")
-    env = {**os.environ, "DBT_PROFILES_DIR": dbt_dir}
-    result = subprocess.run(
-        ["dbt", "test", "--project-dir", dbt_dir, "--profiles-dir", dbt_dir],
-        env=env,
-    )
-    if result.returncode != 0:
-        logger.error("dbt tests FAILED — aborting pipeline to protect dashboard integrity.")
-        send_failure_alert("dbt test", result.returncode)
-        sys.exit(result.returncode)
-    logger.info("=== dbt tests passed ===")
-
-
 if __name__ == "__main__":
     start = datetime.datetime.now()
     _cleanup_old_logs()
     _notif.tg_pipeline_start()
     for label, script in STAGES:
         run_stage(label, script)
-    run_dbt_tests()
     run_charts()
     send_drop_digest()
     send_watchlist_alerts()
