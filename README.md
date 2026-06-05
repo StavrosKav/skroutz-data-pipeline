@@ -6,9 +6,9 @@
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-An end-to-end Python data engineering pipeline that scrapes daily product listings from [Skroutz.gr](https://www.skroutz.gr) — Greece's largest e-commerce aggregator — cleans and enriches the raw data, loads it into a normalized PostgreSQL database, and delivers automated price intelligence via email alerts and an interactive HTML dashboard.
+An end-to-end Python data engineering pipeline that scrapes daily product listings from [Skroutz.gr](https://www.skroutz.gr) — Greece's largest e-commerce aggregator — cleans and enriches the raw data, loads it into a normalized PostgreSQL database, and delivers automated price intelligence via a self-contained HTML dashboard, an interactive Streamlit dashboard, Gmail alerts, and a Telegram bot.
 
-> **~19,607 products tracked · 4 categories · ~19,000 new snapshots/day · daily since June 2025**
+> **~19,607 products tracked · 4 categories · ~202,000 price snapshots · ~19,000 new rows/day · daily since June 2025**
 
 ---
 
@@ -18,7 +18,9 @@ An end-to-end Python data engineering pipeline that scrapes daily product listin
 - [Pipeline Stages](#pipeline-stages)
 - [Database Schema](#database-schema)
 - [Analytics Views](#analytics-views)
-- [Dashboard](#dashboard)
+- [HTML Dashboard](#dashboard)
+- [Streamlit Dashboard](#streamlit-dashboard)
+- [Telegram Bot](#telegram-bot)
 - [Email Alerts](#email-alerts)
 - [Tech Stack](#tech-stack)
 - [Setup](#setup)
@@ -70,6 +72,7 @@ An end-to-end Python data engineering pipeline that scrapes daily product listin
           │  generate_dashboard.py  →  HTML dashboard │
           │  Gmail alerts: drops · watchlist ·        │
           │                disappeared · summary      │
+          │  Telegram: same alerts via Bot API        │
           └──────────────────────────────────────────┘
 ```
 
@@ -116,22 +119,23 @@ Two-table normalized design separating static product metadata from daily price 
 
 ```sql
 products (
-    id            SERIAL PRIMARY KEY,
-    category      TEXT,            -- phone | laptop | smartwatch | tablet
-    skroutz_link  TEXT UNIQUE,     -- natural key used for all upserts
-    product_name  TEXT,
-    brand         TEXT,
-    model         TEXT,
-    color         TEXT,
-    specs         TEXT,
-    -- phone-specific
-    ram_gb        NUMERIC,
-    storage_gb    NUMERIC,
-    display_inches NUMERIC,
-    num_cameras   INTEGER,
-    -- lifecycle
-    first_seen    DATE,
-    last_seen     DATE
+    id             SERIAL PRIMARY KEY,
+    category       VARCHAR(20),     -- phone | laptop | smartwatch | tablet
+    skroutz_link   TEXT UNIQUE,     -- natural key used for all upserts
+    product_name   TEXT,
+    brand          VARCHAR(100),
+    model          TEXT,
+    color          VARCHAR(100),
+    specs          TEXT,
+    ram_gb         INTEGER,
+    storage_gb     INTEGER,
+    num_cameras    INTEGER,
+    camera_type    VARCHAR(50),
+    display_inches NUMERIC(4,1),
+    battery_info   VARCHAR(50),
+    display_info   TEXT,
+    first_seen     DATE,
+    last_seen      DATE
 )
 
 price_snapshots (
@@ -147,7 +151,7 @@ price_snapshots (
 )
 ```
 
-Static metadata is written once; price history grows by ~7,000–19,000 rows per day.
+Static metadata is written once; price history grows by ~19,000 rows per day.
 
 ---
 
@@ -222,15 +226,18 @@ dashboard/dashboard_latest.html    ← always points to today's run
 dashboard/dashboard_YYYY-MM-DD.html
 ```
 
+Visual design: Inter font, glassmorphism stat cards with animated countUp, gradient fills on all charts, HSL-interpolated ATL proximity bars, tab fade-in animation, and a sticky footer.
+
 ### Dashboard Tabs
 
 | Tab | Content |
 |---|---|
-| **Overview** | Total products, snapshots, last updated; per-category product counts and price ranges |
-| **Price Drops** | Today's top drops by absolute € value, with brand, model, category, previous and current price |
-| **Market** | Avg price per brand (top 12 per category), price distribution histograms |
-| **Intelligence** | ATL floor proximity, discount frequency heatmap, price tiers, price vs. rating scatter, review velocity, restock pricing analysis |
-| **Watchlist** | Threshold status for all tracked products in `watchlist.json` |
+| **Overview** | 90-day category price index (line chart with gradient fill), PNG price-trend charts per category |
+| **Price Drops** | Hot deals (price drop + review surge), today's and weekly drops table — filterable by Min Drop € |
+| **Products** | Full product search — category, price range, color, trend, Near ATL checkbox; sortable columns |
+| **New & Gone** | New arrivals this week, recently disappeared products, watchlist status |
+| **Insights** | Brand analysis (avg / median / range / count), market-share donuts, interactive brand price comparison |
+| **Intelligence** | Near ATL table with HSL proximity bars, brand discount frequency, price tier distribution, price vs. rating scatter |
 
 ---
 
@@ -260,14 +267,20 @@ Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. The bot only re
 
 ## Streamlit Dashboard
 
-`streamlit_app.py` provides an interactive live dashboard that queries PostgreSQL directly (cached 1 h). It runs alongside the static HTML dashboard.
+`streamlit_app.py` provides an interactive live dashboard that queries PostgreSQL directly (results cached 1 h). It runs as a separate long-running process alongside the pipeline.
 
 ```bash
 streamlit run streamlit_app.py
 # Opens at http://localhost:8501
 ```
 
-Tabs: Overview · Price Drops · Products · Watchlist · Analytics
+| Tab | Content |
+|---|---|
+| **Overview** | 4-metric summary (new arrivals, today's snaps, biggest drop, near-ATL count); category cards with colour-coded borders; brand price trend chart |
+| **Price Drops** | Horizontal bar chart of top-10 drops; full drop dataframe with CSV export; daily activity chart |
+| **Products** | Searchable product table with Sort by selector, volatility ProgressColumn, ATL proximity ProgressColumn |
+| **Watchlist** | Card layout with current price / target / status; progress bar showing proximity to target; hit items sorted first |
+| **Analytics** | Brand discount frequency with median reference line; near-ATL scatter + table; price volatility leaderboard; market index; trend direction |
 
 ---
 
@@ -320,9 +333,6 @@ Add products to `watchlist.json` to receive an email when they hit your target p
 | Containerisation | Docker + Compose | — |
 | Testing | pytest | — |
 | Linting | ruff | — |
-| Dependency CVE scan | pip-audit | — |
-| Secret scanning | TruffleHog | — |
-| CI | GitHub Actions | — |
 | Runtime | Python | 3.13 |
 
 ---
@@ -456,12 +466,13 @@ Current database state as of **2026-06-05**:
 
 | Category | Products | Avg Daily Snapshots |
 |---|---|---|
-| Phones | ~5,313 | ~5,300 |
-| Laptops | ~6,549 | ~6,500 |
-| Smartwatches | ~6,082 | ~6,100 |
-| Tablets | ~1,663 | ~1,100 |
-| **Total** | **~19,607** | **~19,000** |
+| Phones | ~5,100 | ~5,100 |
+| Laptops | ~6,300 | ~6,300 |
+| Smartwatches | ~6,300 | ~6,300 |
+| Tablets | ~1,600 | ~1,300 |
+| **Total** | **~19,300** | **~19,000** |
 
+**Total snapshots:** ~202,000  
 **Date range:** 2025-06-10 → present (~12 months of daily history)
 
 ---
