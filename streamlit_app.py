@@ -40,9 +40,22 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+*, body, [class*="st-"] {
+    font-family: 'Inter', -apple-system, sans-serif !important;
+}
+
 #MainMenu { visibility: hidden; }
 footer    { visibility: hidden; }
 
+/* Metric cards */
+[data-testid="stMetric"] {
+    padding: 0.9rem 1rem !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    background: rgba(26,29,39,0.6) !important;
+}
 [data-testid="stMetricValue"] {
     font-size: 1.85rem !important;
     font-weight: 700 !important;
@@ -53,16 +66,41 @@ footer    { visibility: hidden; }
     letter-spacing: 0.04em;
     opacity: 0.75;
 }
-[data-testid="stExpander"] details {
-    border: 1px solid rgba(128,128,128,0.18) !important;
-    border-radius: 10px !important;
-}
+
+/* Active tab underline */
 button[data-baseweb="tab"] {
     font-size: 0.93rem !important;
     font-weight: 600 !important;
     letter-spacing: 0.01em;
 }
+button[data-baseweb="tab"][aria-selected="true"] {
+    border-bottom: 3px solid #4f8ef7 !important;
+    color: #4f8ef7 !important;
+}
+
+/* Dataframe headers */
+[data-testid="stDataFrame"] th,
+[data-testid="stDataFrame"] [role="columnheader"] {
+    font-weight: 600 !important;
+    letter-spacing: 0.03em !important;
+}
+
+/* Expanders — left accent bar + tighter border */
+[data-testid="stExpander"] details {
+    border: 1px solid rgba(128,128,128,0.18) !important;
+    border-left: 3px solid #4f8ef7 !important;
+    border-radius: 10px !important;
+    padding-left: 2px !important;
+}
+
+/* Sidebar darker bg */
+[data-testid="stSidebar"] {
+    background: rgba(10,12,18,0.97) !important;
+}
+
+/* Download buttons as pill */
 [data-testid="stDownloadButton"] > button {
+    border-radius: 20px !important;
     font-size: 0.82rem !important;
     padding: 0.2rem 0.75rem !important;
 }
@@ -93,6 +131,7 @@ def _fmt_eur(v) -> str:
 CATEGORIES = ["phone", "laptop", "smartwatch", "tablet"]
 CAT_LABEL  = {"phone": "📱 Phones", "laptop": "💻 Laptops",
                "smartwatch": "⌚ Smartwatches", "tablet": "📟 Tablets"}
+CAT_COLORS = {"phone": "#3b82f6", "laptop": "#a78bfa", "smartwatch": "#22c55e", "tablet": "#f59e0b"}
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 
@@ -140,7 +179,21 @@ def _header():
 # ── Tab 1 — Overview ───────────────────────────────────────────────────────────
 
 def tab_overview():
-    st.subheader("Category snapshot")
+    # 4-metric summary row
+    try:
+        new_this_week  = _scalar("SELECT COUNT(*) FROM products WHERE first_seen >= CURRENT_DATE - 7")
+        snaps_today    = _scalar("SELECT COUNT(*) FROM price_snapshots WHERE date = CURRENT_DATE")
+        biggest_drop   = _scalar("SELECT MAX(ABS(drop_eur)) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE")
+        near_atl_count = _scalar("SELECT COUNT(*) FROM vw_near_atl WHERE pct_above_atl <= 10")
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.metric("New arrivals this week",  f"{new_this_week or 0:,}")
+        mc2.metric("Snapshots today",         f"{snaps_today or 0:,}")
+        mc3.metric("Biggest drop today",      f"€{biggest_drop or 0:.0f}")
+        mc4.metric("Near all-time low",       f"{near_atl_count or 0:,}")
+    except Exception:
+        pass
+
+    st.markdown("### Category snapshot")
     with st.spinner("Loading category stats…"):
         cat_df = _q("""
             SELECT p.category,
@@ -155,11 +208,21 @@ def tab_overview():
         """)
 
     if not cat_df.empty:
-        cols = st.columns(len(cat_df))
-        for col, (_, row) in zip(cols, cat_df.iterrows()):
-            with col:
+        cols = st.columns(4)
+        for i, cat in enumerate(["phone", "laptop", "smartwatch", "tablet"]):
+            row = cat_df[cat_df["category"] == cat]
+            if row.empty:
+                continue
+            row = row.iloc[0]
+            color = CAT_COLORS.get(cat, "#4f8ef7")
+            with cols[i]:
+                st.markdown(
+                    f'<div style="border-left:4px solid {color};padding-left:10px;'
+                    f'margin-bottom:6px;font-weight:600;font-size:0.95rem">'
+                    f'{CAT_LABEL.get(cat, cat)}</div>',
+                    unsafe_allow_html=True,
+                )
                 with st.container(border=True):
-                    st.markdown(f"**{CAT_LABEL.get(row.category, row.category)}**")
                     r1, r2 = st.columns(2)
                     r1.metric("Products", f"{int(row.products):,}")
                     r2.metric("Avg price", _fmt_eur(row.avg_price))
@@ -196,7 +259,7 @@ def tab_overview():
         st.plotly_chart(fig, use_container_width=True)
 
     st.divider()
-    st.subheader("Brand price trends")
+    st.markdown("### Brand price trends")
     cat_filter = st.selectbox("Category", CATEGORIES,
                                format_func=lambda c: CAT_LABEL[c], key="ov_cat")
 
@@ -236,9 +299,9 @@ def tab_overview():
                 margin=dict(l=0, r=0, t=30, b=0),
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
-                height=320,
+                height=380,
             )
-            fig.update_traces(line_width=2.5)
+            fig.update_traces(mode="lines+markers", line_width=2.5)
             st.plotly_chart(fig, use_container_width=True)
 
 
@@ -281,6 +344,32 @@ def tab_drops():
     if drops_df.empty:
         st.info("No price drops in the selected range.")
     else:
+        if len(drops_df) > 3:
+            top10 = drops_df.head(10).copy()
+            top10["label"] = (
+                top10["brand"].fillna("") + " " + top10["model"].fillna("")
+            ).str.strip().str.slice(0, 40)
+            fig_bar = px.bar(
+                top10.sort_values("Saved €"),
+                x="Saved €", y="label",
+                orientation="h",
+                color="category",
+                labels={"label": "", "Saved €": "Saved (€)"},
+                template="plotly_dark",
+                color_discrete_map={
+                    "phone": "#3b82f6", "laptop": "#a78bfa",
+                    "smartwatch": "#22c55e", "tablet": "#f59e0b",
+                },
+                height=300,
+            )
+            fig_bar.update_layout(
+                margin=dict(l=0, r=10, t=10, b=0),
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+
         hdr_l, hdr_r = st.columns([5, 1])
         hdr_l.caption(f"{len(drops_df)} drops found")
         with hdr_r:
@@ -314,13 +403,14 @@ def tab_drops():
                 daily, x="drop_date", y="Drops",
                 labels={"drop_date": "Date", "Drops": "Drops"},
                 template="plotly_dark",
-                color_discrete_sequence=["#42a5f5"],
+                color_discrete_sequence=["#4f8ef7", "#a78bfa", "#22c55e", "#f59e0b"],
+                text_auto=True,
             )
             fig.update_layout(
                 margin=dict(l=0, r=0, t=10, b=0),
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
-                height=160,
+                height=200,
             )
             st.plotly_chart(fig, use_container_width=True)
 
@@ -360,7 +450,7 @@ def tab_drops():
 def tab_products():
     st.subheader("Product search")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         cat_f = st.multiselect("Category", CATEGORIES,
                                format_func=lambda c: CAT_LABEL[c], key="pr_cat")
@@ -370,6 +460,21 @@ def tab_products():
         )
     with col3:
         brand_search = st.text_input("Brand contains", key="pr_brand").strip()
+    with col4:
+        sort_by = st.selectbox(
+            "Sort by",
+            ["Reviews (default)", "Price ↑", "Price ↓", "Rating", "Volatility"],
+            key="pr_sort",
+        )
+
+    sort_map = {
+        "Reviews (default)": "lp.reviews DESC NULLS LAST",
+        "Price ↑":           "lp.price_eur ASC",
+        "Price ↓":           "lp.price_eur DESC",
+        "Rating":            "lp.rating DESC NULLS LAST",
+        "Volatility":        "pv.cv_pct DESC NULLS LAST",
+    }
+    order_by = sort_map.get(sort_by, "lp.reviews DESC NULLS LAST")
 
     cat_sql   = ""
     brand_sql = ""
@@ -390,13 +495,15 @@ def tab_products():
                    lp.rating                            AS "Rating",
                    lp.reviews                           AS "Reviews",
                    COALESCE(ROUND(pv.cv_pct, 1), 0)    AS "Volatility %",
+                   ROUND(na.pct_above_atl, 1)           AS "% Above ATL",
                    lp.skroutz_link
             FROM vw_latest_prices lp
             LEFT JOIN vw_price_volatility pv ON pv.product_id = lp.id
+            LEFT JOIN vw_near_atl na ON na.product_id = lp.id
             WHERE lp.price_eur BETWEEN :pmin AND :pmax
             {cat_sql}
             {brand_sql}
-            ORDER BY lp.reviews DESC NULLS LAST
+            ORDER BY {order_by}
             LIMIT 500
         """, **params)
 
@@ -421,6 +528,9 @@ def tab_products():
                 "Reviews":      st.column_config.NumberColumn("Reviews",  format="%.0f"),
                 "Volatility %": st.column_config.ProgressColumn(
                                     "Volatility %", min_value=0, max_value=50, format="%.1f%%"
+                                ),
+                "% Above ATL":  st.column_config.ProgressColumn(
+                                    "% Above ATL", min_value=0, max_value=20, format="%.1f%%"
                                 ),
                 "skroutz_link": st.column_config.LinkColumn("Link", display_text="🔗 View"),
             },
@@ -454,11 +564,11 @@ def tab_watchlist():
         st.info("watchlist.json is empty.")
         return
 
+    enriched = []
     for item in items:
         url       = item.get("url", "").strip()
         label     = item.get("label", url)
         threshold = float(item.get("threshold_eur", 0))
-
         try:
             row_df = _q(
                 "SELECT price_eur, skroutz_link FROM vw_latest_prices "
@@ -467,23 +577,40 @@ def tab_watchlist():
             )
         except Exception:
             row_df = pd.DataFrame()
-
         raw_price = row_df.iloc[0]["price_eur"] if not row_df.empty else None
         price     = float(raw_price) if raw_price is not None else None
         hit       = price is not None and price <= threshold
+        diff      = (price - threshold) if price is not None else float("inf")
+        enriched.append({"url": url, "label": label, "threshold": threshold,
+                         "price": price, "hit": hit, "diff": diff, "row_df": row_df})
 
-        with st.expander(f"{'🎯 ' if hit else ''}{label}", expanded=True):
+    enriched.sort(key=lambda x: (not x["hit"], x["diff"]))
+
+    for e in enriched:
+        url, label, threshold = e["url"], e["label"], e["threshold"]
+        price, hit, row_df    = e["price"], e["hit"], e["row_df"]
+
+        with st.container(border=True):
+            c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+            with c1:
+                st.markdown(f"**{label}**")
+                st.link_button("🔗 View on Skroutz", url)
+            if price is not None:
+                delta     = price - threshold
+                delta_str = f"{delta:+.2f} €"
+                c2.metric("Current price", f"€{price:,.2f}", delta_str, delta_color="inverse")
+            else:
+                c2.metric("Current price", "—")
+            c3.metric("Target", f"€{threshold:,.2f}")
+            c4.metric("Status", "✅ Buy now!" if hit else "⏳ Waiting")
+
+            if price is not None and threshold > 0:
+                progress_val = min(1.0, threshold / price)
+                st.progress(progress_val)
+
             if row_df.empty or price is None:
                 st.warning("Not found in DB — URL may not match.")
                 continue
-
-            delta     = price - threshold
-            delta_str = f"{delta:+.2f} €"
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Current price", f"€{price:,.2f}", delta_str, delta_color="inverse")
-            c2.metric("Your target",   f"€{threshold:,.2f}")
-            c3.metric("Status", "✅ Buy now!" if hit else "⏳ Waiting")
 
             try:
                 hist_df = _q("""
@@ -516,8 +643,6 @@ def tab_watchlist():
             except Exception:
                 pass
 
-            st.link_button("🔗 View on Skroutz", url)
-
 
 # ── Tab 5 — Analytics ─────────────────────────────────────────────────────────
 
@@ -540,6 +665,7 @@ def tab_analytics():
             """, cat=cat_a)
         if not disc_df.empty:
             st.markdown("**Discount frequency** — how often each brand has a price drop (last 90 days)")
+            median_val = float(disc_df["On-sale %"].median())
             fig = px.bar(
                 disc_df.sort_values("On-sale %"),
                 x="On-sale %", y="brand",
@@ -549,6 +675,14 @@ def tab_analytics():
                 color_discrete_sequence=["#42a5f5"],
             )
             fig.update_traces(texttemplate="%{x:.1f}%", textposition="outside")
+            fig.add_vline(
+                x=median_val,
+                line_dash="dot",
+                line_color="#64748b",
+                annotation_text=f"Median {median_val:.1f}%",
+                annotation_position="top right",
+                annotation_font_color="#64748b",
+            )
             fig.update_layout(
                 margin=dict(l=0, r=50, t=10, b=0),
                 plot_bgcolor="rgba(0,0,0,0)",
@@ -610,8 +744,8 @@ def tab_analytics():
                 margin=dict(l=0, r=0, t=30, b=0),
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
+                height=300,
             )
-            fig.update_layout(height=300)
             fig.update_traces(line_width=2.5)
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -658,10 +792,10 @@ def tab_analytics():
     try:
         with st.spinner("Loading near-ATL products…"):
             atl_df = _q("""
-                SELECT brand, model,
+                SELECT brand, model, category,
                        ROUND(current_price, 2) AS "Price €",
                        ROUND(all_time_low,  2) AS "ATL €",
-                       pct_above_atl           AS "% Above ATL",
+                       ROUND(pct_above_atl, 1) AS "% Above ATL",
                        snapshot_count          AS "Snapshots",
                        skroutz_link
                 FROM vw_near_atl
@@ -671,6 +805,29 @@ def tab_analytics():
                 LIMIT 30
             """, cat=cat_a)
         if not atl_df.empty:
+            if len(atl_df) > 2:
+                fig_sc = px.scatter(
+                    atl_df,
+                    x="% Above ATL",
+                    y="brand",
+                    size="Snapshots",
+                    color="category",
+                    labels={"brand": "", "% Above ATL": "% Above ATL"},
+                    template="plotly_dark",
+                    color_discrete_map={
+                        "phone": "#3b82f6", "laptop": "#a78bfa",
+                        "smartwatch": "#22c55e", "tablet": "#f59e0b",
+                    },
+                    height=320,
+                )
+                fig_sc.update_layout(
+                    margin=dict(l=0, r=0, t=10, b=0),
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_sc, use_container_width=True)
+
             st.dataframe(
                 atl_df,
                 column_config={
@@ -689,10 +846,57 @@ def tab_analytics():
     except Exception:
         st.info("Near ATL view not yet available (run analytics.sql).")
 
+    st.divider()
+    st.subheader("Price volatility leaderboard")
+    st.caption("Top 20 most volatile products — 30-day coefficient of variation.")
+    try:
+        with st.spinner("Loading volatility data…"):
+            vol_df = _q("""
+                SELECT lp.brand, lp.model, lp.category,
+                       ROUND(pv.cv_pct, 1)    AS "Volatility %",
+                       ROUND(lp.price_eur, 2) AS "Price €",
+                       lp.reviews             AS "Reviews"
+                FROM vw_price_volatility pv
+                JOIN vw_latest_prices lp ON lp.id = pv.product_id
+                ORDER BY pv.cv_pct DESC NULLS LAST
+                LIMIT 20
+            """)
+        if not vol_df.empty:
+            vol_df["label"] = (
+                vol_df["brand"].fillna("") + " " + vol_df["model"].fillna("")
+            ).str.strip().str.slice(0, 40)
+            fig_vol = px.bar(
+                vol_df.sort_values("Volatility %"),
+                x="Volatility %", y="label",
+                orientation="h",
+                color="Volatility %",
+                color_continuous_scale=[[0, "#22c55e"], [0.5, "#f59e0b"], [1, "#ef4444"]],
+                labels={"label": "", "Volatility %": "CV %"},
+                template="plotly_dark",
+                height=max(260, len(vol_df) * 28),
+            )
+            fig_vol.update_layout(
+                margin=dict(l=0, r=10, t=10, b=0),
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                showlegend=False,
+                coloraxis_showscale=False,
+            )
+            st.plotly_chart(fig_vol, use_container_width=True)
+        else:
+            st.info("No volatility data yet — needs 30+ days of scraping.")
+    except Exception:
+        st.info("Volatility view not yet available (run analytics.sql).")
+
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
-st.title("📊 Skroutz Price Tracker")
+st.markdown(
+    "<h1 style='background:linear-gradient(135deg,#4f8ef7,#a78bfa);"
+    "-webkit-background-clip:text;-webkit-text-fill-color:transparent;"
+    "font-size:2.2rem;font-weight:700;margin-bottom:0'>📊 Skroutz Price Tracker</h1>",
+    unsafe_allow_html=True,
+)
 st.caption(f"Live data from PostgreSQL · Last loaded: {datetime.datetime.now():%Y-%m-%d %H:%M}")
 
 try:

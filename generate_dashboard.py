@@ -426,6 +426,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Skroutz Price Tracker — __GENERATED__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <style>
 :root {
@@ -440,18 +443,30 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   --rise:      #22c55e;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 14px; }
+body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; font-size: 14px; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-.container { max-width: 1400px; margin: 0 auto; padding: 24px 16px; }
+.container { max-width: 1400px; margin: 0 auto; padding: 24px 16px 48px; }
 
 /* Header */
 header {
   display: flex; align-items: center; justify-content: space-between;
-  border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 20px;
+  border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 0;
 }
 header h1 { font-size: 22px; font-weight: 700; color: var(--accent); }
 .header-meta { color: var(--muted); font-size: 12px; text-align: right; line-height: 2; }
+
+/* Animated gradient bar under header */
+@keyframes hueShift {
+  from { filter: hue-rotate(0deg); }
+  to   { filter: hue-rotate(360deg); }
+}
+.header-bar {
+  height: 3px; width: 100%;
+  background: linear-gradient(90deg, #4f8ef7, #a78bfa, #22c55e, #f59e0b, #ef4444);
+  animation: hueShift 8s linear infinite;
+  margin-bottom: 20px;
+}
 
 /* Stat cards */
 .stats-grid {
@@ -459,13 +474,20 @@ header h1 { font-size: 22px; font-weight: 700; color: var(--accent); }
   gap: 10px; margin-bottom: 20px;
 }
 .stat-card {
-  background: var(--surface); border: 1px solid var(--border);
+  background: rgba(26,29,39,0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--accent);
   border-radius: 10px; padding: 14px;
 }
+.stat-card.highlight { border-top-color: var(--drop); }
+.stat-card.success   { border-top-color: var(--rise); }
 .stat-card .val { font-size: 22px; font-weight: 700; color: var(--accent); }
-.stat-card .lbl { font-size: 10px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .06em; }
 .stat-card.highlight .val { color: var(--drop); }
 .stat-card.success .val   { color: var(--rise); }
+.stat-card .lbl { font-size: 10px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .06em; }
+.sparkline { height: 18px; margin-top: 8px; opacity: 0.35; }
 
 /* Tabs */
 .tab-nav {
@@ -480,15 +502,23 @@ header h1 { font-size: 22px; font-weight: 700; color: var(--accent); }
   font-size: 13px; font-weight: 500; transition: all .15s; white-space: nowrap;
 }
 .tab-btn:hover { color: var(--text); background: var(--surface2); }
-.tab-btn.active { background: var(--accent); color: #fff; }
+.tab-btn.active { background: linear-gradient(135deg, #4f8ef7, #7c5ff5); color: #fff; }
+
+/* Tab content fade-in */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .tab-content { display: none; }
-.tab-content.active { display: block; }
+.tab-content.active { display: block; animation: fadeInUp 0.25s ease; }
 
 /* Sections */
 .section { margin-bottom: 30px; }
 .section-title {
   font-size: 14px; font-weight: 600; margin-bottom: 12px;
-  border-left: 3px solid var(--accent); padding-left: 10px;
+  border-left: 3px solid var(--accent);
+  box-shadow: -4px 0 12px rgba(79,142,247,0.30);
+  padding-left: 10px;
   display: flex; align-items: center; gap: 8px;
 }
 .count-badge {
@@ -592,7 +622,8 @@ tr:hover td { background: #ffffff08; }
 
 /* History modal */
 .modal-overlay {
-  display: none; position: fixed; inset: 0; background: #000000bb;
+  display: none; position: fixed; inset: 0; background: #000000aa;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   z-index: 100; align-items: center; justify-content: center;
 }
 .modal-overlay.open { display: flex; }
@@ -684,6 +715,27 @@ tr:hover td { background: #ffffff08; }
   background:#22c55e18; color:#22c55e; white-space:nowrap;
 }
 
+/* Min-drop filter row */
+.drop-filter-row {
+  display:flex; align-items:center; gap:8px; margin-bottom:10px;
+}
+.drop-filter-row label { font-size:12px; color:var(--muted); }
+.drop-filter-row input {
+  background:var(--surface); border:1px solid var(--border);
+  color:var(--text); border-radius:8px; padding:5px 10px; font-size:13px; width:90px;
+}
+.drop-filter-row input:focus { outline:none; border-color:var(--accent); }
+
+/* Sticky footer */
+#page-footer {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: rgba(15,17,23,0.96);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  border-top: 1px solid var(--border);
+  padding: 6px 20px; font-size: 11px; color: var(--muted);
+  text-align: center; z-index: 20;
+}
+
 /* Responsive */
 @media (max-width: 700px) {
   .charts-grid { grid-template-columns: 1fr; }
@@ -704,6 +756,7 @@ tr:hover td { background: #ffffff08; }
     __TOTAL_PRODUCTS__ products &nbsp;&middot;&nbsp; __TOTAL_SNAPSHOTS__ snapshots
   </div>
 </header>
+<div class="header-bar"></div>
 
 <div class="stats-grid" id="stat-cards"></div>
 
@@ -752,6 +805,10 @@ tr:hover td { background: #ffffff08; }
       <button class="sub-tab-btn active" onclick="showDropsView('today', this)">Today</button>
       <button class="sub-tab-btn"        onclick="showDropsView('week',  this)">This Week</button>
     </div>
+    <div class="drop-filter-row">
+      <label>Min Drop &euro;</label>
+      <input type="number" id="drop-min" min="0" placeholder="0" oninput="buildDropsTable()"/>
+    </div>
     <div class="table-wrap">
       <table>
         <thead><tr id="drops-thead"></tr></thead>
@@ -794,6 +851,9 @@ tr:hover td { background: #ffffff08; }
       </label>
       <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer">
         <input type="checkbox" id="chk-stable" onchange="filterProducts()"> Stable price
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer">
+        <input type="checkbox" id="chk-atl" onchange="filterProducts()"> Near ATL
       </label>
       <span class="search-count" id="search-count"></span>
       <button onclick="exportCSV()" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer">&#11015; CSV</button>
@@ -922,10 +982,14 @@ tr:hover td { background: #ffffff08; }
     <div style="max-height:400px;position:relative"><canvas id="price-rating-chart"></canvas></div>
   </div>
 
-
 </div>
 
 </div><!-- /container -->
+
+<!-- Sticky footer -->
+<div id="page-footer">
+  Skroutz Price Tracker &nbsp;&middot;&nbsp; Updated __GENERATED__ &nbsp;&middot;&nbsp; __TOTAL_PRODUCTS__ products
+</div>
 
 <!-- History modal -->
 <div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
@@ -947,7 +1011,7 @@ const HISTORY = __HISTORY_JSON__;
 const CHARTS  = __CHARTS_JSON__;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-const PALETTE   = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#a78bfa','#38bdf8','#fb923c','#e879f9','#34d399','#f472b6'];
+const PALETTE   = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899','#14b8a6','#a855f7'];
 const CAT_LABEL = {phone:'Phones',laptop:'Laptops',smartwatch:'Smartwatches',tablet:'Tablets'};
 
 function catBadge(cat) {
@@ -968,27 +1032,51 @@ function showTab(btn) {
 function buildStats() {
   const bigDrop = DATA.drops.length ? DATA.drops[0] : null;
   const cards = [
-    { val: DATA.total_products.toLocaleString(), lbl: 'Products Tracked' },
-    { val: DATA.total_snapshots.toLocaleString(), lbl: 'Price Snapshots' },
+    { val: DATA.total_products.toLocaleString(), lbl: '&#8594; Products Tracked' },
+    { val: DATA.total_snapshots.toLocaleString(), lbl: '&#8594; Price Snapshots' },
     { val: DATA.last_updated, lbl: 'Last Updated' },
-    { val: DATA.drops.length, lbl: 'Drops Today', cls: DATA.drops.length ? 'highlight' : '' },
-    { val: DATA.new_products.length, lbl: 'New This Week', cls: DATA.new_products.length ? 'success' : '' },
+    { val: DATA.drops.length, lbl: (DATA.drops.length ? '&#8595; ' : '&#8594; ') + 'Drops Today', cls: DATA.drops.length ? 'highlight' : '' },
+    { val: DATA.new_products.length, lbl: (DATA.new_products.length ? '&#8593; ' : '&#8594; ') + 'New This Week', cls: DATA.new_products.length ? 'success' : '' },
   ];
   for (const [cat, info] of Object.entries(DATA.by_category)) {
     const label = (CAT_LABEL[cat]||cat);
-    cards.push({ val: info.count.toLocaleString(), lbl: label + ' Today' });
+    cards.push({ val: info.count.toLocaleString(), lbl: '&#8594; ' + label + ' Today' });
     cards.push({ val: '€' + info.avg_price.toFixed(0), lbl: 'Avg ' + label + ' Price' });
   }
   if (bigDrop) {
     cards.push({
       val: `-€${Math.abs(bigDrop.drop_eur).toFixed(0)}`,
-      lbl: 'Biggest Drop · ' + (bigDrop.brand || ''),
+      lbl: '&#8595; Biggest Drop · ' + (bigDrop.brand || ''),
       cls: 'highlight',
     });
   }
   document.getElementById('stat-cards').innerHTML = cards.map(c =>
-    `<div class="stat-card ${c.cls||''}"><div class="val">${c.val}</div><div class="lbl">${c.lbl}</div></div>`
+    `<div class="stat-card ${c.cls||''}">
+      <div class="val">${c.val}</div>
+      <div class="lbl">${c.lbl}</div>
+      <div class="sparkline"></div>
+    </div>`
   ).join('');
+  countUp();
+}
+
+// ── countUp animation ──────────────────────────────────────────────────────────
+function countUp() {
+  document.querySelectorAll('.stat-card .val').forEach(el => {
+    const raw = el.textContent.trim();
+    const num = parseInt(raw.replace(/[^0-9]/g, ''), 10);
+    if (isNaN(num) || num < 10) return;
+    const prefix  = raw.match(/^[^0-9]*/)?.[0] ?? '';
+    const start   = performance.now();
+    const dur     = 700;
+    function tick(now) {
+      const t    = Math.min(1, (now - start) / dur);
+      const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+      el.textContent = prefix + Math.round(ease * num).toLocaleString();
+      if (t < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  });
 }
 
 // ── Trend chart images ─────────────────────────────────────────────────────────
@@ -1023,10 +1111,10 @@ function sortDropsBy(col) {
 }
 
 function buildDropsTable() {
-  const data   = dropsView === 'today' ? DATA.drops : DATA.weekly_drops;
+  const data     = dropsView === 'today' ? DATA.drops : DATA.weekly_drops;
   const showDate = dropsView === 'week';
-  const label  = dropsView === 'today' ? "🔻 Today's Price Drops" : "🗓️ This Week's Best Deals";
-  document.getElementById('drops-title').innerHTML = `${label} <span class="count-badge">${data.length}</span>`;
+  const label    = dropsView === 'today' ? "🔻 Today's Price Drops" : "🗓️ This Week's Best Deals";
+  const dropMin  = parseFloat(document.getElementById('drop-min')?.value) || 0;
 
   const cols = [
     { key:'brand',      lbl:'Brand',    sort:true },
@@ -1045,11 +1133,15 @@ function buildDropsTable() {
                ${c.sort ? `onclick="sortDropsBy('${c.key}')"` : ''}>${c.lbl}${arrow}</th>`;
   }).join('');
 
-  const sorted = [...data].sort((a, b) => {
+  let sorted = [...data].sort((a, b) => {
     const av = a[dropsSortCol], bv = b[dropsSortCol];
     if (av == null) return 1; if (bv == null) return -1;
     return (av < bv ? -1 : av > bv ? 1 : 0) * dropsSortDir;
   });
+
+  if (dropMin > 0) sorted = sorted.filter(d => Math.abs(d.drop_eur || 0) >= dropMin);
+
+  document.getElementById('drops-title').innerHTML = `${label} <span class="count-badge">${sorted.length}</span>`;
 
   const maxDrop = sorted.length ? Math.abs(sorted[0].drop_eur || 0) : 1;
   const tb = document.getElementById('drops-body');
@@ -1108,6 +1200,7 @@ function filterProducts() {
   const mx        = parseFloat(document.getElementById('price-max').value) || Infinity;
   const financing = document.getElementById('chk-financing').checked;
   const stable    = document.getElementById('chk-stable').checked;
+  const nearAtl   = document.getElementById('chk-atl').checked;
   const trend     = document.getElementById('trend-filter').value;
 
   let result = DATA.products.filter(p => {
@@ -1118,6 +1211,7 @@ function filterProducts() {
     if (p.price != null && p.price > mx) return false;
     if (financing && !p.monthly) return false;
     if (stable && p.cv >= 5) return false;
+    if (nearAtl && !(p.floor_pct != null && p.floor_pct <= 10)) return false;
     if (q) return (p.brand + ' ' + p.model + ' ' + p.name).toLowerCase().includes(q);
     return true;
   });
@@ -1246,7 +1340,6 @@ function buildBrandCharts() {
   brandInst.forEach(c => c.destroy());
   brandInst = [];
 
-  // Build all canvases first so DOM is ready
   el.innerHTML = Object.entries(DATA.brand_data).filter(([,b]) => b.length).map(([cat, brands]) =>
     `<div class="brand-card"><h4>${CAT_LABEL[cat]||cat}</h4><canvas id="bc-${cat}"></canvas></div>`
   ).join('');
@@ -1260,20 +1353,20 @@ function buildBrandCharts() {
 
     if (brandMetric === 'count') {
       datasets = [{ label:'Products', data:brands.map(b=>b.product_count),
-                    backgroundColor:PALETTE, borderRadius:4 }];
+                    backgroundColor:PALETTE, borderRadius:6 }];
       yFmt  = v => v;
       ttFmt = c => ' ' + c.raw + ' products';
     } else if (brandMetric === 'range') {
       datasets = [{ label:'Price Range', data:brands.map(b=>[b.min_price, b.max_price]),
                     backgroundColor:PALETTE.map(c=>c+'99'), borderColor:PALETTE,
-                    borderWidth:2, borderRadius:4 }];
+                    borderWidth:2, borderRadius:6 }];
       yFmt  = v => '€' + v;
       ttFmt = c => ` €${c.raw[0]}–€${c.raw[1]}`;
     } else {
       const field = brandMetric === 'median' ? 'median_price' : 'avg_price';
       const lbl   = brandMetric === 'median' ? 'Median €' : 'Avg €';
       datasets = [{ label:lbl, data:brands.map(b=>b[field]),
-                    backgroundColor:PALETTE, borderRadius:4 }];
+                    backgroundColor:PALETTE, borderRadius:6 }];
       yFmt  = v => '€' + v;
       ttFmt = c => ' €' + c.raw.toFixed(0);
     }
@@ -1300,11 +1393,9 @@ function buildBrandCharts() {
 let histInst = null;
 
 function showHistory(id) {
-  // Look up the product from the embedded data — avoids injecting arbitrary strings into onclick attributes
   const _p  = DATA.products.find(p => p.id === id) || {};
   const name = ((_p.brand || '') + ' ' + (_p.model || _p.name || '')).trim();
   const url  = _p.url || '';
-  // Sanitize before inserting as innerHTML
   const safeName = name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   document.getElementById('modal-title').innerHTML = `<a href="${url}" target="_blank">${safeName}</a>`;
   const pts = HISTORY[id] || [];
@@ -1342,15 +1433,22 @@ function showHistory(id) {
   </div>`).join('');
 
   if (histInst) histInst.destroy();
-  histInst = new Chart(document.getElementById('history-chart').getContext('2d'), {
+  const histCanvas = document.getElementById('history-chart');
+  const histCtx    = histCanvas.getContext('2d');
+  const grad = histCtx.createLinearGradient(0, 0, 0, histCanvas.offsetHeight || 200);
+  grad.addColorStop(0, 'rgba(79,142,247,0.30)');
+  grad.addColorStop(1, 'rgba(79,142,247,0)');
+
+  histInst = new Chart(histCtx, {
     type: 'line',
     data: {
       labels: pts.map(p => p.date),
       datasets: [{
         label:'Price €', data:pts.map(p => p.price),
-        borderColor:'#4f8ef7', backgroundColor:'#4f8ef718',
-        fill:true, tension:0.3,
-        pointRadius: pts.length > 30 ? 0 : 3, pointHoverRadius:4,
+        borderColor:'#4f8ef7', backgroundColor: grad,
+        fill:true, tension:0.4,
+        pointStyle:'circle', pointBackgroundColor:'#4f8ef7',
+        pointRadius: pts.length > 30 ? 0 : 3, pointHoverRadius:5,
       }, {
         label:'All-time Low', data:pts.map(() => minP),
         borderColor:'#ef444660', backgroundColor:'transparent',
@@ -1410,7 +1508,7 @@ function buildMarketShare() {
   donutInst.forEach(c => c.destroy());
   donutInst = [];
 
-  const DONUT_PALETTE = ['#4f8ef7','#a78bfa','#22c55e','#f59e0b','#ef4444','#38bdf8','#fb923c'];
+  const DONUT_PALETTE = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#06b6d4','#f97316'];
 
   el.innerHTML = Object.entries(DATA.brand_data)
     .filter(([,brands]) => brands.length)
@@ -1441,14 +1539,13 @@ function buildMarketShare() {
 
 // ── Brand Comparison line charts ───────────────────────────────────────────────
 let compareInst = [];
-const compareSelected = {};  // cat -> Set of selected brands
+const compareSelected = {};
 
 function buildBrandComparison() {
   const trend = DATA.brand_trend || {};
   if (!Object.keys(trend).length) return;
   document.getElementById('compare-section').style.display = 'block';
 
-  // Init selection per category (default top 3)
   for (const [cat, brands] of Object.entries(trend)) {
     if (!compareSelected[cat]) {
       compareSelected[cat] = new Set(Object.keys(brands).slice(0, 3));
@@ -1511,12 +1608,18 @@ function renderCompareCharts() {
       .filter(([brand]) => sel.has(brand))
       .map(([brand, pts], i) => {
         const byDate = Object.fromEntries(pts.map(p => [p.date, p.price]));
+        const color  = PALETTE[i % PALETTE.length];
         return {
           label: brand,
           data:  allDates.map(d => byDate[d] ?? null),
-          borderColor: PALETTE[i % PALETTE.length],
-          backgroundColor: 'transparent',
-          tension: 0.3, pointRadius: allDates.length > 20 ? 0 : 3,
+          borderColor:      color,
+          backgroundColor:  'transparent',
+          borderWidth:      2.5,
+          tension:          0.4,
+          pointStyle:       'circle',
+          pointBackgroundColor: color,
+          pointRadius:      allDates.length > 20 ? 1 : 3,
+          pointHoverRadius: 5,
           spanGaps: true,
         };
       });
@@ -1566,7 +1669,8 @@ function buildNearATL() {
   tb.innerHTML = near.map(p => {
     const pct      = p.floor_pct.toFixed(1);
     const barPct   = Math.min(100, p.floor_pct / 10 * 100);
-    const barColor = p.floor_pct <= 2 ? 'var(--rise)' : p.floor_pct <= 5 ? '#f59e0b' : 'var(--muted)';
+    const hue      = Math.round(120 - Math.min(p.floor_pct, 10) / 10 * 120);
+    const barColor = `hsl(${hue},80%,55%)`;
     const name     = (p.model || p.name).slice(0, 44);
     return `<tr>
       <td>${p.brand}</td>
@@ -1606,7 +1710,7 @@ function buildDiscountFreqCharts() {
       data: {
         labels: sorted.map(b => b.brand),
         datasets: [{ label:'Discount Freq %', data: sorted.map(b => b.freq_pct),
-                     backgroundColor: sorted.map((_, i) => PALETTE[i % PALETTE.length]), borderRadius: 4 }],
+                     backgroundColor: sorted.map((_, i) => PALETTE[i % PALETTE.length]), borderRadius: 6 }],
       },
       options: {
         indexAxis: 'y', responsive: true,
@@ -1634,7 +1738,7 @@ function buildPriceTierDist() {
     { label:'€1k–2k',    min:1000, max:2000 },
     { label:'>€2000',    min:2000, max:Infinity },
   ];
-  const TIER_COLORS = ['#22c55e','#4f8ef7','#f59e0b','#a78bfa','#ef4444'];
+  const TIER_COLORS = ['#10b981','#3b82f6','#f59e0b','#8b5cf6','#ef4444'];
   const cats = ['phone','laptop','smartwatch','tablet'];
   el.innerHTML = cats.map(cat =>
     `<div class="intel-card"><h4>${CAT_LABEL[cat]||cat}</h4><canvas id="td-${cat}"></canvas></div>`
@@ -1649,7 +1753,7 @@ function buildPriceTierDist() {
       type: 'bar',
       data: {
         labels: TIERS.map(t => t.label),
-        datasets: [{ label:'Products', data: counts, backgroundColor: TIER_COLORS, borderRadius: 4 }],
+        datasets: [{ label:'Products', data: counts, backgroundColor: TIER_COLORS, borderRadius: 6 }],
       },
       options: {
         responsive: true,
@@ -1668,7 +1772,7 @@ function buildPriceTierDist() {
 
 function buildPriceVsRating() {
   if (priceRatingInst) { priceRatingInst.destroy(); priceRatingInst = null; }
-  const catColors = { phone:'#3b82f6', laptop:'#a78bfa', smartwatch:'#22c55e', tablet:'#f59e0b' };
+  const catColors = { phone:'#3b82f6', laptop:'#8b5cf6', smartwatch:'#10b981', tablet:'#f59e0b' };
   const cats = ['phone','laptop','smartwatch','tablet'];
   document.getElementById('scatter-legend').innerHTML = cats.map(cat =>
     `<div class="scatter-legend-item">
@@ -1684,6 +1788,7 @@ function buildPriceVsRating() {
     backgroundColor: catColors[cat] + '99',
     borderColor: catColors[cat],
     borderWidth: 1, pointRadius: 4, pointHoverRadius: 6,
+    pointStyle: 'circle',
   }));
   priceRatingInst = new Chart(
     document.getElementById('price-rating-chart').getContext('2d'), {
@@ -1710,37 +1815,45 @@ function buildMarketIndex() {
   const idx = DATA.market_index || {};
   if (!Object.keys(idx).length) return;
   const allDates = [...new Set(Object.values(idx).flat().map(p => p.date))].sort();
-  const CAT_COLORS = { phone:'#3b82f6', laptop:'#a78bfa', smartwatch:'#22c55e', tablet:'#f59e0b' };
+  const CAT_COLORS = { phone:'#3b82f6', laptop:'#8b5cf6', smartwatch:'#10b981', tablet:'#f59e0b' };
+  const chartCanvas = document.getElementById('market-index-chart');
+  const chartCtx    = chartCanvas.getContext('2d');
+
   const datasets = Object.entries(idx).map(([cat, pts]) => {
     const byDate = Object.fromEntries(pts.map(p => [p.date, p.avg]));
+    const color  = CAT_COLORS[cat] || '#3b82f6';
+    const grad   = chartCtx.createLinearGradient(0, 0, 0, 240);
+    grad.addColorStop(0, color + '4d');
+    grad.addColorStop(1, color + '00');
     return {
       label: (CAT_LABEL[cat]||cat),
       data:  allDates.map(d => byDate[d] ?? null),
-      borderColor:     CAT_COLORS[cat] || '#4f8ef7',
-      backgroundColor: 'transparent',
-      tension: 0.3,
-      pointRadius: allDates.length > 30 ? 0 : 3,
+      borderColor:     color,
+      backgroundColor: grad,
+      fill:            true,
+      tension:         0.4,
+      pointStyle:      'circle',
+      pointBackgroundColor: color,
+      pointRadius:     allDates.length > 30 ? 0 : 3,
       spanGaps: true,
     };
   });
-  marketIndexInst = new Chart(
-    document.getElementById('market-index-chart').getContext('2d'), {
-      type: 'line',
-      data: { labels: allDates, datasets },
-      options: {
-        responsive: true,
-        interaction: { mode:'index', intersect:false },
-        plugins: {
-          legend: { labels:{ color:'#94a3b8', font:{size:11}, boxWidth:12 } },
-          tooltip: { callbacks: { label: c => ` ${c.dataset.label}: €${c.raw?.toFixed(2) ?? '—'}` } },
-        },
-        scales: {
-          x: { ticks:{ color:'#64748b', maxTicksLimit:8, font:{size:11} }, grid:{ color:'#2a2d3a' } },
-          y: { ticks:{ color:'#64748b', callback: v => '€'+v }, grid:{ color:'#2a2d3a' } },
-        },
+  marketIndexInst = new Chart(chartCtx, {
+    type: 'line',
+    data: { labels: allDates, datasets },
+    options: {
+      responsive: true,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { labels:{ color:'#94a3b8', font:{size:11}, boxWidth:12 } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: €${c.raw?.toFixed(2) ?? '—'}` } },
       },
-    }
-  );
+      scales: {
+        x: { ticks:{ color:'#64748b', maxTicksLimit:8, font:{size:11} }, grid:{ color:'#2a2d3a' } },
+        y: { ticks:{ color:'#64748b', callback: v => '€'+v }, grid:{ color:'#2a2d3a' } },
+      },
+    },
+  });
 }
 
 // ── Tab badge counts ───────────────────────────────────────────────────────────
