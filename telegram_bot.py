@@ -104,13 +104,19 @@ def _get_updates(offset: int) -> list:
 def _wl_read() -> list:
     if not os.path.exists(_WL_PATH):
         return []
-    with open(_WL_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(_WL_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"watchlist.json unreadable: {e}")
+        return []
 
 
 def _wl_write(items: list) -> None:
-    with open(_WL_PATH, "w", encoding="utf-8") as f:
+    tmp = _WL_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(items, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, _WL_PATH)
 
 
 def _url_clean(url: str) -> str:
@@ -246,7 +252,7 @@ def _cmd_drops(args: str = "") -> str:
         lines.append(
             f"{icon} <b>{_e(r.brand or '')} {_e(r.model or '')}</b>\n"
             f"  {float(r.prev_price):.0f}€ → <b>{float(r.new_price):.0f}€</b>"
-            f"  (-{abs(float(r.drop_eur)):.0f}€ / {float(r.drop_pct):.1f}%)"
+            f"  (-{abs(float(r.drop_eur)):.0f}€ / {abs(float(r.drop_pct)):.1f}%)"
         )
     return "\n".join(lines)
 
@@ -503,7 +509,7 @@ def _cmd_best(args: str) -> str:
             f"{icon} <b>{_e(r.brand or '')} {_e(r.model or '')}</b>\n"
             f"  <b>{price:.0f}€</b>  |  ATL {atl:.0f}€  |  {badge}"
         )
-    lines.append("\n<i>ATL = all-time low in the database · min. 5 snapshots required</i>")
+    lines.append("\n<i>ATL = all-time low in the database · min. 10 snapshots required</i>")
     return "\n".join(lines)
 
 
@@ -602,7 +608,7 @@ def _dispatch(text_: str, chat_id: str) -> None:
     if text_.startswith("/"):
         _pending.pop(chat_id, None)
         parts = text_.split(None, 1)
-        cmd   = parts[0].lower()
+        cmd   = parts[0].lower().split("@")[0]
         args  = parts[1] if len(parts) > 1 else ""
 
         dispatch_map = {
@@ -626,7 +632,9 @@ def _dispatch(text_: str, chat_id: str) -> None:
             _send("Unknown command. Send /help for the list.", chat_id=chat_id)
 
     elif "skroutz.gr" in text_:
-        _send(_handle_url(text_.strip(), chat_id), chat_id=chat_id)
+        url_match = re.search(r'https?://\S*skroutz\.gr\S*', text_)
+        url = url_match.group(0).rstrip(".,);") if url_match else text_.strip()
+        _send(_handle_url(url, chat_id), chat_id=chat_id)
 
     elif chat_id in _pending and re.match(r"^[\d.,]+\s*€?$", text_.strip()):
         _send(_handle_price_reply(text_, chat_id), chat_id=chat_id)
@@ -653,9 +661,11 @@ def run() -> None:
     _send("🤖 <b>Skroutz bot online.</b> Send /help for available commands.")
 
     offset = 0
+    _err_count = 0
     while True:
         try:
             updates = _get_updates(offset)
+            _err_count = 0
             for update in updates:
                 offset  = update["update_id"] + 1
                 msg     = update.get("message", {})
@@ -674,8 +684,10 @@ def run() -> None:
             logger.info("Bot stopped by user.")
             break
         except Exception as e:
-            logger.warning(f"Polling error: {e}")
-            time.sleep(5)
+            _err_count += 1
+            wait = min(300, 5 * (2 ** min(_err_count - 1, 6)))
+            logger.warning(f"Polling error: {e} — retrying in {wait}s")
+            time.sleep(wait)
 
 
 if __name__ == "__main__":

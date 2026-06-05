@@ -32,7 +32,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(os.path.join(HERE, "scraper_smartwatches.log"), encoding="utf-8"),
+        logging.FileHandler(os.path.join(HERE, "scraper_smartwatches.log"), encoding="utf-8", mode="w"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ def scrape():
     options = uc.ChromeOptions()
     options.add_argument("--disable-gpu")
 
-    driver = uc.Chrome(options=options, version_main=_chrome_major())
+    driver = uc.Chrome(options=options, version_main=_chrome_major() or None)
     try:
         driver.get("https://www.skroutz.gr/c/1705/Smartwatches.html")
 
@@ -156,11 +156,11 @@ def scrape():
         output_folder = os.path.join(HERE, "Smartwatches_skroutz")
         os.makedirs(output_folder, exist_ok=True)
         today = datetime.date.today().isoformat()
-        df = pd.DataFrame(products)
+        df = pd.DataFrame(products).drop_duplicates(subset="Link", keep="first")
         filename = f"skroutz_Smartwatches_{today}.csv"
         full_path = os.path.join(output_folder, filename)
         df.to_csv(full_path, index=False, encoding="utf-8-sig")
-        logger.info(f"Αποθηκεύτηκε: {full_path} | {len(products)} προϊόντα")
+        logger.info(f"Αποθηκεύτηκε: {full_path} | {len(df)} προϊόντα")
     finally:
         driver.quit()   # always release Chrome, even if an exception occurs mid-scrape
 

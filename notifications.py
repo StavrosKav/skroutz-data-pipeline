@@ -172,7 +172,7 @@ def tg_drops(rows) -> bool:
         brand = _e(r.brand or "")
         model = _e(r.model or "")
         saved = abs(float(r.drop_eur))
-        pct   = float(r.drop_pct)
+        pct   = abs(float(r.drop_pct))
         lines.append(
             f"{icon} <b>{brand} {model}</b>\n"
             f"  {float(r.prev_price):.0f}€ → <b>{float(r.new_price):.0f}€</b>"

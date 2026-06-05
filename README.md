@@ -153,7 +153,7 @@ Static metadata is written once; price history grows by ~7,000–19,000 rows per
 
 ## Analytics Views
 
-`analytics.sql` defines **12 PostgreSQL views** that turn raw snapshots into actionable intelligence. Run it once against the database in pgAdmin, DBeaver, or psql.
+`analytics.sql` defines **13 PostgreSQL views** that turn raw snapshots into actionable intelligence. Run it once against the database in pgAdmin, DBeaver, or psql.
 
 | View | Purpose |
 |---|---|
@@ -164,11 +164,12 @@ Static metadata is written once; price history grows by ~7,000–19,000 rows per
 | `vw_disappeared` | Products not seen in the last 7 days (likely delisted) |
 | `vw_price_volatility` | 30-day coefficient of variation per product (deal quality signal) |
 | `vw_brand_price_trend` | Daily avg price per brand/category (brand comparison over time) |
-| `vw_hot_deals` | Price drop + review surge in the last 7 days |
-| `vw_price_floor` | Lowest ever recorded price per product (ATL reference) |
-| `vw_brand_discount_freq` | How often each brand discounts (discount frequency %) |
-| `vw_review_velocity` | Review growth rate — surfaces products gaining popularity |
-| `vw_restock_pricing` | Price change pattern when a disappeared product reappears |
+| `vw_hot_deals` | Price drop + review surge — compares two most recent scrape dates |
+| `vw_price_floor` | All-time low and high per product |
+| `vw_brand_discount_freq` | % of days each brand had a ≥3% drop (last 90 days) |
+| `vw_near_atl` | Products currently within 10% of their all-time low |
+| `vw_price_trend_direction` | 7-day vs 30-day avg momentum — falling / stable / rising |
+| `vw_daily_market_index` | Daily avg/min/max price per category (macro market trend) |
 
 ### Sample Queries
 
@@ -201,14 +202,13 @@ ORDER BY discount_pct DESC;
 
 ```sql
 -- Products at or near their all-time low
-SELECT p.brand, p.model, p.category,
-       f.floor_price, l.price_eur AS current_price,
-       ROUND(100.0 * (l.price_eur - f.floor_price) / f.floor_price, 1) AS pct_above_floor
-FROM vw_price_floor f
-JOIN vw_latest_prices l ON l.id = f.product_id
-JOIN products p ON p.id = f.product_id
-WHERE l.price_eur <= f.floor_price * 1.05
-ORDER BY pct_above_floor ASC;
+SELECT lp.brand, lp.model, lp.category,
+       pf.all_time_low, lp.price_eur AS current_price,
+       ROUND(100.0 * (lp.price_eur - pf.all_time_low) / pf.all_time_low, 1) AS pct_above_atl
+FROM vw_near_atl lp
+JOIN vw_price_floor pf ON pf.product_id = lp.id
+ORDER BY pct_above_atl ASC
+LIMIT 20;
 ```
 
 ---
@@ -231,6 +231,39 @@ dashboard/dashboard_YYYY-MM-DD.html
 | **Market** | Avg price per brand (top 12 per category), price distribution histograms |
 | **Intelligence** | ATL floor proximity, discount frequency heatmap, price tiers, price vs. rating scatter, review velocity, restock pricing analysis |
 | **Watchlist** | Threshold status for all tracked products in `watchlist.json` |
+
+---
+
+## Telegram Bot
+
+`telegram_bot.py` provides an interactive long-polling bot for real-time price intelligence. Run it separately (e.g. always-on terminal or Task Scheduler).
+
+| Command | Description |
+|---|---|
+| `/status` | Last pipeline run result and log tail |
+| `/drops [category]` | Today's top price drops |
+| `/best [category]` | Products closest to their all-time low |
+| `/find <name>` | Search products by name + ATL context |
+| `/history <name>` | Full 14-day price timeline |
+| `/watchlist` | Numbered list with live prices vs targets |
+| `/add <url> <€>` | Add a product to the watchlist |
+| `/remove <n>` | Remove watchlist item #n |
+| `/stats` | DB stats: products, snapshots, today's drops |
+
+Send any skroutz.gr URL to the bot and it guides you through adding it to the watchlist.
+
+Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. The bot only responds to the configured `CHAT_ID`.
+
+## Streamlit Dashboard
+
+`streamlit_app.py` provides an interactive live dashboard that queries PostgreSQL directly (cached 1 h). It runs alongside the static HTML dashboard.
+
+```bash
+streamlit run streamlit_app.py
+# Opens at http://localhost:8501
+```
+
+Tabs: Overview · Price Drops · Products · Analytics · Watchlist
 
 ---
 
@@ -274,7 +307,7 @@ Add products to `watchlist.json` to receive an email when they hit your target p
 | Database driver | psycopg2-binary | 2.9.12 |
 | Database engine | PostgreSQL | 16 |
 | Visualisation | matplotlib | 3.10.6 |
-| Visualisation | seaborn | 0.13.2 |
+| Visualisation | plotly | ≥5.18 |
 | Config | python-dotenv | 1.1.0 |
 | Orchestration | subprocess + Windows Task Scheduler | — |
 | Alerting | smtplib (Gmail SMTP) | stdlib |

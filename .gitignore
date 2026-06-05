@@ -1,6 +1,9 @@
 # Credentials — never commit
 .env
 
+# Atomic-write temp files (left behind on crash mid-write)
+*.tmp
+
 # Python cache
 __pycache__/
 *.pyc

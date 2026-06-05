@@ -41,6 +41,8 @@ TOP_N_BRANDS  = 6
 LOOKBACK_DAYS = 180
 SMOOTH        = 7        # rolling-average window (days)
 
+_CAT_LABEL = {"phone": "Phones", "laptop": "Laptops", "smartwatch": "Smartwatches", "tablet": "Tablets"}
+
 # ── Dark palette matching the dashboard ───────────────────────────────────────
 BG      = "#0f1117"
 SURFACE = "#1a1d27"
@@ -81,7 +83,7 @@ def fetch_brand_trend(conn, category):
 
 def plot_brand_trend(df, category, output_path):
     brands = sorted(df["brand"].unique())
-    cat_label = category.capitalize() + ("s" if not category.endswith("s") else "")
+    cat_label = _CAT_LABEL.get(category, category.capitalize() + "s")
 
     date_min  = df["date"].min()
     date_max  = df["date"].max()
@@ -195,13 +197,16 @@ def main():
     with get_engine().connect() as conn:
         for category in CATEGORIES:
             logger.info(f"Plotting {category}...")
-            df = fetch_brand_trend(conn, category)
-            if df.empty:
-                logger.warning(f"  No data — skipping.")
-                continue
-            df["date"] = pd.to_datetime(df["date"])
-            out = os.path.join(CHARTS_DIR, f"price_trend_{category}.png")
-            plot_brand_trend(df, category, out)
+            try:
+                df = fetch_brand_trend(conn, category)
+                if df.empty:
+                    logger.warning(f"  No data for {category} — skipping.")
+                    continue
+                df["date"] = pd.to_datetime(df["date"])
+                out = os.path.join(CHARTS_DIR, f"price_trend_{category}.png")
+                plot_brand_trend(df, category, out)
+            except Exception as e:
+                logger.warning(f"  Chart failed for {category}: {e}")
 
     logger.info(f"All charts saved to: {CHARTS_DIR}")
 

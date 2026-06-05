@@ -85,11 +85,10 @@ def load_category(conn, category, file_path):
     """
     Load one category's cleaned CSV into the database.
 
-    For each row:
-      1. Upsert the product into `products` (keyed by skroutz_link).
-         New rows are inserted; existing rows only have `last_seen` updated.
-      2. Insert a price snapshot into `price_snapshots` for today's date.
-         Duplicate (product_id, date) pairs are silently ignored.
+    Uses three batch operations instead of per-row queries:
+      1. Batch upsert all products (one executemany call).
+      2. Batch fetch all product IDs by link.
+      3. Batch insert all price snapshots (one executemany call).
 
     Parameters
     ----------
@@ -104,34 +103,17 @@ def load_category(conn, category, file_path):
     df = pd.read_csv(file_path)
     df.columns = [c.lower() for c in df.columns]   # normalise headers to lowercase
 
-    new_products = 0
-    snapshots    = 0
+    products_rows   = []
+    snapshot_extras = []   # price/rating fields, ordered parallel to products_rows
 
     for _, row in df.iterrows():
         link = _val(row, "link")
-        if not link:
+        if not link or str(link).upper() == "N/A":
             continue   # rows without a URL cannot be reliably identified
-
-        # Upsert product — static metadata inserted once; last_seen updated on every run
-        # xmax = 0 is a PostgreSQL internal flag: true only on a fresh INSERT (not UPDATE)
-        result = conn.execute(text("""
-            INSERT INTO products (
-                category, skroutz_link, product_name, brand, model, specs,
-                ram_gb, storage_gb, num_cameras, camera_type,
-                display_inches, battery_info, display_info, color,
-                first_seen, last_seen
-            ) VALUES (
-                :category, :skroutz_link, :product_name, :brand, :model, :specs,
-                :ram_gb, :storage_gb, :num_cameras, :camera_type,
-                :display_inches, :battery_info, :display_info, :color,
-                :first_seen, :last_seen
-            )
-            ON CONFLICT (skroutz_link) DO UPDATE SET
-                last_seen = EXCLUDED.last_seen
-            RETURNING id, (xmax = 0) AS is_new
-        """), {
+        link = str(link)
+        products_rows.append({
             "category":       category,
-            "skroutz_link":   str(link),
+            "skroutz_link":   link,
             "product_name":   _val(row, "product"),
             "brand":          _val(row, "brand"),
             "model":          _val(row, "model"),
@@ -147,11 +129,75 @@ def load_category(conn, category, file_path):
             "first_seen":     today,
             "last_seen":      today,
         })
-        product_id, is_new = result.fetchone()
-        if is_new:
-            new_products += 1
+        snapshot_extras.append({
+            "skroutz_link":           link,
+            "price_eur":              _float(row, "price_eur"),
+            "installments_per_month": _float(row, "installments_per_month"),
+            "installments_in_total":  _float(row, "installments_in_total"),
+            "rating":                 _float(row, "rating"),
+            "reviews":                _int(row, "reviews"),
+        })
 
-        # Insert today's price snapshot — idempotent (safe to re-run)
+    if not products_rows:
+        logger.warning(f"{category:12s}: no valid rows in {file_path}")
+        return
+
+    links = [r["skroutz_link"] for r in products_rows]
+
+    # Pre-count to correctly measure new_products on re-runs
+    pre_count = conn.execute(
+        text("SELECT COUNT(*) FROM products WHERE first_seen = :today AND skroutz_link = ANY(:links)"),
+        {"today": today, "links": links}
+    ).scalar() or 0
+
+    # Batch upsert products — one executemany call for the whole category
+    conn.execute(text("""
+        INSERT INTO products (
+            category, skroutz_link, product_name, brand, model, specs,
+            ram_gb, storage_gb, num_cameras, camera_type,
+            display_inches, battery_info, display_info, color,
+            first_seen, last_seen
+        ) VALUES (
+            :category, :skroutz_link, :product_name, :brand, :model, :specs,
+            :ram_gb, :storage_gb, :num_cameras, :camera_type,
+            :display_inches, :battery_info, :display_info, :color,
+            :first_seen, :last_seen
+        )
+        ON CONFLICT (skroutz_link) DO UPDATE SET last_seen = EXCLUDED.last_seen
+    """), products_rows)
+
+    # New products = those whose first_seen was just set to today (post - pre)
+    post_count = conn.execute(
+        text("SELECT COUNT(*) FROM products WHERE first_seen = :today AND skroutz_link = ANY(:links)"),
+        {"today": today, "links": links}
+    ).scalar() or 0
+    new_products = post_count - pre_count
+
+    # Fetch all product IDs in one query
+    id_map = {
+        r.skroutz_link: r.id
+        for r in conn.execute(
+            text("SELECT id, skroutz_link FROM products WHERE skroutz_link = ANY(:links)"),
+            {"links": links}
+        )
+    }
+
+    # Build and batch-insert all snapshots — one executemany call
+    snapshot_rows = [
+        {
+            "product_id":             id_map[e["skroutz_link"]],
+            "date":                   today,
+            "price_eur":              e["price_eur"],
+            "installments_per_month": e["installments_per_month"],
+            "installments_in_total":  e["installments_in_total"],
+            "rating":                 e["rating"],
+            "reviews":                e["reviews"],
+        }
+        for e in snapshot_extras
+        if e["skroutz_link"] in id_map
+    ]
+
+    if snapshot_rows:
         conn.execute(text("""
             INSERT INTO price_snapshots (
                 product_id, date,
@@ -163,18 +209,9 @@ def load_category(conn, category, file_path):
                 :rating, :reviews
             )
             ON CONFLICT (product_id, date) DO NOTHING
-        """), {
-            "product_id":             product_id,
-            "date":                   today,
-            "price_eur":              _float(row, "price_eur"),
-            "installments_per_month": _float(row, "installments_per_month"),
-            "installments_in_total":  _float(row, "installments_in_total"),
-            "rating":                 _float(row, "rating"),
-            "reviews":                _int(row, "reviews"),
-        })
-        snapshots += 1
+        """), snapshot_rows)
 
-    logger.info(f"{category:12s}: {new_products} new products | {snapshots} snapshots loaded")
+    logger.info(f"{category:12s}: {new_products} new products | {len(snapshot_rows)} snapshots loaded")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
