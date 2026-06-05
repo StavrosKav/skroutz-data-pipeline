@@ -244,15 +244,19 @@ dashboard/dashboard_YYYY-MM-DD.html
 | `/drops [category]` | Today's top price drops |
 | `/best [category]` | Products closest to their all-time low |
 | `/find <name>` | Search products by name + ATL context |
-| `/history <name>` | Full 14-day price timeline |
+| `/history <name>` | Full 14-day price timeline with ATL/ATH context |
 | `/watchlist` | Numbered list with live prices vs targets |
 | `/add <url> <€>` | Add a product to the watchlist |
 | `/remove <n>` | Remove watchlist item #n |
 | `/stats` | DB stats: products, snapshots, today's drops |
+| `/cancel` | Cancel any in-progress conversation |
+| `/help` | List all available commands |
 
 Send any skroutz.gr URL to the bot and it guides you through adding it to the watchlist.
 
 Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. The bot only responds to the configured `CHAT_ID`.
+
+---
 
 ## Streamlit Dashboard
 
@@ -263,7 +267,7 @@ streamlit run streamlit_app.py
 # Opens at http://localhost:8501
 ```
 
-Tabs: Overview · Price Drops · Products · Analytics · Watchlist
+Tabs: Overview · Price Drops · Products · Watchlist · Analytics
 
 ---
 
@@ -312,6 +316,7 @@ Add products to `watchlist.json` to receive an email when they hit your target p
 | Config | python-dotenv | 1.1.0 |
 | Orchestration | subprocess + Windows Task Scheduler | — |
 | Alerting | smtplib (Gmail SMTP) | stdlib |
+| Notifications | Telegram Bot API (stdlib urllib) | — |
 | Containerisation | Docker + Compose | — |
 | Testing | pytest | — |
 | Linting | ruff | — |
@@ -422,8 +427,14 @@ schtasks /create /tn "SkroutzDailyPipeline" /tr "C:\path\to\run_pipeline.bat" /s
 │
 ├── charts_from_db.py              # Price trend charts — PNG per category
 ├── generate_dashboard.py          # Self-contained HTML dashboard from PostgreSQL
+├── streamlit_app.py               # Interactive Streamlit dashboard (live DB queries)
+├── notifications.py               # Telegram notification layer — dedup, retry, backoff
+├── telegram_bot.py                # Interactive Telegram bot — long-polling
 ├── analytics.sql                  # 13 analytical views — run once in DB
 ├── watchlist.json                 # Price alert targets [{url, label, threshold_eur}]
+│
+├── tests/
+│   └── test_pipeline.py           # 49 unit tests (pytest) — parsing, coercions, I/O
 │
 ├── Skroutz_data_EDA.py            # Exploratory data analysis & single-day charts
 ├── backfill_models.py             # One-time: backfill brand/model fields
@@ -465,7 +476,7 @@ Current database state as of **2026-06-05**:
 | Apple | iPhone 16 Pro Max | 8 GB | 256 GB | 1352.00 | 4.7 | 165 | 2026-06-01 |
 | Samsung | Galaxy S25 | 12 GB | 256 GB | 759.00 | 4.8 | 421 | 2026-06-01 |
 
-Each row becomes one `price_snapshots` record linked to its `products` entry by foreign key. The pipeline appends ~7,000 rows per day and is fully idempotent — re-running the same day is safe.
+Each row becomes one `price_snapshots` record linked to its `products` entry by foreign key. The pipeline appends ~19,000 rows per day and is fully idempotent — re-running the same day is safe.
 
 ### Price Trends
 
