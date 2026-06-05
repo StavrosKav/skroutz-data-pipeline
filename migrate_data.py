@@ -185,7 +185,7 @@ def main():
                 continue
 
         if df.empty:
-            print(f"  Empty table, skipping.")
+            print("  Empty table, skipping.")
             continue
 
         # Each table migrates atomically — a failure here doesn't affect other tables

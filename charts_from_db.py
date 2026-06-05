@@ -171,8 +171,8 @@ def plot_brand_trend(df, category, output_path):
         borderpad=0.7,
         labelspacing=0.45,
     )
-    for text in leg.get_texts():
-        text.set_color(TEXT)
+    for lbl in leg.get_texts():
+        lbl.set_color(TEXT)
 
     # ── Title & subtitle ──────────────────────────────────────────────────────
     start_str = date_min.strftime("%b %d, %Y") if hasattr(date_min, "strftime") else str(date_min)[:10]
