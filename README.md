@@ -1,5 +1,6 @@
 # Skroutz Price Tracker
 
+[![CI](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)
 ![Selenium](https://img.shields.io/badge/Selenium-4.41-43B02A?logo=selenium&logoColor=white)
@@ -8,7 +9,7 @@
 
 An end-to-end Python data engineering pipeline that scrapes daily product listings from [Skroutz.gr](https://www.skroutz.gr) — Greece's largest e-commerce aggregator — cleans and enriches the raw data, loads it into a normalized PostgreSQL database, and delivers automated price intelligence via email alerts and an interactive HTML dashboard.
 
-> **18,869 products tracked · 188,142 price snapshots · 4 categories · daily since June 2025**
+> **~19,607 products tracked · 4 categories · ~19,000 new snapshots/day · daily since June 2025**
 
 ---
 
@@ -308,10 +309,16 @@ Add products to `watchlist.json` to receive an email when they hit your target p
 | Database engine | PostgreSQL | 16 |
 | Visualisation | matplotlib | 3.10.6 |
 | Visualisation | plotly | ≥5.18 |
+| Interactive dashboard | Streamlit | ≥1.35 |
 | Config | python-dotenv | 1.1.0 |
 | Orchestration | subprocess + Windows Task Scheduler | — |
 | Alerting | smtplib (Gmail SMTP) | stdlib |
 | Containerisation | Docker + Compose | — |
+| Testing | pytest | — |
+| Linting | ruff | — |
+| Dependency CVE scan | pip-audit | — |
+| Secret scanning | TruffleHog | — |
+| CI | GitHub Actions | — |
 | Runtime | Python | 3.13 |
 
 ---
@@ -416,7 +423,7 @@ schtasks /create /tn "SkroutzDailyPipeline" /tr "C:\path\to\run_pipeline.bat" /s
 │
 ├── charts_from_db.py              # Price trend charts — PNG per category
 ├── generate_dashboard.py          # Self-contained HTML dashboard from PostgreSQL
-├── analytics.sql                  # 12 analytical views — run once in DB
+├── analytics.sql                  # 13 analytical views — run once in DB
 ├── watchlist.json                 # Price alert targets [{url, label, threshold_eur}]
 │
 ├── Skroutz_data_EDA.py            # Exploratory data analysis & single-day charts
@@ -435,17 +442,17 @@ schtasks /create /tn "SkroutzDailyPipeline" /tr "C:\path\to\run_pipeline.bat" /s
 
 ## Data Coverage
 
-Current database state as of **2026-06-01**:
+Current database state as of **2026-06-05**:
 
-| Category | Products | Snapshots | Avg Daily Rows |
-|---|---|---|---|
-| Phones | 5,109 | 52,110 | ~1,200 |
-| Laptops | 6,303 | 51,374 | ~2,600 |
-| Smartwatches | 5,854 | 70,771 | ~2,700 |
-| Tablets | 1,603 | 13,887 | ~480 |
-| **Total** | **18,869** | **188,142** | **~7,000** |
+| Category | Products | Avg Daily Snapshots |
+|---|---|---|
+| Phones | ~5,313 | ~5,300 |
+| Laptops | ~6,549 | ~6,500 |
+| Smartwatches | ~6,082 | ~6,100 |
+| Tablets | ~1,663 | ~1,100 |
+| **Total** | **~19,607** | **~19,000** |
 
-**Date range:** 2025-06-10 → 2026-06-01 (~12 months of daily history)
+**Date range:** 2025-06-10 → present (~12 months of daily history)
 
 ---
 
