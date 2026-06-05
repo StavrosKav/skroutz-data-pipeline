@@ -31,6 +31,7 @@ Typical usage:
 For automation, configure Windows Task Scheduler to run this script daily.
 """
 
+import html
 import subprocess
 import sys
 import logging
@@ -52,8 +53,8 @@ load_dotenv()
 BASE = os.path.dirname(os.path.abspath(__file__))
 
 _log_dir  = os.path.join(BASE, "logs")
-_log_file = os.path.join(_log_dir, f"pipeline_{datetime.date.today()}.log")
 os.makedirs(_log_dir, exist_ok=True)
+_log_file = os.path.join(_log_dir, f"pipeline_{datetime.date.today()}.log")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,18 +62,19 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(_log_file, encoding="utf-8", delay=True),
+        logging.FileHandler(_log_file, encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
 
 
 def _cleanup_old_logs(days: int = 30) -> None:
-    """Delete pipeline and scraper log files older than `days` days."""
+    """Delete pipeline, scraper, and dedup log files older than `days` days."""
     cutoff = datetime.date.today() - datetime.timedelta(days=days)
     removed = 0
     for fname in os.listdir(_log_dir):
-        if not fname.endswith(".log"):
+        if not (fname.endswith(".log") or
+                (fname.startswith("tg_sent_") and fname.endswith(".json"))):
             continue
         m = re.search(r"(\d{4}-\d{2}-\d{2})", fname)
         if not m:
@@ -176,7 +178,7 @@ def _send_html_email(subject: str, html: str, plain: str) -> None:
     msg.set_content(plain)
     msg.add_alternative(html, subtype="html")
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
             smtp.starttls()
             smtp.login(ALERT_FROM, GMAIL_APP_PASSWORD)
             smtp.send_message(msg)
@@ -242,11 +244,13 @@ def send_failure_alert(stage, returncode):
 def run_charts():
     """Regenerate price trend charts. Non-fatal — pipeline result is unaffected if this fails."""
     logger.info("=== Charts started ===")
+    t = datetime.datetime.now()
     result = subprocess.run([sys.executable, os.path.join(BASE, "charts_from_db.py")])
+    elapsed = (datetime.datetime.now() - t).total_seconds()
     if result.returncode != 0:
-        logger.warning("Charts step failed — pipeline result is unaffected.")
+        logger.warning(f"Charts step failed after {elapsed:.0f}s — pipeline result is unaffected.")
     else:
-        logger.info("=== Charts complete ===")
+        logger.info(f"=== Charts complete in {elapsed:.0f}s ===")
 
 
 def send_drop_digest():
@@ -284,11 +288,13 @@ def send_drop_digest():
       </thead>"""
     tbody_rows = []
     for i, r in enumerate(rows):
-        bg = "#f8fafc" if i % 2 == 0 else "#ffffff"
+        bg    = "#f8fafc" if i % 2 == 0 else "#ffffff"
+        brand = html.escape(str(r.brand or "—"))
+        model = html.escape(str(r.model or "—"))
         tbody_rows.append(
             f'<tr style="background:{bg};">'
-            f'<td style="padding:10px 10px;font-size:13px;color:#111827;font-weight:600;">{r.brand or "—"}</td>'
-            f'<td style="padding:10px 10px;font-size:12px;color:#374151;">{r.model or "—"}</td>'
+            f'<td style="padding:10px 10px;font-size:13px;color:#111827;font-weight:600;">{brand}</td>'
+            f'<td style="padding:10px 10px;font-size:12px;color:#374151;">{model}</td>'
             f'<td style="padding:10px 8px;font-size:14px;text-align:center;">{CAT_ICON.get(r.category, "")}</td>'
             f'<td style="padding:10px 10px;font-size:12px;color:#9ca3af;text-align:right;text-decoration:line-through;">{float(r.prev_price):.2f}&nbsp;€</td>'
             f'<td style="padding:10px 10px;font-size:13px;color:#111827;font-weight:700;text-align:right;">{float(r.new_price):.2f}&nbsp;€</td>'
@@ -309,7 +315,7 @@ def send_drop_digest():
         plain_rows.append(
             f"{(r.brand or '')[:18]:<18} {(r.model or '')[:28]:<28} {r.category:<12} "
             f"{float(r.prev_price):>8.2f} {float(r.new_price):>8.2f} "
-            f"{abs(float(r.drop_eur)):>8.2f} {float(r.drop_pct):>7.1f}%"
+            f"{abs(float(r.drop_eur)):>8.2f} {abs(float(r.drop_pct)):>7.1f}%"
         )
     plain = (
         f"Top price drops from today's scrape ({datetime.date.today()}):\n\n"
@@ -350,6 +356,8 @@ def send_watchlist_alerts():
 
     Edit watchlist.json to add or remove tracked products.
     """
+    if not GMAIL_APP_PASSWORD and not _notif._TOKEN:
+        return
     watchlist_path = os.path.join(BASE, "watchlist.json")
     if not os.path.exists(watchlist_path):
         logger.info("watchlist.json not found — skipping watchlist check.")
@@ -415,8 +423,8 @@ def send_watchlist_alerts():
       </thead>"""
     tbody_rows = []
     for i, h in enumerate(hits):
-        bg   = "#f8fafc" if i % 2 == 0 else "#ffffff"
-        name = f"{h['brand']} {h['model']}".strip() or h["label"]
+        bg        = "#f8fafc" if i % 2 == 0 else "#ffffff"
+        name      = html.escape((f"{h['brand']} {h['model']}".strip() or h["label"]))
         below_eur = h["threshold"] - h["price"]
         below_pct = 100.0 * below_eur / h["threshold"] if h["threshold"] else 0
         tbody_rows.append(
@@ -506,7 +514,8 @@ def send_disappeared_alert():
     tbody_rows = []
     for i, r in enumerate(rows):
         bg    = "#f8fafc" if i % 2 == 0 else "#ffffff"
-        model = (r.model or r.product_name or "—")
+        brand = html.escape(str(r.brand or "—"))
+        model = html.escape(str(r.model or r.product_name or "—"))
         days  = int(r.days_since_last_seen) if r.days_since_last_seen else "?"
         days_badge = (
             f'<span style="background:#fff3cd;color:#856404;padding:2px 7px;border-radius:10px;'
@@ -514,7 +523,7 @@ def send_disappeared_alert():
         )
         tbody_rows.append(
             f'<tr style="background:{bg};">'
-            f'<td style="padding:10px 10px;font-size:13px;color:#111827;font-weight:600;">{r.brand or "—"}</td>'
+            f'<td style="padding:10px 10px;font-size:13px;color:#111827;font-weight:600;">{brand}</td>'
             f'<td style="padding:10px 10px;font-size:12px;color:#374151;">{model}</td>'
             f'<td style="padding:10px 8px;font-size:14px;text-align:center;">{CAT_ICON.get(r.category, "")}</td>'
             f'<td style="padding:10px 10px;font-size:12px;color:#374151;text-align:center;">{r.last_seen}</td>'
@@ -566,11 +575,13 @@ def send_disappeared_alert():
 def run_dashboard():
     """Generate the HTML dashboard. Non-fatal — pipeline result is unaffected if this fails."""
     logger.info("=== Dashboard started ===")
+    t = datetime.datetime.now()
     result = subprocess.run([sys.executable, os.path.join(BASE, "generate_dashboard.py")])
+    elapsed = (datetime.datetime.now() - t).total_seconds()
     if result.returncode != 0:
-        logger.warning("Dashboard generation failed — pipeline result is unaffected.")
+        logger.warning(f"Dashboard generation failed after {elapsed:.0f}s — pipeline result is unaffected.")
     else:
-        logger.info("=== Dashboard complete ===")
+        logger.info(f"=== Dashboard complete in {elapsed:.0f}s ===")
 
 
 def send_success_summary(elapsed):
@@ -580,12 +591,18 @@ def send_success_summary(elapsed):
     try:
         engine = get_engine()
         with engine.connect() as conn:
-            snaps     = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CURRENT_DATE")).scalar()
-            new_prods = conn.execute(text("SELECT COUNT(*) FROM products WHERE first_seen = CURRENT_DATE")).scalar()
-            drops     = conn.execute(text("SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE")).scalar()
+            snaps          = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CURRENT_DATE")).scalar()
+            new_prods      = conn.execute(text("SELECT COUNT(*) FROM products WHERE first_seen = CURRENT_DATE")).scalar()
+            drops          = conn.execute(text("SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE")).scalar()
+            yesterday_snaps = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CURRENT_DATE - 1")).scalar() or 0
     except Exception as e:
         logger.warning(f"Success summary: DB query failed — {e}")
         return
+    if yesterday_snaps > 0 and snaps < yesterday_snaps * 0.5:
+        logger.warning(
+            f"ANOMALY: Today {snaps:,} snapshots vs yesterday {yesterday_snaps:,} — "
+            f"possible partial scrape ({100 * snaps // yesterday_snaps}%)"
+        )
     elapsed_str = str(elapsed).split(".")[0]  # trim microseconds
     _notif.tg_success(snaps, new_prods, drops, elapsed_str)
     now_str     = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -649,12 +666,14 @@ def run_stage(label, script):
     never run against incomplete input data.
     """
     logger.info(f"=== {label} started ===")
+    t = datetime.datetime.now()
     result = subprocess.run([sys.executable, script])
+    elapsed = (datetime.datetime.now() - t).total_seconds()
     if result.returncode != 0:
-        logger.error(f"{label} failed (exit {result.returncode}). Aborting pipeline.")
+        logger.error(f"{label} failed (exit {result.returncode}) after {elapsed:.0f}s. Aborting pipeline.")
         send_failure_alert(label, result.returncode)
         sys.exit(result.returncode)
-    logger.info(f"=== {label} complete ===")
+    logger.info(f"=== {label} complete in {elapsed:.0f}s ===")
 
 
 if __name__ == "__main__":
@@ -669,4 +688,5 @@ if __name__ == "__main__":
     send_disappeared_alert()
     run_dashboard()
     elapsed = datetime.datetime.now() - start
+    send_success_summary(elapsed)
     logger.info(f"Pipeline finished in {elapsed}")

@@ -5,14 +5,19 @@
 -- Run once in DBeaver or psql against the SkroutzPR database.
 --
 -- Views defined here:
---   vw_latest_prices       — each product with its most recent price snapshot
---   vw_price_history       — full daily price history with day-over-day change
---   vw_biggest_drops       — products with the largest single-day price drops
---   vw_brand_summary       — price stats per brand per category
---   vw_disappeared         — products that have not been seen in the last 7 days
---   vw_price_volatility    — 30-day coefficient of variation per product (deal quality signal)
---   vw_brand_price_trend   — daily avg price per brand/category (brand comparison over time)
---   vw_hot_deals           — products with price drop + review surge in the last 7 days
+--   vw_latest_prices          — each product with its most recent price snapshot
+--   vw_price_history          — full daily price history with day-over-day change
+--   vw_biggest_drops          — products with the largest single-day price drops
+--   vw_brand_summary          — price stats per brand per category
+--   vw_disappeared            — products not seen for 7+ days
+--   vw_price_volatility       — 30-day coefficient of variation per product
+--   vw_brand_price_trend      — daily avg price per brand/category
+--   vw_hot_deals              — products with price drop + review surge in the last 7 days
+--   vw_price_floor            — all-time low / high per product
+--   vw_brand_discount_freq    — % of days each brand had a ≥3% drop (last 90 days)
+--   vw_near_atl               — products currently within a given % of their all-time low
+--   vw_price_trend_direction  — 7-day vs 30-day avg price momentum (falling/stable/rising)
+--   vw_daily_market_index     — daily avg category price (macro market trend)
 -- =============================================================================
 
 
@@ -280,6 +285,18 @@ CREATE INDEX IF NOT EXISTS idx_price_snapshots_date
 CREATE INDEX IF NOT EXISTS idx_price_snapshots_product_date
     ON price_snapshots(product_id, date);
 
+-- Speeds up all views that filter or group by category or brand
+-- (vw_brand_summary, vw_brand_price_trend, vw_brand_discount_freq, vw_near_atl, etc.)
+CREATE INDEX IF NOT EXISTS idx_products_category
+    ON products(category);
+
+CREATE INDEX IF NOT EXISTS idx_products_brand
+    ON products(brand);
+
+-- Speeds up vw_disappeared and send_disappeared_alert() which filter on last_seen
+CREATE INDEX IF NOT EXISTS idx_products_last_seen
+    ON products(last_seen);
+
 
 -- =============================================================================
 -- Additional analytical views (v2)
@@ -333,63 +350,75 @@ LEFT JOIN drops d ON d.category = t.category AND d.brand = t.brand
 ORDER BY discount_freq_pct DESC NULLS LAST;
 
 
--- ── 11. Review velocity (fastest-rising products) ────────────────────────────
--- Products with the highest review growth in the last 14 days.
--- Distinguishes genuine demand traction from products that are merely popular.
+-- ── 11. Near all-time low ─────────────────────────────────────────────────────
+-- Products currently within a given percentage of their all-time low.
+-- Requires at least 10 snapshots and a meaningful price range (≥€20).
+-- Used by /best Telegram command and the Intelligence dashboard tab.
 
-CREATE OR REPLACE VIEW vw_review_velocity AS
-WITH bounds AS (
-    SELECT MAX(date) AS latest_date,
-           MAX(date) - INTERVAL '14 days' AS cutoff_date
-    FROM price_snapshots
-),
-agg AS (
-    SELECT ps.product_id,
-           MAX(ps.reviews) FILTER (WHERE ps.date = b.latest_date)  AS rev_now,
-           MAX(ps.reviews) FILTER (WHERE ps.date <= b.cutoff_date) AS rev_14d
-    FROM price_snapshots ps, bounds b
-    GROUP BY ps.product_id
-)
+CREATE OR REPLACE VIEW vw_near_atl AS
 SELECT
-    p.id              AS product_id,
-    p.category, p.brand, p.model, p.product_name, p.skroutz_link,
-    a.rev_now,
-    a.rev_14d,
-    COALESCE(a.rev_now - a.rev_14d, 0)                                             AS new_reviews_14d,
-    ROUND(COALESCE(a.rev_now - a.rev_14d, 0)::NUMERIC / 14.0, 2)                  AS reviews_per_day
-FROM agg a
-JOIN products p ON p.id = a.product_id
-WHERE a.rev_now IS NOT NULL
-  AND a.rev_14d IS NOT NULL
-  AND a.rev_now > a.rev_14d
-ORDER BY new_reviews_14d DESC;
+    lp.id,
+    lp.category,
+    lp.brand,
+    lp.model,
+    lp.product_name,
+    lp.skroutz_link,
+    lp.price_eur AS current_price,
+    pf.all_time_low,
+    pf.all_time_high,
+    pf.snapshot_count,
+    ROUND(
+        100.0 * (lp.price_eur - pf.all_time_low)
+        / NULLIF(pf.all_time_low, 0),
+        1
+    ) AS pct_above_atl
+FROM vw_latest_prices lp
+JOIN vw_price_floor pf ON pf.product_id = lp.id
+WHERE lp.price_eur > 50
+  AND pf.all_time_low > 0
+  AND pf.snapshot_count >= 10
+  AND (pf.all_time_high - pf.all_time_low) >= 20
+ORDER BY pct_above_atl ASC;
 
 
--- ── 12. Restock pricing ───────────────────────────────────────────────────────
--- Products that disappeared (gap ≥ 3 days between consecutive snapshots) then
--- returned.  Compares price before and after the gap to detect restock markups.
+-- ── 12. Price trend direction (7-day vs 30-day average) ───────────────────────
+-- Classifies each product's price momentum as "falling", "rising", or "stable"
+-- by comparing its 7-day average price against its 30-day average.
+-- Answers "should I buy now or wait?" — a falling product may drop further.
 
-CREATE OR REPLACE VIEW vw_restock_pricing AS
-WITH consecutive AS (
-    SELECT
-        product_id,
-        date                                                                    AS before_gap,
-        LEAD(date)      OVER (PARTITION BY product_id ORDER BY date)           AS after_gap,
-        price_eur                                                               AS price_before,
-        LEAD(price_eur) OVER (PARTITION BY product_id ORDER BY date)           AS price_after
-    FROM price_snapshots
-)
+CREATE OR REPLACE VIEW vw_price_trend_direction AS
 SELECT
-    p.id, p.category, p.brand, p.model, p.product_name, p.skroutz_link,
-    c.before_gap,
-    c.after_gap,
-    (c.after_gap - c.before_gap)                                                AS gap_days,
-    c.price_before,
-    c.price_after,
-    ROUND(((c.price_after - c.price_before) / NULLIF(c.price_before, 0) * 100)::NUMERIC, 1) AS price_chg_pct
-FROM consecutive c
-JOIN products p ON p.id = c.product_id
-WHERE (c.after_gap - c.before_gap) >= 3
-  AND c.price_before IS NOT NULL
-  AND c.price_after  IS NOT NULL
-ORDER BY c.after_gap DESC, ABS(c.price_after - c.price_before) DESC;
+    product_id,
+    ROUND(AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7),  2) AS avg_7d,
+    ROUND(AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30), 2) AS avg_30d,
+    CASE
+        WHEN AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7)
+           < AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30) * 0.97
+        THEN 'falling'
+        WHEN AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7)
+           > AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30) * 1.03
+        THEN 'rising'
+        ELSE 'stable'
+    END AS trend
+FROM price_snapshots
+WHERE date >= CURRENT_DATE - 30
+GROUP BY product_id;
+
+
+-- ── 13. Daily market index (category-level average price) ─────────────────────
+-- Daily average, min, and max price per category across all tracked products.
+-- Answers "are phones getting cheaper overall?" — a macro market trend view
+-- analogous to a stock index for each product category.
+
+CREATE OR REPLACE VIEW vw_daily_market_index AS
+SELECT
+    p.category,
+    ps.date,
+    ROUND(AVG(ps.price_eur)::NUMERIC,  2) AS avg_price,
+    ROUND(MIN(ps.price_eur)::NUMERIC,  2) AS min_price,
+    ROUND(MAX(ps.price_eur)::NUMERIC,  2) AS max_price,
+    COUNT(DISTINCT ps.product_id)          AS products_tracked
+FROM price_snapshots ps
+JOIN products p ON p.id = ps.product_id
+GROUP BY p.category, ps.date
+ORDER BY p.category, ps.date;

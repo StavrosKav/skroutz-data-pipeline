@@ -109,7 +109,7 @@ data['Color'] = extracted['Color']   # NULL for listings without an explicit col
 
 # Scraper stores "N/A" when a product field couldn't be read.
 # After regex splitting this becomes Brand="N", Model="/A" — clean it up.
-_na_rows = data['Product'].isin(['N/A', 'N/A']) | data['Brand'].isin(['N', 'N/A'])
+_na_rows = data['Product'].isin(['N/A']) | data['Brand'].isin(['N', 'N/A'])
 data.loc[_na_rows, ['Brand', 'Model', 'Color']] = None
 
 

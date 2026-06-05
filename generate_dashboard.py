@@ -148,6 +148,17 @@ def fetch_data(conn):
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_floor"))
         floor_map = {}
 
+    try:
+        conn.execute(text("SAVEPOINT sp_trend"))
+        trend_rows = conn.execute(text(
+            "SELECT product_id, trend FROM vw_price_trend_direction"
+        )).fetchall()
+        trend_map = {r.product_id: r.trend for r in trend_rows}
+        conn.execute(text("RELEASE SAVEPOINT sp_trend"))
+    except Exception:
+        conn.execute(text("ROLLBACK TO SAVEPOINT sp_trend"))
+        trend_map = {}
+
     products = []
     for r in lp_rows:
         price = float(r.price_eur) if r.price_eur else None
@@ -171,6 +182,7 @@ def fetch_data(conn):
             "cv":        float(r.cv_pct) if r.cv_pct else 0.0,
             "floor_pct": floor_pct,
             "atl":       atl,
+            "trend":     trend_map.get(r.id, ""),
         })
 
     # New arrivals (first seen in last 7 days)
@@ -323,60 +335,24 @@ def fetch_data(conn):
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_disc"))
         discount_data = {}
 
-    # Review velocity — gracefully absent until analytics.sql v2 is applied
     try:
-        conn.execute(text("SAVEPOINT sp_vel"))
-        vel_rows = conn.execute(text("""
-            SELECT category, brand, model, product_name,
-                   rev_now, new_reviews_14d, reviews_per_day, skroutz_link
-            FROM vw_review_velocity
-            LIMIT 30
+        conn.execute(text("SAVEPOINT sp_market"))
+        idx_rows = conn.execute(text("""
+            SELECT category, date::text AS date, avg_price
+            FROM vw_daily_market_index
+            WHERE date >= CURRENT_DATE - 90
+            ORDER BY category, date
         """)).fetchall()
-        review_velocity = []
-        for r in vel_rows:
-            review_velocity.append({
-                "category": r.category or "",
-                "brand":    r.brand or "",
-                "model":    r.model or r.product_name or "",
-                "reviews":  int(r.rev_now or 0),
-                "new_14d":  int(r.new_reviews_14d or 0),
-                "per_day":  float(r.reviews_per_day or 0),
-                "url":      r.skroutz_link or "",
-            })
-        conn.execute(text("RELEASE SAVEPOINT sp_vel"))
+        market_index: dict = {}
+        for r in idx_rows:
+            cat = r.category
+            if cat not in market_index:
+                market_index[cat] = []
+            market_index[cat].append({"date": r.date, "avg": float(r.avg_price)})
+        conn.execute(text("RELEASE SAVEPOINT sp_market"))
     except Exception:
-        conn.execute(text("ROLLBACK TO SAVEPOINT sp_vel"))
-        review_velocity = []
-
-    # Restock pricing — gracefully absent until analytics.sql v2 is applied
-    try:
-        conn.execute(text("SAVEPOINT sp_restock"))
-        restock_rows = conn.execute(text("""
-            SELECT category, brand, model, product_name, skroutz_link,
-                   before_gap::text AS before_gap,
-                   after_gap::text  AS after_gap,
-                   gap_days, price_before, price_after, price_chg_pct
-            FROM vw_restock_pricing
-            LIMIT 30
-        """)).fetchall()
-        restock_products = []
-        for r in restock_rows:
-            restock_products.append({
-                "category":     r.category or "",
-                "brand":        r.brand or "",
-                "model":        r.model or r.product_name or "",
-                "url":          r.skroutz_link or "",
-                "gap_before":   r.before_gap or "",
-                "gap_after":    r.after_gap or "",
-                "gap_days":     int(r.gap_days or 0),
-                "price_before": float(r.price_before or 0),
-                "price_after":  float(r.price_after or 0),
-                "chg_pct":      float(r.price_chg_pct or 0),
-            })
-        conn.execute(text("RELEASE SAVEPOINT sp_restock"))
-    except Exception:
-        conn.execute(text("ROLLBACK TO SAVEPOINT sp_restock"))
-        restock_products = []
+        conn.execute(text("ROLLBACK TO SAVEPOINT sp_market"))
+        market_index = {}
 
     return {
         "generated":       str(today),
@@ -394,9 +370,8 @@ def fetch_data(conn):
         "disappeared":     disappeared,
         "watchlist":        watchlist,
         "history":          history,
-        "discount_data":    discount_data,
-        "review_velocity":  review_velocity,
-        "restock_products": restock_products,
+        "discount_data": discount_data,
+        "market_index":  market_index,
     }
 
 
@@ -747,6 +722,10 @@ tr:hover td { background: #ffffff08; }
     <div class="section-title">&#128200; Price Trends &mdash; Top 6 by Reviews</div>
     <div class="charts-grid" id="trend-charts"></div>
   </div>
+  <div class="section">
+    <div class="section-title">&#128202; Category Price Index &mdash; Last 90 Days</div>
+    <div style="max-height:280px;position:relative"><canvas id="market-index-chart"></canvas></div>
+  </div>
 </div>
 
 <!-- ── Price Drops ───────────────────────────────────────────────────────────── -->
@@ -797,6 +776,12 @@ tr:hover td { background: #ffffff08; }
       </select>
       <select id="color-filter" onchange="filterProducts()">
         <option value="">All colors</option>
+      </select>
+      <select id="trend-filter" onchange="filterProducts()">
+        <option value="">All trends</option>
+        <option value="falling">&#8595; Falling</option>
+        <option value="stable">&#8594; Stable</option>
+        <option value="rising">&#8593; Rising</option>
       </select>
       <div class="price-range">
         <span style="color:var(--muted);font-size:12px">&euro;</span>
@@ -937,35 +922,6 @@ tr:hover td { background: #ffffff08; }
     <div style="max-height:400px;position:relative"><canvas id="price-rating-chart"></canvas></div>
   </div>
 
-  <div class="section">
-    <div class="section-title">&#128200; Review Velocity &mdash; Rising Stars (14d)
-      <span class="count-badge" id="vel-badge"></span>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Brand</th><th>Model</th><th>Category</th>
-          <th>Total Reviews</th><th>New (14d)</th><th>Per Day</th>
-        </tr></thead>
-        <tbody id="vel-body"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="section" id="restock-section" style="display:none">
-    <div class="section-title">&#128260; Restock Pricing &mdash; Products That Came Back
-      <span class="count-badge" id="restock-badge"></span>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Brand</th><th>Model</th><th>Category</th>
-          <th>Before &euro;</th><th>After &euro;</th><th>Change</th><th>Gap</th>
-        </tr></thead>
-        <tbody id="restock-body"></tbody>
-      </table>
-    </div>
-  </div>
 
 </div>
 
@@ -991,7 +947,8 @@ const HISTORY = __HISTORY_JSON__;
 const CHARTS  = __CHARTS_JSON__;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-const PALETTE = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#a78bfa','#38bdf8','#fb923c','#e879f9','#34d399','#f472b6'];
+const PALETTE   = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#a78bfa','#38bdf8','#fb923c','#e879f9','#34d399','#f472b6'];
+const CAT_LABEL = {phone:'Phones',laptop:'Laptops',smartwatch:'Smartwatches',tablet:'Tablets'};
 
 function catBadge(cat) {
   const cls = { phone:'cat-phone', laptop:'cat-laptop', smartwatch:'cat-smartwatch', tablet:'cat-tablet' }[cat] || '';
@@ -1018,7 +975,7 @@ function buildStats() {
     { val: DATA.new_products.length, lbl: 'New This Week', cls: DATA.new_products.length ? 'success' : '' },
   ];
   for (const [cat, info] of Object.entries(DATA.by_category)) {
-    const label = cat.charAt(0).toUpperCase() + cat.slice(1) + 's';
+    const label = (CAT_LABEL[cat]||cat);
     cards.push({ val: info.count.toLocaleString(), lbl: label + ' Today' });
     cards.push({ val: '€' + info.avg_price.toFixed(0), lbl: 'Avg ' + label + ' Price' });
   }
@@ -1151,10 +1108,12 @@ function filterProducts() {
   const mx        = parseFloat(document.getElementById('price-max').value) || Infinity;
   const financing = document.getElementById('chk-financing').checked;
   const stable    = document.getElementById('chk-stable').checked;
+  const trend     = document.getElementById('trend-filter').value;
 
   let result = DATA.products.filter(p => {
     if (cat && p.category !== cat) return false;
     if (color && p.color !== color) return false;
+    if (trend && p.trend !== trend) return false;
     if (p.price != null && p.price < mn) return false;
     if (p.price != null && p.price > mx) return false;
     if (financing && !p.monthly) return false;
@@ -1289,7 +1248,7 @@ function buildBrandCharts() {
 
   // Build all canvases first so DOM is ready
   el.innerHTML = Object.entries(DATA.brand_data).filter(([,b]) => b.length).map(([cat, brands]) =>
-    `<div class="brand-card"><h4>${cat.charAt(0).toUpperCase()+cat.slice(1)}s</h4><canvas id="bc-${cat}"></canvas></div>`
+    `<div class="brand-card"><h4>${CAT_LABEL[cat]||cat}</h4><canvas id="bc-${cat}"></canvas></div>`
   ).join('');
 
   for (const [cat, brands] of Object.entries(DATA.brand_data)) {
@@ -1418,7 +1377,7 @@ function closeModal() { document.getElementById('modal').classList.remove('open'
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeModal();
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  const tabMap = {'1':'overview','2':'drops','3':'products','4':'new-gone','5':'insights'};
+  const tabMap = {'1':'overview','2':'drops','3':'products','4':'new-gone','5':'insights','6':'intelligence'};
   if (tabMap[e.key]) { const btn = document.querySelector(`.tab-btn[data-tab="${tabMap[e.key]}"]`); if (btn) showTab(btn); }
 });
 
@@ -1455,7 +1414,7 @@ function buildMarketShare() {
 
   el.innerHTML = Object.entries(DATA.brand_data)
     .filter(([,brands]) => brands.length)
-    .map(([cat]) => `<div class="donut-card"><h4>${cat.charAt(0).toUpperCase()+cat.slice(1)}s</h4><canvas id="dn-${cat}" height="180"></canvas></div>`)
+    .map(([cat]) => `<div class="donut-card"><h4>${CAT_LABEL[cat]||cat}</h4><canvas id="dn-${cat}" height="180"></canvas></div>`)
     .join('');
 
   for (const [cat, brands] of Object.entries(DATA.brand_data)) {
@@ -1503,7 +1462,7 @@ function buildBrandComparison() {
 function renderCompareSelectors() {
   const trend = DATA.brand_trend || {};
   document.getElementById('compare-selectors').innerHTML = Object.entries(trend).map(([cat, brands]) => {
-    const title = cat.charAt(0).toUpperCase() + cat.slice(1) + 's';
+    const title = (CAT_LABEL[cat]||cat);
     const btns  = Object.keys(brands).map(brand => {
       const sel = compareSelected[cat]?.has(brand) ? 'sel' : '';
       return `<button class="brand-chk-btn ${sel}" data-cat="${cat}" data-brand="${brand}"
@@ -1539,7 +1498,7 @@ function renderCompareCharts() {
 
   el.innerHTML = Object.entries(trend)
     .filter(([,brands]) => Object.keys(brands).length)
-    .map(([cat]) => `<div class="compare-card"><h4>${cat.charAt(0).toUpperCase()+cat.slice(1)}s &mdash; Avg Price Trend</h4><canvas id="cmp-${cat}" height="160"></canvas></div>`)
+    .map(([cat]) => `<div class="compare-card"><h4>${CAT_LABEL[cat]||cat} &mdash; Avg Price Trend</h4><canvas id="cmp-${cat}" height="160"></canvas></div>`)
     .join('');
 
   for (const [cat, brands] of Object.entries(trend)) {
@@ -1589,8 +1548,6 @@ function buildIntelligence() {
   buildDiscountFreqCharts();
   buildPriceTierDist();
   buildPriceVsRating();
-  buildReviewVelocity();
-  buildRestockPricing();
 }
 
 function buildNearATL() {
@@ -1637,7 +1594,7 @@ function buildDiscountFreqCharts() {
   el.innerHTML = Object.entries(data)
     .filter(([,brands]) => brands.length)
     .map(([cat]) =>
-      `<div class="intel-card"><h4>${cat.charAt(0).toUpperCase()+cat.slice(1)}s &mdash; % days with &ge;3% drop</h4><canvas id="dfc-${cat}"></canvas></div>`
+      `<div class="intel-card"><h4>${CAT_LABEL[cat]||cat} &mdash; % days with &ge;3% drop</h4><canvas id="dfc-${cat}"></canvas></div>`
     ).join('');
   for (const [cat, brands] of Object.entries(data)) {
     if (!brands.length) continue;
@@ -1680,7 +1637,7 @@ function buildPriceTierDist() {
   const TIER_COLORS = ['#22c55e','#4f8ef7','#f59e0b','#a78bfa','#ef4444'];
   const cats = ['phone','laptop','smartwatch','tablet'];
   el.innerHTML = cats.map(cat =>
-    `<div class="intel-card"><h4>${cat.charAt(0).toUpperCase()+cat.slice(1)}s</h4><canvas id="td-${cat}"></canvas></div>`
+    `<div class="intel-card"><h4>${CAT_LABEL[cat]||cat}</h4><canvas id="td-${cat}"></canvas></div>`
   ).join('');
   for (const cat of cats) {
     const ctx = document.getElementById('td-' + cat)?.getContext('2d');
@@ -1716,11 +1673,11 @@ function buildPriceVsRating() {
   document.getElementById('scatter-legend').innerHTML = cats.map(cat =>
     `<div class="scatter-legend-item">
        <div class="scatter-dot" style="background:${catColors[cat]}"></div>
-       ${cat.charAt(0).toUpperCase()+cat.slice(1)}s
+       ${CAT_LABEL[cat]||cat}
      </div>`
   ).join('');
   const datasets = cats.map(cat => ({
-    label: cat.charAt(0).toUpperCase() + cat.slice(1) + 's',
+    label: (CAT_LABEL[cat]||cat),
     data: DATA.products
       .filter(p => p.category === cat && p.price != null && p.rating != null && p.rating > 0)
       .map(p => ({ x: p.price, y: p.rating })),
@@ -1747,42 +1704,43 @@ function buildPriceVsRating() {
   );
 }
 
-function buildReviewVelocity() {
-  const vel = DATA.review_velocity || [];
-  document.getElementById('vel-badge').textContent = vel.length;
-  const tb = document.getElementById('vel-body');
-  if (!vel.length) {
-    tb.innerHTML = '<tr><td colspan="6" class="no-data">No velocity data yet — needs 14+ days of scraping + analytics.sql v2.</td></tr>';
-    return;
-  }
-  tb.innerHTML = vel.map(v => `<tr>
-    <td>${v.brand}</td>
-    <td><a href="${v.url}" target="_blank">${v.model.slice(0,44)}</a></td>
-    <td>${catBadge(v.category)}</td>
-    <td class="muted">${(v.reviews||0).toLocaleString()}</td>
-    <td style="color:var(--rise)">+${v.new_14d.toLocaleString()}</td>
-    <td style="color:var(--rise)">+${v.per_day.toFixed(2)}/d</td>
-  </tr>`).join('');
-}
-
-function buildRestockPricing() {
-  const rows = DATA.restock_products || [];
-  if (!rows.length) return;
-  document.getElementById('restock-section').style.display = 'block';
-  document.getElementById('restock-badge').textContent = rows.length;
-  document.getElementById('restock-body').innerHTML = rows.map(r => {
-    const chgColor = r.chg_pct > 0.5 ? 'var(--drop)' : r.chg_pct < -0.5 ? 'var(--rise)' : 'var(--muted)';
-    const chgSign  = r.chg_pct > 0 ? '+' : '';
-    return `<tr>
-      <td>${r.brand}</td>
-      <td><a href="${r.url}" target="_blank">${r.model.slice(0,44)}</a></td>
-      <td>${catBadge(r.category)}</td>
-      <td class="price muted">&euro;${r.price_before.toFixed(2)}</td>
-      <td class="price">&euro;${r.price_after.toFixed(2)}</td>
-      <td style="color:${chgColor};font-weight:600">${chgSign}${r.chg_pct.toFixed(1)}%</td>
-      <td class="muted">${r.gap_days}d</td>
-    </tr>`;
-  }).join('');
+let marketIndexInst = null;
+function buildMarketIndex() {
+  if (marketIndexInst) { marketIndexInst.destroy(); marketIndexInst = null; }
+  const idx = DATA.market_index || {};
+  if (!Object.keys(idx).length) return;
+  const allDates = [...new Set(Object.values(idx).flat().map(p => p.date))].sort();
+  const CAT_COLORS = { phone:'#3b82f6', laptop:'#a78bfa', smartwatch:'#22c55e', tablet:'#f59e0b' };
+  const datasets = Object.entries(idx).map(([cat, pts]) => {
+    const byDate = Object.fromEntries(pts.map(p => [p.date, p.avg]));
+    return {
+      label: (CAT_LABEL[cat]||cat),
+      data:  allDates.map(d => byDate[d] ?? null),
+      borderColor:     CAT_COLORS[cat] || '#4f8ef7',
+      backgroundColor: 'transparent',
+      tension: 0.3,
+      pointRadius: allDates.length > 30 ? 0 : 3,
+      spanGaps: true,
+    };
+  });
+  marketIndexInst = new Chart(
+    document.getElementById('market-index-chart').getContext('2d'), {
+      type: 'line',
+      data: { labels: allDates, datasets },
+      options: {
+        responsive: true,
+        interaction: { mode:'index', intersect:false },
+        plugins: {
+          legend: { labels:{ color:'#94a3b8', font:{size:11}, boxWidth:12 } },
+          tooltip: { callbacks: { label: c => ` ${c.dataset.label}: €${c.raw?.toFixed(2) ?? '—'}` } },
+        },
+        scales: {
+          x: { ticks:{ color:'#64748b', maxTicksLimit:8, font:{size:11} }, grid:{ color:'#2a2d3a' } },
+          y: { ticks:{ color:'#64748b', callback: v => '€'+v }, grid:{ color:'#2a2d3a' } },
+        },
+      },
+    }
+  );
 }
 
 // ── Tab badge counts ───────────────────────────────────────────────────────────
@@ -1799,8 +1757,8 @@ function updateTabBadges() {
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
 function exportCSV() {
-  const cols   = ['brand','model','category','price','rating','reviews','cv','url'];
-  const header = ['Brand','Model','Category','Price (EUR)','Rating','Reviews','CV%','Link'];
+  const cols   = ['brand','model','category','price','rating','reviews','cv','trend','url'];
+  const header = ['Brand','Model','Category','Price (EUR)','Rating','Reviews','CV%','Trend','Link'];
   const rows   = filteredProds.map(p => cols.map(c => {
     const v = p[c] ?? '';
     return typeof v === 'string' && (v.includes(',') || v.includes('"'))
@@ -1817,6 +1775,7 @@ function exportCSV() {
 // ── Init ───────────────────────────────────────────────────────────────────────
 buildStats();
 buildTrendCharts();
+buildMarketIndex();
 buildDropsTable();
 buildHotDeals();
 filterProducts();
@@ -1864,11 +1823,15 @@ def main():
     )
 
     out_path = OUT_DIR / f"dashboard_{data['generated']}.html"
-    out_path.write_text(html, encoding="utf-8")
+    tmp_dated = out_path.parent / (out_path.name + ".tmp")
+    tmp_dated.write_text(html, encoding="utf-8")
+    os.replace(str(tmp_dated), str(out_path))
     print(f"Dashboard saved: {out_path}")
 
     latest = OUT_DIR / "dashboard_latest.html"
-    latest.write_text(html, encoding="utf-8")
+    tmp_latest = latest.parent / (latest.name + ".tmp")
+    tmp_latest.write_text(html, encoding="utf-8")
+    os.replace(str(tmp_latest), str(latest))
     print(f"Latest copy:     {latest}")
 
 

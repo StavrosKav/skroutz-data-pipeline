@@ -79,15 +79,17 @@ def run_all_scrapers():
     any_failed = False
     for name, proc, log_file in procs:
         try:
-            ret = proc.wait(timeout=TIMEOUT)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            log_file.write(f"\n[TIMEOUT] {name} killed after {TIMEOUT}s\n")
-            logging.error(f"{name} timed out after {TIMEOUT//3600}h — killed.")
-            any_failed = True
+            try:
+                ret = proc.wait(timeout=TIMEOUT)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()  # reap the process handle
+                log_file.write(f"\n[TIMEOUT] {name} killed after {TIMEOUT}s\n")
+                logging.error(f"{name} timed out after {TIMEOUT//3600}h — killed.")
+                any_failed = True
+                continue
+        finally:
             log_file.close()
-            continue
-        log_file.close()
         if ret == 0:
             logging.info(f"{name} completed successfully.")
         else:

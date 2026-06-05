@@ -15,7 +15,7 @@ and writes a cleaned CSV to the Clean/ folder.
 
 A short delay (LAUNCH_DELAY seconds) is inserted between launches to avoid
 I/O contention when multiple scripts write to disk simultaneously.
-stdout/stderr from every subprocess is captured to a dated log file under logs4/.
+stdout/stderr from every subprocess is captured to a dated log file under logs/.
 
 Called by run_pipeline.py (Stage 2); can also be run standalone after Stage 1.
 """
@@ -79,15 +79,17 @@ def run_all_cleaners():
     any_failed = False
     for name, proc, log_file in procs:
         try:
-            ret = proc.wait(timeout=TIMEOUT)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            log_file.write(f"\n[TIMEOUT] {name} killed after {TIMEOUT}s\n")
-            logging.error(f"{name} timed out after {TIMEOUT//60}m — killed.")
-            any_failed = True
+            try:
+                ret = proc.wait(timeout=TIMEOUT)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()  # reap the process handle
+                log_file.write(f"\n[TIMEOUT] {name} killed after {TIMEOUT}s\n")
+                logging.error(f"{name} timed out after {TIMEOUT//60}m — killed.")
+                any_failed = True
+                continue
+        finally:
             log_file.close()
-            continue
-        log_file.close()
         if ret == 0:
             logging.info(f"{name} completed successfully.")
         else:
