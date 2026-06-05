@@ -207,7 +207,7 @@ def _cmd_status() -> str:
         status = "⏳ In progress or incomplete"
 
     tail = "\n".join(
-        f"<code>{_e(l.strip())}</code>" for l in lines[-6:] if l.strip()
+        f"<code>{_e(line.strip())}</code>" for line in lines[-6:] if line.strip()
     )
     return f"📋 <b>Pipeline status — {today}</b>\n{status}\n\n{tail}"
 
