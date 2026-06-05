@@ -35,12 +35,11 @@ import time
 import urllib.error
 import urllib.request
 
+from db import get_engine
 from dotenv import load_dotenv
 from sqlalchemy import text
 
 load_dotenv()
-
-from db import get_engine
 
 logging.basicConfig(
     level  = logging.INFO,
