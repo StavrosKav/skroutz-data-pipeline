@@ -18,14 +18,9 @@ import pandas as pd
 import re
 import datetime
 import os
+import sys
 
-today = datetime.date.today().isoformat()
 BASE = os.path.dirname(os.path.abspath(__file__))
-base_folder = os.path.join(BASE, 'Phones_skroutz')
-file_path = os.path.join(base_folder, f"skroutz_phones_{today}.csv")
-
-data = pd.read_csv(file_path, engine='python')
-data['date_added'] = today
 
 
 # ── PRICE ─────────────────────────────────────────────────────────────────────
@@ -45,8 +40,6 @@ def clean_price(val):
         s = ''.join(parts[:-1]) + '.' + parts[-1]
     s = s.replace(',', '.')   # Greek decimal comma → standard decimal point
     return pd.to_numeric(s, errors='coerce')
-
-data['Price_EUR'] = data['Price_EUR'].apply(clean_price)
 
 
 # ── RAM / STORAGE ─────────────────────────────────────────────────────────────
@@ -81,37 +74,6 @@ def extract_ram_storage(row):
 
     return None, None
 
-data['RAM_GB'], data['Storage_GB'] = zip(*data.apply(extract_ram_storage, axis=1))
-
-
-# ── BRAND / MODEL / COLOR ─────────────────────────────────────────────────────
-# Skroutz product names follow a predictable structure:
-#   "<Brand> <Model> (<RAM>/<Storage>GB) <Color>"   e.g. "Apple iPhone 17 Pro Max (12/512GB) Deep Blue"
-#   "<Brand> <Model>"                                e.g. "Samsung Galaxy A56 5G Dual SIM"
-#
-# pattern_full captures all three fields when color is present.
-# pattern_simple is the fallback for entries without storage/color info.
-pattern_full = r"""(?x)
-^(?P<Brand>[^ ]+)\s+(?P<Model>.+?)
-\(\s*\d+/\d+(?:GB|TB)\)\s*(?P<Color>.+)$
-"""
-pattern_simple = r"^(?P<Brand>[^ ]+)\s+(?P<Model>.+)$"
-
-extracted = data['Product'].str.extract(pattern_full)
-remaining = extracted[extracted['Brand'].isnull()].index   # rows that didn't match pattern_full
-extracted.loc[remaining, ['Brand', 'Model']] = (
-    data.loc[remaining, 'Product'].str.extract(pattern_simple)[['Brand', 'Model']]
-)
-
-data['Brand'] = extracted['Brand']
-data['Model'] = extracted['Model']
-data['Color'] = extracted['Color']   # NULL for listings without an explicit colour variant
-
-# Scraper stores "N/A" when a product field couldn't be read.
-# After regex splitting this becomes Brand="N", Model="/A" — clean it up.
-_na_rows = data['Product'].isin(['N/A']) | data['Brand'].isin(['N', 'N/A'])
-data.loc[_na_rows, ['Brand', 'Model', 'Color']] = None
-
 
 # ── SPECS ─────────────────────────────────────────────────────────────────────
 # The raw Specs column holds a comma-separated string in Greek, e.g.:
@@ -138,45 +100,88 @@ def extract_battery(specs):
     m = re.search(r'Μπαταρία:\s*([^\s,]+)', specs)
     return m.group(1).strip() if m else None
 
-data['Camera_Type']    = data['Specs'].apply(extract_camera)
-data['Display_Info']   = data['Specs'].apply(extract_display)
-data['Battery_Info']   = data['Specs'].apply(extract_battery)
 
-# Numeric summaries derived from the text fields above
-data['Num_Cameras']    = data['Camera_Type'].str.extract(r'(\d+)MP', expand=False).astype(float)   # main camera megapixels
-data['Display_inches'] = data['Display_Info'].str.extract(r'(\d+\.?\d*)"', expand=False).astype(float)
+if __name__ == "__main__":
+    today = datetime.date.today().isoformat()
+    base_folder = os.path.join(BASE, 'Phones_skroutz')
+    file_path = os.path.join(base_folder, f"skroutz_phones_{today}.csv")
 
+    data = pd.read_csv(file_path, engine='python')
+    data['date_added'] = today
 
-# ── INSTALLMENTS / RATINGS ────────────────────────────────────────────────────
-# Raw installment values use Greek decimal commas (e.g. "44,10" = 44.10 €).
-# Strip all non-numeric characters, then convert comma → dot before casting to float.
-for col in ['Installments_per_month', 'Installments_in_total']:
-    data[col] = data[col].astype(str).str.replace(r'[^\d.,]', '', regex=True)
-    data[col] = data[col].str.replace(',', '.', regex=False)
-    data[col] = pd.to_numeric(data[col], errors='coerce')
+    if data.empty:
+        print(f"No rows in {file_path} — exiting.")
+        sys.exit(0)
 
-data['Rating']  = pd.to_numeric(data['Rating'],  errors='coerce')
-data['Reviews'] = pd.to_numeric(data['Reviews'], errors='coerce')
+    data['Price_EUR'] = data['Price_EUR'].apply(clean_price)
 
+    data['RAM_GB'], data['Storage_GB'] = zip(*data.apply(extract_ram_storage, axis=1))
 
-# ── EXPORT ────────────────────────────────────────────────────────────────────
-# Column order matches the products + price_snapshots DB schema in 4csvsTOsql.py
-final_columns = [
-    'date_added', 'Brand', 'Model', 'RAM_GB', 'Storage_GB',
-    'Num_Cameras', 'Camera_Type', 'Display_inches', 'Battery_Info',
-    'Price_EUR', 'Rating', 'Reviews',
-    'Installments_per_month', 'Installments_in_total',
-    'Color', 'Display_Info', 'Product', 'Specs', 'Link',
-]
-data_export = data[final_columns]
+    # ── BRAND / MODEL / COLOR ─────────────────────────────────────────────────
+    # Skroutz product names follow a predictable structure:
+    #   "<Brand> <Model> (<RAM>/<Storage>GB) <Color>"   e.g. "Apple iPhone 17 Pro Max (12/512GB) Deep Blue"
+    #   "<Brand> <Model>"                                e.g. "Samsung Galaxy A56 5G Dual SIM"
+    #
+    # pattern_full captures all three fields when color is present.
+    # pattern_simple is the fallback for entries without storage/color info.
+    pattern_full = r"""(?x)
+^(?P<Brand>[^ ]+)\s+(?P<Model>.+?)
+\(\s*\d+/\d+(?:GB|TB)\)\s*(?P<Color>.+)$
+"""
+    pattern_simple = r"^(?P<Brand>[^ ]+)\s+(?P<Model>.+)$"
 
-output_folder = os.path.join(BASE, 'Clean', 'Phones_skroutz_clean')
-os.makedirs(output_folder, exist_ok=True)
-output_path = os.path.join(output_folder, f"clean_{today}.csv")
-data_export.to_csv(output_path, index=False, encoding="utf-8-sig")
+    extracted = data['Product'].str.extract(pattern_full)
+    remaining = extracted[extracted['Brand'].isnull()].index   # rows that didn't match pattern_full
+    extracted.loc[remaining, ['Brand', 'Model']] = (
+        data.loc[remaining, 'Product'].str.extract(pattern_simple)[['Brand', 'Model']]
+    )
 
-print(f"Clean file saved: {output_path}")
-print(f"Total products:      {len(data_export)}")
-print(f"RAM extracted:       {data_export['RAM_GB'].notna().sum()} / {len(data_export)}")
-print(f"Storage extracted:   {data_export['Storage_GB'].notna().sum()} / {len(data_export)}")
-print(f"Brand extracted:     {data_export['Brand'].notna().sum()} / {len(data_export)}")
+    data['Brand'] = extracted['Brand']
+    data['Model'] = extracted['Model']
+    data['Color'] = extracted['Color']   # NULL for listings without an explicit colour variant
+
+    # Scraper stores "N/A" when a product field couldn't be read.
+    # After regex splitting this becomes Brand="N", Model="/A" — clean it up.
+    _na_rows = data['Product'].isin(['N/A']) | data['Brand'].isin(['N', 'N/A'])
+    data.loc[_na_rows, ['Brand', 'Model', 'Color']] = None
+
+    data['Camera_Type']    = data['Specs'].apply(extract_camera)
+    data['Display_Info']   = data['Specs'].apply(extract_display)
+    data['Battery_Info']   = data['Specs'].apply(extract_battery)
+
+    # Numeric summaries derived from the text fields above
+    data['Num_Cameras']    = data['Camera_Type'].str.extract(r'(\d+)MP', expand=False).astype(float)   # main camera megapixels
+    data['Display_inches'] = data['Display_Info'].str.extract(r'(\d+\.?\d*)"', expand=False).astype(float)
+
+    # ── INSTALLMENTS / RATINGS ────────────────────────────────────────────────
+    # Raw installment values use Greek decimal commas (e.g. "44,10" = 44.10 €).
+    # Strip all non-numeric characters, then convert comma → dot before casting to float.
+    for col in ['Installments_per_month', 'Installments_in_total']:
+        data[col] = data[col].astype(str).str.replace(r'[^\d.,]', '', regex=True)
+        data[col] = data[col].str.replace(',', '.', regex=False)
+        data[col] = pd.to_numeric(data[col], errors='coerce')
+
+    data['Rating']  = pd.to_numeric(data['Rating'],  errors='coerce')
+    data['Reviews'] = pd.to_numeric(data['Reviews'], errors='coerce')
+
+    # ── EXPORT ────────────────────────────────────────────────────────────────
+    # Column order matches the products + price_snapshots DB schema in 4csvsTOsql.py
+    final_columns = [
+        'date_added', 'Brand', 'Model', 'RAM_GB', 'Storage_GB',
+        'Num_Cameras', 'Camera_Type', 'Display_inches', 'Battery_Info',
+        'Price_EUR', 'Rating', 'Reviews',
+        'Installments_per_month', 'Installments_in_total',
+        'Color', 'Display_Info', 'Product', 'Specs', 'Link',
+    ]
+    data_export = data[final_columns]
+
+    output_folder = os.path.join(BASE, 'Clean', 'Phones_skroutz_clean')
+    os.makedirs(output_folder, exist_ok=True)
+    output_path = os.path.join(output_folder, f"clean_{today}.csv")
+    data_export.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+    print(f"Clean file saved: {output_path}")
+    print(f"Total products:      {len(data_export)}")
+    print(f"RAM extracted:       {data_export['RAM_GB'].notna().sum()} / {len(data_export)}")
+    print(f"Storage extracted:   {data_export['Storage_GB'].notna().sum()} / {len(data_export)}")
+    print(f"Brand extracted:     {data_export['Brand'].notna().sum()} / {len(data_export)}")

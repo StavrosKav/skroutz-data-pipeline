@@ -35,17 +35,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-today = datetime.date.today().isoformat()
-BASE  = os.path.dirname(os.path.abspath(__file__))
-base  = os.path.join(BASE, 'Clean')
-
-# Map each product category to its cleaned CSV file for today
-CATEGORY_FILES = [
-    ("phone",      os.path.join(base, "Phones_skroutz_clean",       f"clean_{today}.csv")),
-    ("laptop",     os.path.join(base, "Laptops_skroutz_clean",      f"clean_{today}.csv")),
-    ("smartwatch", os.path.join(base, "Smartwatches_skroutz_clean", f"clean_{today}.csv")),
-    ("tablet",     os.path.join(base, "Tablets_skroutz_clean",      f"clean_{today}.csv")),
-]
+BASE = os.path.dirname(os.path.abspath(__file__))
 
 
 # ── Helper functions for safe type conversion ──────────────────────────────────
@@ -96,6 +86,7 @@ def load_category(conn, category, file_path):
     category  : label string ('phone', 'laptop', 'smartwatch', 'tablet')
     file_path : path to today's cleaned CSV for this category
     """
+    today = datetime.date.today().isoformat()
     if not os.path.exists(file_path):
         logger.warning(f"SKIP (not found): {file_path}")
         return
@@ -217,6 +208,14 @@ def load_category(conn, category, file_path):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    today = datetime.date.today().isoformat()
+    base  = os.path.join(BASE, 'Clean')
+    CATEGORY_FILES = [
+        ("phone",      os.path.join(base, "Phones_skroutz_clean",       f"clean_{today}.csv")),
+        ("laptop",     os.path.join(base, "Laptops_skroutz_clean",      f"clean_{today}.csv")),
+        ("smartwatch", os.path.join(base, "Smartwatches_skroutz_clean", f"clean_{today}.csv")),
+        ("tablet",     os.path.join(base, "Tablets_skroutz_clean",      f"clean_{today}.csv")),
+    ]
     with get_engine().begin() as conn:   # atomic: all categories commit together or all roll back
         for category, file_path in CATEGORY_FILES:
             load_category(conn, category, file_path)

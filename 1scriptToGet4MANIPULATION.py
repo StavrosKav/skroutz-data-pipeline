@@ -3,7 +3,7 @@
 -----------------------------
 Stage 2 of the daily Skroutz price-tracking pipeline.
 
-Runs all four data-cleaning scripts sequentially as separate subprocesses:
+Runs all four data-cleaning scripts concurrently as separate subprocesses:
   - Data_Phone.py
   - Data_Smartwatches.py
   - Data_Tablets.py
@@ -13,8 +13,6 @@ Each cleaning script reads today's raw CSV produced by the scrapers (Stage 1),
 applies price normalisation, brand/model extraction, installment conversion,
 and writes a cleaned CSV to the Clean/ folder.
 
-A short delay (LAUNCH_DELAY seconds) is inserted between launches to avoid
-I/O contention when multiple scripts write to disk simultaneously.
 stdout/stderr from every subprocess is captured to a dated log file under logs/.
 
 Called by run_pipeline.py (Stage 2); can also be run standalone after Stage 1.
@@ -25,7 +23,6 @@ import sys
 import datetime
 import os
 import logging
-import time
 
 # ── Cleaning scripts to run (order does not affect correctness) ───────────────
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -40,10 +37,6 @@ SCRIPTS = [
 # Log directory for per-script stdout/stderr output
 LOG_DIR = os.path.join(HERE, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
-
-# Seconds to wait between launching each cleaning script
-LAUNCH_DELAY = 6
-
 
 def run_all_cleaners():
     """
@@ -70,9 +63,6 @@ def run_all_cleaners():
             shell=False,
         )
         procs.append((name, p, log_file))
-
-        logging.info(f"Waiting {LAUNCH_DELAY}s before launching next cleaner...")
-        time.sleep(LAUNCH_DELAY)
 
     # Wait for all cleaners to finish and report their exit status
     TIMEOUT = 1800  # 30-minute hard ceiling per cleaner

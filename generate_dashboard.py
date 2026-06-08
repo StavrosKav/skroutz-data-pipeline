@@ -134,6 +134,7 @@ def fetch_data(conn):
         JOIN products p ON p.id = lp.id
         LEFT JOIN vw_price_volatility pv ON pv.product_id = lp.id
         ORDER BY lp.reviews DESC NULLS LAST
+        LIMIT 3000
     """)).fetchall()
 
     try:
@@ -383,22 +384,27 @@ def _load_watchlist(conn):
         items = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return []
+    items = [i for i in items if i.get("url", "").strip()]
+    if not items:
+        return []
+
+    urls = [i["url"].strip() for i in items]
+    try:
+        db_rows = conn.execute(text(
+            "SELECT brand, model, category, ROUND(price_eur, 2) AS price_eur, skroutz_link "
+            "FROM vw_latest_prices WHERE skroutz_link = ANY(:urls)"
+        ), {"urls": urls}).fetchall()
+    except Exception:
+        db_rows = []
+    price_map = {r.skroutz_link: r for r in db_rows}
+
     result = []
     for item in items:
-        url       = item.get("url", "").strip()
+        url       = item["url"].strip()
         label     = item.get("label", url)
         threshold = float(item.get("threshold_eur", 0))
-        if not url:
-            continue
-        try:
-            row = conn.execute(text(
-                "SELECT brand, model, category, ROUND(price_eur, 2) AS price_eur "
-                "FROM vw_latest_prices "
-                "WHERE skroutz_link = :url OR skroutz_link LIKE :url_prefix"
-            ), {"url": url, "url_prefix": url.split("?")[0] + "%"}).fetchone()
-        except Exception:
-            row = None
-        price = float(row.price_eur) if row and row.price_eur else None
+        row       = price_map.get(url)
+        price     = float(row.price_eur) if row and row.price_eur else None
         result.append({
             "label":     label,
             "threshold": threshold,
@@ -429,7 +435,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
 :root {
   --bg:        #0f1117;

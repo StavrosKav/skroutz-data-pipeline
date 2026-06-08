@@ -317,29 +317,30 @@ def tab_drops():
         cat_sel = st.multiselect("Category", CATEGORIES,
                                  format_func=lambda c: CAT_LABEL[c], key="dr_cat")
 
-    cat_filter_sql = ""
+    cat_clause = ""
     params: dict = {"days": days_back}
     if cat_sel:
         placeholders = ", ".join(f":cat{i}" for i in range(len(cat_sel)))
-        cat_filter_sql = f"AND category IN ({placeholders})"
+        cat_clause = "AND category IN (" + placeholders + ") "
         for i, c in enumerate(cat_sel):
             params[f"cat{i}"] = c
 
     with st.spinner("Loading drops…"):
-        drops_df = _q(f"""
-            SELECT brand, model, category,
-                   ROUND(prev_price, 2)        AS "Was €",
-                   ROUND(new_price,  2)        AS "Now €",
-                   ABS(ROUND(drop_eur, 2))     AS "Saved €",
-                   ABS(ROUND(drop_pct,   1))   AS "Drop %",
-                   drop_date,
-                   skroutz_link
+        drops_df = _q(
+            """SELECT brand, model, category,
+                   ROUND(prev_price, 2)      AS "Was €",
+                   ROUND(new_price,  2)      AS "Now €",
+                   ABS(ROUND(drop_eur, 2))   AS "Saved €",
+                   ABS(ROUND(drop_pct, 1))   AS "Drop %",
+                   drop_date, skroutz_link
             FROM vw_biggest_drops
             WHERE drop_date >= CURRENT_DATE - :days
-            {cat_filter_sql}
-            ORDER BY "Saved €" DESC
-            LIMIT 100
-        """, **params)
+            """
+            + cat_clause
+            + """ORDER BY "Saved €" DESC
+            LIMIT 100""",
+            **params,
+        )
 
     if drops_df.empty:
         st.info("No price drops in the selected range.")
@@ -474,23 +475,23 @@ def tab_products():
         "Rating":            "lp.rating DESC NULLS LAST",
         "Volatility":        "pv.cv_pct DESC NULLS LAST",
     }
-    order_by = sort_map.get(sort_by, "lp.reviews DESC NULLS LAST")
-
-    cat_sql   = ""
-    brand_sql = ""
+    cat_clause   = ""
+    brand_clause = ""
     params: dict = {"pmin": price_min, "pmax": price_max}
     if cat_f:
         ph = ", ".join(f":c{i}" for i in range(len(cat_f)))
-        cat_sql = f"AND lp.category IN ({ph})"
+        cat_clause = "AND lp.category IN (" + ph + ") "
         for i, c in enumerate(cat_f):
             params[f"c{i}"] = c
     if brand_search:
-        brand_sql = "AND LOWER(lp.brand) LIKE :brand"
+        brand_clause = "AND LOWER(lp.brand) LIKE :brand "
         params["brand"] = f"%{brand_search.lower()}%"
 
+    order_clause = sort_map.get(sort_by, "lp.reviews DESC NULLS LAST")
+
     with st.spinner("Searching products…"):
-        prod_df = _q(f"""
-            SELECT lp.category, lp.brand, lp.model,
+        prod_df = _q(
+            """SELECT lp.category, lp.brand, lp.model,
                    ROUND(lp.price_eur, 2)               AS "Price €",
                    lp.rating                            AS "Rating",
                    lp.reviews                           AS "Reviews",
@@ -501,11 +502,12 @@ def tab_products():
             LEFT JOIN vw_price_volatility pv ON pv.product_id = lp.id
             LEFT JOIN vw_near_atl na ON na.product_id = lp.id
             WHERE lp.price_eur BETWEEN :pmin AND :pmax
-            {cat_sql}
-            {brand_sql}
-            ORDER BY {order_by}
-            LIMIT 500
-        """, **params)
+            """
+            + cat_clause
+            + brand_clause
+            + "ORDER BY " + order_clause + " LIMIT 500",
+            **params,
+        )
 
     if prod_df.empty:
         st.info("No products match the selected filters.")
@@ -811,13 +813,9 @@ def tab_analytics():
                     x="% Above ATL",
                     y="brand",
                     size="Snapshots",
-                    color="category",
                     labels={"brand": "", "% Above ATL": "% Above ATL"},
                     template="plotly_dark",
-                    color_discrete_map={
-                        "phone": "#3b82f6", "laptop": "#a78bfa",
-                        "smartwatch": "#22c55e", "tablet": "#f59e0b",
-                    },
+                    color_discrete_sequence=[CAT_COLORS.get(cat_a, "#4f8ef7")],
                     height=320,
                 )
                 fig_sc.update_layout(
@@ -887,6 +885,97 @@ def tab_analytics():
             st.info("No volatility data yet — needs 30+ days of scraping.")
     except Exception:
         st.info("Volatility view not yet available (run analytics.sql).")
+
+    st.divider()
+    st.subheader("Restocked products (last 14 days)")
+    st.caption("Products that came back to Skroutz after a 3+ day stock gap, with before/after price.")
+    try:
+        with st.spinner("Loading restock data…"):
+            rst_df = _q("""
+                SELECT brand, model,
+                       ROUND(price_before, 2) AS "Was €",
+                       ROUND(price_after,  2) AS "Now €",
+                       ROUND(price_chg_pct, 1) AS "Δ%",
+                       gap_days               AS "Gap (days)",
+                       after_gap              AS "Returned"
+                FROM vw_restock_pricing
+                WHERE after_gap >= CURRENT_DATE - 14
+                  AND category = :cat
+                ORDER BY after_gap DESC, ABS(price_chg_pct) DESC
+                LIMIT 20
+            """, cat=cat_a)
+        if not rst_df.empty:
+            st.dataframe(
+                rst_df,
+                column_config={
+                    "Was €":      st.column_config.NumberColumn("Was €",   format="€%.2f"),
+                    "Now €":      st.column_config.NumberColumn("Now €",   format="€%.2f"),
+                    "Δ%":         st.column_config.NumberColumn("Δ%",      format="%.1f%%"),
+                    "Gap (days)": st.column_config.NumberColumn("Gap days", format="%.0f d"),
+                    "Returned":   st.column_config.DateColumn("Returned"),
+                },
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("No restocked products in the last 14 days for this category.")
+    except Exception:
+        st.info("Restock view not yet available (run analytics.sql).")
+
+    st.divider()
+    st.subheader("Review velocity (last 14 days)")
+    st.caption("Products gaining the most new reviews — high velocity signals trending items.")
+    try:
+        with st.spinner("Loading review velocity…"):
+            rv_df = _q("""
+                SELECT brand, model,
+                       new_reviews_14d  AS "New reviews",
+                       rev_now          AS "Total reviews",
+                       ROUND(reviews_per_day, 2) AS "Reviews/day",
+                       skroutz_link
+                FROM vw_review_velocity
+                WHERE category = :cat
+                ORDER BY new_reviews_14d DESC
+                LIMIT 15
+            """, cat=cat_a)
+        if not rv_df.empty:
+            if len(rv_df) > 2:
+                top_rv = rv_df.head(10).copy()
+                top_rv["label"] = (
+                    top_rv["brand"].fillna("") + " " + top_rv["model"].fillna("")
+                ).str.strip().str.slice(0, 35)
+                fig_rv = px.bar(
+                    top_rv.sort_values("New reviews"),
+                    x="New reviews",
+                    y="label",
+                    orientation="h",
+                    labels={"label": "", "New reviews": "New reviews (14d)"},
+                    template="plotly_dark",
+                    color_discrete_sequence=[CAT_COLORS.get(cat_a, "#4f8ef7")],
+                    text_auto=True,
+                    height=max(220, len(top_rv) * 32),
+                )
+                fig_rv.update_layout(
+                    margin=dict(l=0, r=10, t=10, b=0),
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(fig_rv, use_container_width=True)
+            st.dataframe(
+                rv_df,
+                column_config={
+                    "New reviews":   st.column_config.NumberColumn("New reviews",  format="%.0f 📈"),
+                    "Total reviews": st.column_config.NumberColumn("Total reviews", format="%.0f"),
+                    "Reviews/day":   st.column_config.NumberColumn("Reviews/day",   format="%.2f"),
+                    "skroutz_link":  st.column_config.LinkColumn("Link", display_text="🔗 View"),
+                },
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("No review velocity data yet — needs 14+ days of scraping.")
+    except Exception:
+        st.info("Review velocity view not yet available (run analytics.sql).")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────

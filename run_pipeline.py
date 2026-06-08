@@ -56,14 +56,21 @@ _log_dir  = os.path.join(BASE, "logs")
 os.makedirs(_log_dir, exist_ok=True)
 _log_file = os.path.join(_log_dir, f"pipeline_{datetime.date.today()}.log")
 
+_handlers: list[logging.Handler] = [logging.StreamHandler()]
+try:
+    _handlers.append(logging.FileHandler(_log_file, encoding="utf-8"))
+except OSError as _e:
+    _notif.tg_send(
+        f"⚠️ <b>Pipeline log locked</b>\n"
+        f"Cannot open <code>{_log_file}</code>\n"
+        f"{_e}\n"
+        f"Pipeline will run — check for a duplicate instance."
+    )
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(_log_file, encoding="utf-8"),
-    ],
+    handlers=_handlers,
 )
 logger = logging.getLogger(__name__)
 
@@ -263,7 +270,7 @@ def send_drop_digest():
                 "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
                 "FROM vw_biggest_drops "
                 "WHERE drop_date = CURRENT_DATE "
-                "ORDER BY drop_eur ASC LIMIT 10"
+                "ORDER BY ABS(drop_eur) DESC LIMIT 10"
             )).fetchall()
     except Exception as e:
         logger.warning(f"Drop digest: DB query failed — {e}")
@@ -335,8 +342,6 @@ def send_drop_digest():
         logger.info(f"Drop digest sent — {len(rows)} deals.")
     except Exception as e:
         logger.warning(f"Could not send drop digest: {e}")
-
-
 
 
 def send_watchlist_alerts():
@@ -598,10 +603,15 @@ def send_success_summary(elapsed):
     except Exception as e:
         logger.warning(f"Success summary: DB query failed — {e}")
         return
-    if yesterday_snaps > 0 and snaps < yesterday_snaps * 0.5:
+    if yesterday_snaps > 0 and snaps < yesterday_snaps * 0.7:
         logger.warning(
             f"ANOMALY: Today {snaps:,} snapshots vs yesterday {yesterday_snaps:,} — "
             f"possible partial scrape ({100 * snaps // yesterday_snaps}%)"
+        )
+        _notif.tg_send(
+            f"⚠️ <b>Snapshot anomaly detected</b>\n"
+            f"Today: <b>{snaps:,}</b> vs yesterday: <b>{yesterday_snaps:,}</b>\n"
+            f"Coverage: <b>{100 * snaps // yesterday_snaps}%</b> — possible partial scrape"
         )
     elapsed_str = str(elapsed).split(".")[0]  # trim microseconds
     _notif.tg_success(snaps, new_prods, drops, elapsed_str)
@@ -680,6 +690,19 @@ if __name__ == "__main__":
     start = datetime.datetime.now()
     _cleanup_old_logs()
     _notif.tg_pipeline_start()
+    try:
+        with get_engine().connect() as _conn:
+            _last_date = _conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
+        if _last_date and (datetime.date.today() - _last_date).days > 1:
+            _gap = (datetime.date.today() - _last_date).days
+            logger.warning(f"Pipeline gap: last run was {_last_date} ({_gap} days ago)")
+            _notif.tg_send(
+                f"⚠️ <b>Pipeline gap detected</b>\n"
+                f"Last successful run: <b>{_last_date}</b> ({_gap} days ago)\n"
+                f"Data may be stale — check Task Scheduler."
+            )
+    except Exception:
+        pass
     for label, script in STAGES:
         run_stage(label, script)
     run_charts()
