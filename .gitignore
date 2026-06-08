@@ -17,6 +17,7 @@ Tablets_skroutz/
 
 # Cleaned CSVs (regenerated daily by the pipeline)
 Clean/
+*.csv
 
 # Pipeline logs
 logs/
@@ -39,7 +40,16 @@ Jupiter_PIP_install_File.ipynb
 
 # One-time report generator and its output (not part of the pipeline)
 generate_report.py
-Skroutz_Enhancement_Report.pdf
+*.pdf
+
+# Personal watchlist — use watchlist.example.json instead
+watchlist.json
+
+# Generated chart images (regenerated daily by charts_from_db.py)
+charts/*.png
+
+# Scratch/utility scripts with _ prefix
+_*.py
 
 # Daily dated dashboard snapshots (regenerated each run; only dashboard_latest.html is tracked)
 dashboard/dashboard_2*.html
