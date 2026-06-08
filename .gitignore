@@ -46,7 +46,9 @@ generate_report.py
 watchlist.json
 
 # Generated chart images (regenerated daily by charts_from_db.py)
+# Exception: the 4 pipeline trend charts are tracked so the README renders on GitHub
 charts/*.png
+!charts/price_trend_*.png
 
 # Scratch/utility scripts with _ prefix
 _*.py
