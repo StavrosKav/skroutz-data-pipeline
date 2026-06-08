@@ -1,497 +1,86 @@
 # Skroutz Price Tracker
 
+![Products](https://img.shields.io/badge/Products-19%2C614-blue?style=flat-square)
+![Snapshots](https://img.shields.io/badge/Snapshots-223k-green?style=flat-square)
+![Categories](https://img.shields.io/badge/Categories-4-orange?style=flat-square)
+![Daily rows](https://img.shields.io/badge/Daily_rows-~8k-purple?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)
-![Selenium](https://img.shields.io/badge/Selenium-4.41-43B02A?logo=selenium&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-An end-to-end Python data engineering pipeline that scrapes daily product listings from [Skroutz.gr](https://www.skroutz.gr) — Greece's largest e-commerce aggregator — cleans and enriches the raw data, loads it into a normalized PostgreSQL database, and delivers automated price intelligence via a self-contained HTML dashboard, an interactive Streamlit dashboard, Gmail alerts, and a Telegram bot.
-
-> **~19,607 products tracked · 4 categories · ~202,000 price snapshots · ~19,000 new rows/day · daily since June 2025**
+Daily price-tracking pipeline for [Skroutz.gr](https://www.skroutz.gr) — Greece's largest e-commerce aggregator.
 
 ---
 
-## Table of Contents
+## What This Project Does
 
-- [Architecture](#architecture)
-- [Pipeline Stages](#pipeline-stages)
-- [Database Schema](#database-schema)
-- [Analytics Views](#analytics-views)
-- [HTML Dashboard](#dashboard)
-- [Streamlit Dashboard](#streamlit-dashboard)
-- [Telegram Bot](#telegram-bot)
-- [Email Alerts](#email-alerts)
-- [Tech Stack](#tech-stack)
-- [Setup](#setup)
-- [Project Structure](#project-structure)
-- [Data Coverage](#data-coverage)
-- [Sample Output](#sample-output)
-- [Disclaimer](#disclaimer)
+Every morning at 08:00, four Selenium scrapers collect every product listing across phones, laptops, smartwatches, and tablets from Skroutz.gr and store the results in PostgreSQL. Over 7,965 new price observations are appended each day, building a historical record that now spans 223,027 snapshots across 19,614 products since June 2025. The pipeline then automatically delivers price-drop alerts via Gmail and Telegram, generates chart images and a self-contained HTML report, and keeps a live Streamlit dashboard up to date.
 
 ---
 
-## Architecture
+## Pipeline Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          run_pipeline.py                            │
-│                       (Master Orchestrator)                         │
-└───────────────────────────────┬─────────────────────────────────────┘
-                                │
-          ┌─────────────────────▼─────────────────────┐
-          │            Stage 1 — Scrape               │
-          │         1scriptToGet4.py                  │
-          │   ┌──────┐ ┌────────┐ ┌──────┐ ┌───────┐ │
-          │   │Phones│ │Laptops │ │Tabs  │ │Watches│ │  (parallel)
-          │   └──┬───┘ └───┬────┘ └──┬───┘ └───┬───┘ │
-          └──────┼─────────┼─────────┼──────────┼─────┘
-                 │         │         │          │
-          raw CSVs per category folder (date-stamped)
-                 │         │         │          │
-          ┌──────┼─────────┼─────────┼──────────┼─────┐
-          │            Stage 2 — Clean               │
-          │      1scriptToGet4MANIPULATION.py         │
-          │   ┌──────┐ ┌────────┐ ┌──────┐ ┌───────┐ │
-          │   │Phone │ │Laptops │ │Tabs  │ │Watches│ │  (parallel)
-          │   └──┬───┘ └───┬────┘ └──┬───┘ └───┬───┘ │
-          └──────┼─────────┼─────────┼──────────┼─────┘
-                 │         │         │          │
-               clean CSVs → Clean/ folder
-                 │
-          ┌──────▼───────────────────────────────────┐
-          │          Stage 3 — Load SQL               │
-          │              4csvsTOsql.py                │
-          │   ON CONFLICT upsert → PostgreSQL         │
-          │   products + price_snapshots tables       │
-          └──────────────────┬───────────────────────┘
-                             │
-          ┌──────────────────▼───────────────────────┐
-          │           Post-Pipeline (non-fatal)       │
-          │  charts_from_db.py  →  PNG trend charts  │
-          │  generate_dashboard.py  →  HTML dashboard │
-          │  Gmail alerts: drops · watchlist ·        │
-          │                disappeared · summary      │
-          │  Telegram: same alerts via Bot API        │
-          └──────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  A["🕗 08:00\nTask Scheduler"] --> B["Scrape\n4 categories"]
+  B --> C["Clean\nCSV normalisation"]
+  C --> D["Load\nPostgreSQL upsert"]
+  D --> E["Charts\nPNG generation"]
+  D --> F["HTML Dashboard\noffline report"]
+  D --> G["Gmail Alerts\n4 types"]
+  D --> H["Telegram Bot\nlive queries"]
 ```
 
-`run_pipeline.py` orchestrates all three stages sequentially. A non-zero exit from any stage aborts the pipeline and sends a Gmail failure alert — data gaps are never silent. Automated daily at **08:00** via Windows Task Scheduler.
-
----
-
-## Pipeline Stages
-
-### Stage 1 — Scrape (`1scriptToGet4.py`)
-
-Launches four Selenium scrapers in parallel with staggered starts (13 s apart) to reduce fingerprinting risk. Each scraper uses `undetected-chromedriver` to bypass Skroutz's bot detection and writes a dated raw CSV to its category folder.
-
-| Scraper | Output folder | Filename pattern |
-|---|---|---|
-| `skroutz_phonesWHILE.py` | `Phones_skroutz/` | `skroutz_phones_YYYY-MM-DD.csv` |
-| `skroutz_laptopsWHILE.py` | `Laptops_skroutz/` | `skroutz_laptos_YYYY-MM-DD.csv` |
-| `skroutz_tabletsWHILE.py` | `Tablets_skroutz/` | `skroutz_tablets_YYYY-MM-DD.csv` |
-| `skroutz_SmartwatchesWHILE.py` | `Smartwatches_skroutz/` | `skroutz_Smartwatches_YYYY-MM-DD.csv` |
-
-### Stage 2 — Clean (`1scriptToGet4MANIPULATION.py`)
-
-Launches four per-category cleaners in parallel. Each applies:
-
-- Greek number format normalisation → float (`1.100,00 €` → `1100.0`)
-- Brand / model / color extraction via regex with multi-pass fallback patterns
-- Installment parsing (`44,10 €/μήνα σε 24 δόσεις` → `installments_per_month=44.10`, `installments_in_total=24`)
-- Phone-specific: RAM/storage parsing, display size, camera count extraction
-- Cleaned output written to `Clean/`
-
-### Stage 3 — Load SQL (`4csvsTOsql.py`)
-
-Upserts all four cleaned CSVs into PostgreSQL in a single pass:
-
-- `products` — static metadata inserted once; only `last_seen` updated on re-scrape
-- `price_snapshots` — one row per product per day; `UNIQUE(product_id, date)` makes the pipeline fully re-run safe
-- Logs per-category counts: new products added and total snapshots loaded
+`run_pipeline.py` drives all three stages sequentially. **Stage 1** launches four Selenium scrapers in parallel (staggered 13 s apart) using `undetected-chromedriver`. **Stage 2** runs four per-category cleaners in parallel, normalising Greek number formats, extracting brand/model/specs via regex, and parsing installment data. **Stage 3** upserts every cleaned row into PostgreSQL — new products are inserted, existing ones get their price snapshot appended. Any non-zero exit aborts the run and fires a Gmail failure alert immediately — data gaps are never silent.
 
 ---
 
 ## Database Schema
 
-Two-table normalized design separating static product metadata from daily price observations:
-
-```sql
-products (
-    id             SERIAL PRIMARY KEY,
-    category       VARCHAR(20),     -- phone | laptop | smartwatch | tablet
-    skroutz_link   TEXT UNIQUE,     -- natural key used for all upserts
-    product_name   TEXT,
-    brand          VARCHAR(100),
-    model          TEXT,
-    color          VARCHAR(100),
-    specs          TEXT,
-    ram_gb         INTEGER,
-    storage_gb     INTEGER,
-    num_cameras    INTEGER,
-    camera_type    VARCHAR(50),
-    display_inches NUMERIC(4,1),
-    battery_info   VARCHAR(50),
-    display_info   TEXT,
-    first_seen     DATE,
-    last_seen      DATE
-)
-
-price_snapshots (
-    id                     SERIAL PRIMARY KEY,
-    product_id             INTEGER REFERENCES products(id),
-    date                   DATE,
-    price_eur              NUMERIC,
-    installments_per_month NUMERIC,
-    installments_in_total  NUMERIC,
-    rating                 NUMERIC,
-    reviews                INTEGER,
-    UNIQUE (product_id, date)      -- idempotent: safe to re-run any day
-)
-```
-
-Static metadata is written once; price history grows by ~19,000 rows per day.
-
----
-
-## Analytics Views
-
-`analytics.sql` defines **13 PostgreSQL views** that turn raw snapshots into actionable intelligence. Run it once against the database in pgAdmin, DBeaver, or psql.
-
-| View | Purpose |
-|---|---|
-| `vw_latest_prices` | Current price, rating, and snapshot date for every product |
-| `vw_price_history` | Full daily price history with day-over-day change (`LAG()`) |
-| `vw_biggest_drops` | Largest single-day absolute price drops, all time |
-| `vw_brand_summary` | Avg / median / min / max price per brand per category |
-| `vw_disappeared` | Products not seen in the last 7 days (likely delisted) |
-| `vw_price_volatility` | 30-day coefficient of variation per product (deal quality signal) |
-| `vw_brand_price_trend` | Daily avg price per brand/category (brand comparison over time) |
-| `vw_hot_deals` | Price drop + review surge — compares two most recent scrape dates |
-| `vw_price_floor` | All-time low and high per product |
-| `vw_brand_discount_freq` | % of days each brand had a ≥3% drop (last 90 days) |
-| `vw_near_atl` | Products currently within 10% of their all-time low |
-| `vw_price_trend_direction` | 7-day vs 30-day avg momentum — falling / stable / rising |
-| `vw_daily_market_index` | Daily avg/min/max price per category (macro market trend) |
-
-### Sample Queries
-
-```sql
--- Top 10 cheapest laptops right now
-SELECT brand, model, price_eur
-FROM vw_latest_prices
-WHERE category = 'laptop'
-ORDER BY price_eur ASC
-LIMIT 10;
-```
-
-```sql
--- All price drops in the last 7 days, largest first
-SELECT brand, model, drop_date, prev_price, new_price, drop_eur, drop_pct
-FROM vw_biggest_drops
-WHERE drop_date >= CURRENT_DATE - 7
-ORDER BY drop_eur ASC
-LIMIT 20;
-```
-
-```sql
--- Brands that discount most often (phones)
-SELECT brand, discount_count, total_snapshots,
-       ROUND(100.0 * discount_count / total_snapshots, 1) AS discount_pct
-FROM vw_brand_discount_freq
-WHERE category = 'phone'
-ORDER BY discount_pct DESC;
-```
-
-```sql
--- Products at or near their all-time low
-SELECT lp.brand, lp.model, lp.category,
-       pf.all_time_low, lp.price_eur AS current_price,
-       ROUND(100.0 * (lp.price_eur - pf.all_time_low) / pf.all_time_low, 1) AS pct_above_atl
-FROM vw_near_atl lp
-JOIN vw_price_floor pf ON pf.product_id = lp.id
-ORDER BY pct_above_atl ASC
-LIMIT 20;
-```
-
----
-
-## Dashboard
-
-`generate_dashboard.py` produces a **self-contained HTML file** — all data is embedded as JSON so it works offline with no server required. Generated automatically after each pipeline run and also runnable standalone.
-
-```
-dashboard/dashboard_latest.html    ← always points to today's run
-dashboard/dashboard_YYYY-MM-DD.html
-```
-
-Visual design: Inter font, glassmorphism stat cards with animated countUp, gradient fills on all charts, HSL-interpolated ATL proximity bars, tab fade-in animation, and a sticky footer.
-
-### Dashboard Tabs
-
-| Tab | Content |
-|---|---|
-| **Overview** | 90-day category price index (line chart with gradient fill), PNG price-trend charts per category |
-| **Price Drops** | Hot deals (price drop + review surge), today's and weekly drops table — filterable by Min Drop € |
-| **Products** | Full product search — category, price range, color, trend, Near ATL checkbox; sortable columns |
-| **New & Gone** | New arrivals this week, recently disappeared products, watchlist status |
-| **Insights** | Brand analysis (avg / median / range / count), market-share donuts, interactive brand price comparison |
-| **Intelligence** | Near ATL table with HSL proximity bars, brand discount frequency, price tier distribution, price vs. rating scatter |
-
----
-
-## Telegram Bot
-
-`telegram_bot.py` provides an interactive long-polling bot for real-time price intelligence. Run it separately (e.g. always-on terminal or Task Scheduler).
-
-| Command | Description |
-|---|---|
-| `/status` | Last pipeline run result and log tail |
-| `/drops [category]` | Today's top price drops |
-| `/best [category]` | Products closest to their all-time low |
-| `/find <name>` | Search products by name + ATL context |
-| `/history <name>` | Full 14-day price timeline with ATL/ATH context |
-| `/watchlist` | Numbered list with live prices vs targets |
-| `/add <url> <€>` | Add a product to the watchlist |
-| `/remove <n>` | Remove watchlist item #n |
-| `/stats` | DB stats: products, snapshots, today's drops |
-| `/cancel` | Cancel any in-progress conversation |
-| `/help` | List all available commands |
-
-Send any skroutz.gr URL to the bot and it guides you through adding it to the watchlist.
-
-Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. The bot only responds to the configured `CHAT_ID`.
-
----
-
-## Streamlit Dashboard
-
-`streamlit_app.py` provides an interactive live dashboard that queries PostgreSQL directly (results cached 1 h). It runs as a separate long-running process alongside the pipeline.
-
-```bash
-streamlit run streamlit_app.py
-# Opens at http://localhost:8501
-```
-
-| Tab | Content |
-|---|---|
-| **Overview** | 4-metric summary (new arrivals, today's snaps, biggest drop, near-ATL count); category cards with colour-coded borders; brand price trend chart |
-| **Price Drops** | Horizontal bar chart of top-10 drops; full drop dataframe with CSV export; daily activity chart |
-| **Products** | Searchable product table with Sort by selector, volatility ProgressColumn, ATL proximity ProgressColumn |
-| **Watchlist** | Card layout with current price / target / status; progress bar showing proximity to target; hit items sorted first |
-| **Analytics** | Brand discount frequency with median reference line; near-ATL scatter + table; price volatility leaderboard; market index; trend direction |
-
----
-
-## Email Alerts
-
-All alerts are sent via Gmail SMTP using an App Password. Configure `ALERT_EMAIL` and `GMAIL_APP_PASSWORD` in `.env`.
-
-| Alert | Trigger | Content |
-|---|---|---|
-| **Failure alert** | Any pipeline stage exits non-zero | Stage name, exit code, log path — sent immediately on abort |
-| **Price drop digest** | After each successful run | Top 10 drops of the day sorted by €, with brand / model / category |
-| **Watchlist alert** | Product price ≤ threshold in `watchlist.json` | Name, current price, target price, direct Skroutz link |
-| **Disappeared alert** | Product absent from scrape for 1–2 days | Brand, model, category, last seen date, Skroutz link |
-| **Success summary** | After each successful run | Elapsed time, snapshots loaded, new products, total drops today |
-
-### Watchlist
-
-Add products to `watchlist.json` to receive an email when they hit your target price:
-
-```json
-[
-  {
-    "url":           "https://www.skroutz.gr/s/...",
-    "label":         "iPhone 16 Pro Max 256GB",
-    "threshold_eur": 1250.00
+```mermaid
+erDiagram
+  PRODUCTS {
+    int id PK
+    string category
+    string brand
+    string model
+    string product_name
+    date first_seen
+    date last_seen
+    string skroutz_link
   }
-]
+  PRICE_SNAPSHOTS {
+    int id PK
+    int product_id FK
+    date date
+    decimal price_eur
+    int reviews
+    decimal rating
+  }
+  PRODUCTS ||--o{ PRICE_SNAPSHOTS : "has"
 ```
+
+`UNIQUE(product_id, date)` on `price_snapshots` makes the pipeline re-run safe.
 
 ---
 
-## Tech Stack
+## Live Market Snapshot
 
-| Layer | Library / Tool | Version |
-|---|---|---|
-| Scraping | Selenium | 4.41.0 |
-| Scraping | undetected-chromedriver | 3.5.5 |
-| Processing | pandas | 2.3.3 |
-| Processing | numpy | 2.3.5 |
-| Database ORM | SQLAlchemy | 2.0.43 |
-| Database driver | psycopg2-binary | 2.9.12 |
-| Database engine | PostgreSQL | 16 |
-| Visualisation | matplotlib | 3.10.6 |
-| Visualisation | plotly | ≥5.18 |
-| Interactive dashboard | Streamlit | ≥1.35 |
-| Config | python-dotenv | 1.1.0 |
-| Orchestration | subprocess + Windows Task Scheduler | — |
-| Alerting | smtplib (Gmail SMTP) | stdlib |
-| Notifications | Telegram Bot API (stdlib urllib) | — |
-| Containerisation | Docker + Compose | — |
-| Testing | pytest | — |
-| Linting | ruff | — |
-| Runtime | Python | 3.13 |
+| Category | Products | Snapshots | Avg Price | Range | Brands |
+|---|---|---|---|---|---|
+| Laptop | 6,841 | 64,700 | €1,549 | €52–€10,358 | 45 |
+| Phone | 5,214 | 58,133 | €352 | €9–€3,839 | 127 |
+| Smartwatch | 5,923 | 83,972 | €93 | €5–€3,399 | — |
+| Tablet | 1,636 | 16,222 | €552 | €33–€5,367 | 95 |
+| **Total** | **19,614** | **223,027** | | | |
+
+Updated daily at 08:00 · last pipeline run: 2026-06-08
 
 ---
 
-## Setup
+## Price Trend Charts
 
-### 1. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Configure credentials
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and fill in:
-
-```ini
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=SkroutzPR
-DB_USER=postgres
-DB_PASSWORD=your_password
-
-ALERT_EMAIL=you@gmail.com
-GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx   # Gmail App Password (not your account password)
-```
-
-Generate a Gmail App Password at: **myaccount.google.com → Security → 2-Step Verification → App Passwords**
-
-### 3. Create the database schema
-
-Run `create_new_schema.sql` against your PostgreSQL instance in pgAdmin or psql:
-
-```bash
-psql -U postgres -d SkroutzPR -f create_new_schema.sql
-```
-
-### 4. Create the analytics views (one-time)
-
-```bash
-psql -U postgres -d SkroutzPR -f analytics.sql
-```
-
-### 5. Run the pipeline
-
-```powershell
-& "C:\path\to\python.exe" run_pipeline.py
-```
-
-### 6. Run with Docker (Clean + Load only)
-
-The scrapers require a real Chrome window and **cannot run inside Docker** — Skroutz bot-detection blocks headless Chrome. Docker is therefore scoped to Stage 2 (Clean) and Stage 3 (Load) via `SKIP_SCRAPE=1`.
-
-**Typical workflow:**
-
-1. Run scrapers on Windows to produce raw CSVs:
-   ```powershell
-   & "C:\path\to\python.exe" 1scriptToGet4.py
-   ```
-
-2. Run Clean + Load in Docker (no local Postgres install needed):
-   ```bash
-   cp .env.example .env    # fill in DB_PASSWORD
-   docker compose up --build
-   ```
-
-The schema is applied automatically on first run via the `initdb` mount. Raw CSV folders are mounted read-only into the container.
-
-### 7. Automate with Windows Task Scheduler
-
-Edit `run_pipeline.bat` and update the `PYTHON` path, then register:
-
-```powershell
-schtasks /create /tn "SkroutzDailyPipeline" /tr "C:\path\to\run_pipeline.bat" /sc DAILY /st 08:00 /f
-```
-
----
-
-## Project Structure
-
-```
-├── run_pipeline.py                # Master orchestrator — scrape → clean → load → alerts
-│
-├── 1scriptToGet4.py               # Stage 1: parallel scraper launcher (4 workers)
-├── skroutz_phonesWHILE.py         #   └─ Selenium scraper — phones
-├── skroutz_laptopsWHILE.py        #   └─ Selenium scraper — laptops
-├── skroutz_tabletsWHILE.py        #   └─ Selenium scraper — tablets
-├── skroutz_SmartwatchesWHILE.py   #   └─ Selenium scraper — smartwatches
-│
-├── 1scriptToGet4MANIPULATION.py   # Stage 2: parallel cleaner launcher (4 workers)
-├── Data_Phone.py                  #   └─ Cleaner — phones
-├── Data_Laptops.py                #   └─ Cleaner — laptops
-├── Data_Tablets.py                #   └─ Cleaner — tablets
-├── Data_Smartwatches.py           #   └─ Cleaner — smartwatches
-│
-├── 4csvsTOsql.py                  # Stage 3: PostgreSQL upsert loader
-├── db.py                          # SQLAlchemy engine singleton (get_engine())
-│
-├── charts_from_db.py              # Price trend charts — PNG per category
-├── generate_dashboard.py          # Self-contained HTML dashboard from PostgreSQL
-├── streamlit_app.py               # Interactive Streamlit dashboard (live DB queries)
-├── notifications.py               # Telegram notification layer — dedup, retry, backoff
-├── telegram_bot.py                # Interactive Telegram bot — long-polling
-├── analytics.sql                  # 13 analytical views — run once in DB
-├── watchlist.json                 # Price alert targets [{url, label, threshold_eur}]
-│
-├── tests/
-│   └── test_pipeline.py           # 49 unit tests (pytest) — parsing, coercions, I/O
-│
-├── Skroutz_data_EDA.py            # Exploratory data analysis & single-day charts
-├── backfill_models.py             # One-time: backfill brand/model fields
-├── migrate_data.py                # One-time: flat → normalized schema migration
-│
-├── create_new_schema.sql          # Database DDL — run once to create tables
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── run_pipeline.bat               # Task Scheduler launcher — update PYTHON path inside
-└── .env.example                   # Credential template — copy to .env, never commit .env
-```
-
----
-
-## Data Coverage
-
-Current database state as of **2026-06-05**:
-
-| Category | Products | Avg Daily Snapshots |
-|---|---|---|
-| Phones | ~5,100 | ~5,100 |
-| Laptops | ~6,300 | ~6,300 |
-| Smartwatches | ~6,300 | ~6,300 |
-| Tablets | ~1,600 | ~1,300 |
-| **Total** | **~19,300** | **~19,000** |
-
-**Total snapshots:** ~202,000  
-**Date range:** 2025-06-10 → present (~12 months of daily history)
-
----
-
-## Sample Output
-
-### Cleaned data row (phones)
-
-| Brand | Model | RAM | Storage | Price (€) | Rating | Reviews | Date |
-|---|---|---|---|---|---|---|---|
-| Xiaomi | Redmi Note 14 Pro 5G | 8 GB | 256 GB | 256.63 | 4.7 | 133 | 2026-06-01 |
-| Apple | iPhone 16 Pro Max | 8 GB | 256 GB | 1352.00 | 4.7 | 165 | 2026-06-01 |
-| Samsung | Galaxy S25 | 12 GB | 256 GB | 759.00 | 4.8 | 421 | 2026-06-01 |
-
-Each row becomes one `price_snapshots` record linked to its `products` entry by foreign key. The pipeline appends ~19,000 rows per day and is fully idempotent — re-running the same day is safe.
-
-### Price Trends
-
-Multi-day price history for the top 6 most-reviewed products per category, generated by `charts_from_db.py`:
+Daily price history for the top 6 most-reviewed products per category, generated by `charts_from_db.py`. Dark-themed PNGs are regenerated after every pipeline run and are not stored in the repository.
 
 **Phones — top 6 by reviews**
 ![Phone price trends](charts/price_trend_phone.png)
@@ -505,10 +94,170 @@ Multi-day price history for the top 6 most-reviewed products per category, gener
 **Tablets — top 6 by reviews**
 ![Tablet price trends](charts/price_trend_tablet.png)
 
-Run `charts_from_db.py` to regenerate (requires `analytics.sql` views to be present in the database).
+---
+
+## Sample Insights
+
+### Biggest Price Drops — Last 30 Days
+
+| Brand | Model | Category | Was € | Now € | Saved € | Drop % |
+|---|---|---|---|---|---|---|
+| Dell | AW18 18" (i7-13620H/64GB/2TB) | Laptop | 10,358 | 7,470 | 2,888 | -27.9% |
+| HP | EliteBook X G2i 14" (Ultra 7-358H/32GB/1TB) | Laptop | 5,366 | 2,675 | 2,691 | -50.2% |
+| Dell | Alienware M18 R2 14" (U-Series-7-258V/32GB/1TB) | Laptop | 8,712 | 6,227 | 2,485 | -28.5% |
+| Lenovo | ThinkPad P16 Gen 3 16" (Ultra 7-265HX/64GB/1TB) | Laptop | 7,970 | 5,549 | 2,422 | -30.4% |
+| ThinkPad | X1 2-in-1 Gen 10 14" (Ultra 7-255U/32GB/1TB) | Laptop | 7,075 | 4,737 | 2,338 | -33.0% |
+
+### Near All-Time Low (within 3%)
+
+| Brand | Model | Category | Current € | ATL € | Above ATL |
+|---|---|---|---|---|---|
+| Ulefone | Armor 7 Dual SIM (8/128GB) | Phone | 174.63 | 174.63 | 0.0% |
+| Samsung | Galaxy S10 Dual SIM (8/128GB) | Phone | 639.90 | 639.90 | 0.0% |
+| Huawei | P30 Dual SIM (6/128GB) | Phone | 598.99 | 598.99 | 0.0% |
+| Huawei | Mate 20 Dual SIM (4/128GB) | Phone | 389.00 | 389.00 | 0.0% |
+| Panasonic | KX-TU400 Single SIM | Phone | 52.64 | 52.64 | 0.0% |
+
+These products are within 3% of their lowest ever recorded price.
+
+### Most Price-Volatile Products (30 days)
+
+| Brand | Model | Category | Volatility (CV%) |
+|---|---|---|---|
+| Samsung | Galaxy S24 FE Enterprise Edition 5G (8/128GB) Graphite | Phone | 51.4% |
+| Emporia | TALKglam Dual SIM | Phone | 43.2% |
+| Celly | TRAINERBEAT | Smartwatch | 43.1% |
+| MyPhone | CareWatch LTE 42mm | Smartwatch | 38.3% |
+| Asus | ProArt P16 16" (Ryzen AI 9 HX 370/64GB/2TB) | Laptop | 36.7% |
+
+CV% = coefficient of variation — higher means price swings more.
 
 ---
 
-## Disclaimer
+## Analytics Views
 
-This project is for **personal learning and portfolio purposes only**. No scraped data is stored in this repository — all CSVs are excluded via `.gitignore`. The scraper accesses only publicly visible listing pages and makes no attempt to bypass authentication or access private data. Use responsibly and in accordance with the target site's Terms of Service.
+15 SQL views power the dashboards, alerts, and Telegram bot. Run `analytics.sql` once to create them all.
+
+| View | What it answers |
+|---|---|
+| `vw_latest_prices` | Current price, rating, and snapshot date for every product |
+| `vw_price_history` | Full daily price history with day-over-day change (LAG) |
+| `vw_biggest_drops` | Largest single-day absolute price drops across all time |
+| `vw_brand_summary` | Avg / median / min / max price per brand per category |
+| `vw_disappeared` | Products not seen for 7+ days — likely delisted |
+| `vw_price_volatility` | 30-day coefficient of variation per product |
+| `vw_brand_price_trend` | Daily avg price per brand/category for trend comparison |
+| `vw_hot_deals` | Price drop + review surge since the previous scrape |
+| `vw_price_floor` | All-time low and high per product |
+| `vw_brand_discount_freq` | % of days each brand had a ≥3% drop (last 90 days) |
+| `vw_near_atl` | Products currently within a given % of their all-time low |
+| `vw_price_trend_direction` | 7-day vs 30-day avg momentum — falling / stable / rising |
+| `vw_daily_market_index` | Daily avg category price — macro market trend |
+| `vw_restock_pricing` | Price before vs. after a 3+ day stock gap |
+| `vw_review_velocity` | Products gaining the most new reviews in the last 14 days |
+
+---
+
+## Alerts & Notifications
+
+| Alert | Trigger | Channel |
+|---|---|---|
+| Daily price drop digest | Top 10 drops each day | Gmail |
+| Watchlist threshold hit | Product ≤ target price | Gmail + Telegram |
+| Disappeared product | Not seen for 1–2 days | Gmail + Telegram |
+| Pipeline success summary | After every successful run | Gmail + Telegram |
+| Pipeline failure | Any stage exits non-zero | Gmail + Telegram |
+
+Configure `ALERT_EMAIL` and `GMAIL_APP_PASSWORD` (a Gmail App Password, not your account password) in `.env`. Watchlist targets live in `watchlist.json` — use `watchlist.example.json` as a schema reference.
+
+---
+
+## Telegram Bot Commands
+
+| Command | What it returns |
+|---|---|
+| `/status` | Last pipeline run result |
+| `/drops [category]` | Today's top 10 price drops |
+| `/best [category]` | Products closest to all-time low |
+| `/find <name>` | Search product + ATL context |
+| `/history <name>` | 14-day price timeline |
+| `/watchlist` | Live prices for your watchlist |
+| `/add <url> <€>` | Add product to watchlist |
+| `/remove <n>` | Remove item from watchlist |
+| `/restock` | Products back after stock gap |
+| `/stats` | DB counts |
+| `/pulse` | Market-wide price direction |
+| `/buynow` | Products with BUY NOW signal |
+| `/help` | All commands |
+
+Send any Skroutz.gr URL directly to the bot and it guides you through adding it to the watchlist interactively.
+
+---
+
+## Running the Project
+
+**1. Install dependencies**
+
+```powershell
+& "C:\Users\StavrosKV\anaconda33\python.exe" -m pip install -r requirements.txt
+```
+
+**2. Configure credentials**
+
+```powershell
+Copy-Item .env.example .env   # then fill in DB_*, ALERT_EMAIL, GMAIL_APP_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+```
+
+**3. Create the schema and analytics views (once, on a fresh database)**
+
+```powershell
+psql -U postgres -d SkroutzPR -f create_new_schema.sql
+psql -U postgres -d SkroutzPR -f analytics.sql
+```
+
+**4. Full pipeline**
+
+```powershell
+& "C:\Users\StavrosKV\anaconda33\python.exe" run_pipeline.py
+```
+
+**5. Streamlit dashboard** (separate terminal — runs until stopped)
+
+```powershell
+& "C:\Users\StavrosKV\anaconda33\python.exe" -m streamlit run streamlit_app.py
+# Opens at http://localhost:8501
+```
+
+**6. Telegram bot** (separate terminal — runs until stopped)
+
+```powershell
+& "C:\Users\StavrosKV\anaconda33\python.exe" telegram_bot.py
+```
+
+**7. Tests and lint**
+
+```powershell
+& "C:\Users\StavrosKV\anaconda33\python.exe" -m pytest tests/ -v
+& "C:\Users\StavrosKV\anaconda33\python.exe" -m ruff check .
+```
+
+**Docker (Clean + Load only):** The scrapers require a real Chrome window — Skroutz bot-detection blocks headless Chrome. Run Stage 1 on Windows first, then `docker compose up --build` for stages 2 and 3 (`SKIP_SCRAPE=1` is set automatically in `docker-compose.yml`).
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Scraping | Python · Selenium · undetected-chromedriver |
+| Data processing | pandas · numpy |
+| Database | PostgreSQL 16 · SQLAlchemy 2.x |
+| Analytics | 15 SQL views · window functions |
+| Dashboards | Streamlit · Chart.js · Plotly |
+| Alerts | Gmail SMTP · Telegram Bot API |
+| Infrastructure | Docker · Windows Task Scheduler |
+| Quality | pytest · ruff |
+
+---
+
+> This project is for personal learning and portfolio purposes. No scraped data is stored in this repository — all CSVs are excluded via `.gitignore`. The scraper accesses only publicly visible listing pages and makes no attempt to bypass authentication or access private data.
