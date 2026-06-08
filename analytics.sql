@@ -54,34 +54,36 @@ ORDER BY p.id, s.date DESC;
 -- dropped more than 5%" without a self-join.
 
 CREATE OR REPLACE VIEW vw_price_history AS
+WITH ph AS (
+    SELECT
+        s.product_id,
+        s.date,
+        s.price_eur,
+        s.rating,
+        s.reviews,
+        LAG(s.price_eur) OVER (PARTITION BY s.product_id ORDER BY s.date) AS prev_price
+    FROM price_snapshots s
+)
 SELECT
-    p.id            AS product_id,
+    p.id                                                               AS product_id,
     p.category,
     p.brand,
     p.model,
     p.product_name,
-    s.date,
-    s.price_eur,
-    LAG(s.price_eur) OVER (PARTITION BY s.product_id ORDER BY s.date) AS prev_price,
-    s.price_eur
-        - LAG(s.price_eur) OVER (PARTITION BY s.product_id ORDER BY s.date)
-                                                                       AS price_change,
+    ph.date,
+    ph.price_eur,
+    ph.prev_price,
+    ph.price_eur - ph.prev_price                                       AS price_change,
     ROUND(
-        100.0 * (
-            s.price_eur
-            - LAG(s.price_eur) OVER (PARTITION BY s.product_id ORDER BY s.date)
-        )
-        / NULLIF(
-            LAG(s.price_eur) OVER (PARTITION BY s.product_id ORDER BY s.date),
-            0
-        ),
+        100.0 * (ph.price_eur - ph.prev_price)
+        / NULLIF(ph.prev_price, 0),
         2
     )                                                                  AS pct_change,
-    s.rating,
-    s.reviews,
+    ph.rating,
+    ph.reviews,
     p.skroutz_link
-FROM products p
-JOIN price_snapshots s ON s.product_id = p.id;
+FROM ph
+JOIN products p ON p.id = ph.product_id;
 
 
 -- ── 3. Biggest single-day price drops ────────────────────────────────────────
@@ -422,3 +424,81 @@ FROM price_snapshots ps
 JOIN products p ON p.id = ps.product_id
 GROUP BY p.category, ps.date
 ORDER BY p.category, ps.date;
+
+
+-- =============================================================================
+-- Additional views (v3)
+-- =============================================================================
+
+-- ── 14. Restock pricing ───────────────────────────────────────────────────────
+-- Products that disappeared then reappeared after a 3+ day gap, showing the
+-- price before and after the gap.  Useful for spotting items that come back
+-- cheaper (or more expensive) after going out of stock.
+
+CREATE OR REPLACE VIEW vw_restock_pricing AS
+WITH consecutive AS (
+    SELECT
+        product_id,
+        date                                                               AS before_gap,
+        LEAD(date)      OVER (PARTITION BY product_id ORDER BY date)      AS after_gap,
+        price_eur                                                          AS price_before,
+        LEAD(price_eur) OVER (PARTITION BY product_id ORDER BY date)      AS price_after
+    FROM price_snapshots
+)
+SELECT
+    p.id,
+    p.category,
+    p.brand,
+    p.model,
+    p.product_name,
+    p.skroutz_link,
+    c.before_gap,
+    c.after_gap,
+    (c.after_gap - c.before_gap)                                         AS gap_days,
+    c.price_before,
+    c.price_after,
+    ROUND(
+        ((c.price_after - c.price_before) / NULLIF(c.price_before, 0) * 100)::NUMERIC, 1
+    )                                                                     AS price_chg_pct
+FROM consecutive c
+JOIN products p ON p.id = c.product_id
+WHERE (c.after_gap - c.before_gap) >= 3
+  AND c.price_before IS NOT NULL
+  AND c.price_after  IS NOT NULL
+ORDER BY c.after_gap DESC, ABS(c.price_after - c.price_before) DESC;
+
+
+-- ── 15. Review velocity ────────────────────────────────────────────────────────
+-- Products gaining the most new reviews in the last 14 days.
+-- High velocity = actively purchased / trending right now.
+
+CREATE OR REPLACE VIEW vw_review_velocity AS
+WITH bounds AS (
+    SELECT MAX(date) AS latest_date, MAX(date) - 14 AS cutoff_date
+    FROM price_snapshots
+),
+agg AS (
+    SELECT
+        ps.product_id,
+        MAX(ps.reviews) FILTER (WHERE ps.date  = b.latest_date) AS rev_now,
+        MAX(ps.reviews) FILTER (WHERE ps.date <= b.cutoff_date) AS rev_14d
+    FROM price_snapshots ps, bounds b
+    GROUP BY ps.product_id
+)
+SELECT
+    p.id            AS product_id,
+    p.category,
+    p.brand,
+    p.model,
+    p.product_name,
+    p.skroutz_link,
+    a.rev_now,
+    a.rev_14d,
+    COALESCE(a.rev_now - a.rev_14d, 0)                              AS new_reviews_14d,
+    ROUND(COALESCE(a.rev_now - a.rev_14d, 0)::NUMERIC / 14.0, 2)   AS reviews_per_day
+FROM agg a
+JOIN products p ON p.id = a.product_id
+WHERE a.rev_now IS NOT NULL
+  AND a.rev_14d IS NOT NULL
+  AND a.rev_now > a.rev_14d
+ORDER BY COALESCE(a.rev_now - a.rev_14d, 0) DESC;

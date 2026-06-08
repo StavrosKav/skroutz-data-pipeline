@@ -1,24 +1,13 @@
 @echo off
 :: Daily Skroutz pipeline launcher for Windows Task Scheduler.
-:: Redirects all output to a dated log file so failures are debuggable.
+:: Python handles its own logging to logs/pipeline_YYYY-MM-DD.log via FileHandler.
 ::
 :: SETUP: Update PYTHON below to point to your Python interpreter.
 
 set "PROJECT=%~dp0"
 set "PROJECT=%PROJECT:~0,-1%"
 set PYTHON=C:\Users\StavrosKV\anaconda33\python.exe
-set LOG_DIR=%PROJECT%\logs
 
 cd /d "%PROJECT%"
 
-if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
-
-:: Build a timestamp for the log filename (YYYY-MM-DD)
-:: %DATE% is locale-dependent (e.g. "Τετ 27/05/2026" on Greek Windows),
-:: so use PowerShell for a reliable ISO date instead.
-for /f "usebackq" %%D in (`powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd'"`) do set LOGDATE=%%D
-set LOGFILE=%LOG_DIR%\pipeline_%LOGDATE%.log
-
-echo Pipeline started at %DATE% %TIME% >> "%LOGFILE%"
-"%PYTHON%" "%PROJECT%\run_pipeline.py" >> "%LOGFILE%" 2>&1
-echo Pipeline exited with code %ERRORLEVEL% at %DATE% %TIME% >> "%LOGFILE%"
+"%PYTHON%" "%PROJECT%\run_pipeline.py"

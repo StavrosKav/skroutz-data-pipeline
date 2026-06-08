@@ -43,19 +43,15 @@ Automation: Windows Task Scheduler at 08:00 via `run_pipeline.bat`.
 | `Data_Smartwatches.py` | Cleaner — smartwatches |
 | `charts_from_db.py` | Brand price-trend charts (dark-themed PNG per category) |
 | `generate_dashboard.py` | Self-contained HTML dashboard from PostgreSQL |
-| `analytics.sql` | 13 views: run once against DB to enable all analytics |
+| `analytics.sql` | 15 views: run once against DB to enable all analytics |
 | `watchlist.json` | Price alert targets (array of {url, label, threshold_eur}) |
 | `run_pipeline.bat` | Task Scheduler launcher — update PYTHON path inside before registering |
 | `notifications.py` | Telegram notification layer — HTML parse mode, dedup, inline buttons, retry |
 | `telegram_bot.py` | Interactive Telegram bot — long-polling; /status /drops /watchlist /add /remove /find /stats; URL→price conversation flow for adding watchlist items |
-| `backfill_models.py` | One-time: backfill brand/model fields |
-| `migrate_data.py` | One-time: flat → normalized schema migration |
 | `streamlit_app.py` | Interactive Streamlit dashboard; live DB queries cached 1h; runs at localhost:8501 |
 | `tests/test_pipeline.py` | pytest test suite (unit tests for pipeline, DB helpers, notifications) |
 | `create_new_schema.sql` | DDL for a fresh PostgreSQL install (run once on a new DB) |
 | `Skroutz_data_EDA.py` | Exploratory data analysis script (standalone, not part of pipeline) |
-| `generate_report.py` | One-time script: generates Skroutz_Enhancement_Report.pdf via reportlab |
-| `run.bat` | Convenience alias: calls run_pipeline.bat (same as Task Scheduler entry) |
 
 ## Database
 - Engine: PostgreSQL 16
@@ -64,11 +60,12 @@ Automation: Windows Task Scheduler at 08:00 via `run_pipeline.bat`.
 - Helper: `db.py` exports `get_engine()` — use this everywhere; never inline credentials
 - Schema: `products` (static metadata) + `price_snapshots` (daily rows)
 - Key constraint: `price_snapshots` has UNIQUE(product_id, date) — pipeline is re-run safe
-- Analytics views (run analytics.sql once to create, 13 views):
+- Analytics views (run analytics.sql once to create, 15 views):
     vw_latest_prices, vw_price_history, vw_biggest_drops, vw_brand_summary, vw_disappeared,
     vw_price_volatility, vw_brand_price_trend, vw_hot_deals, vw_price_floor,
-    vw_brand_discount_freq, vw_near_atl, vw_price_trend_direction, vw_daily_market_index
-- Scale: ~19,355 products | ~202,150 snapshots | ~19k new rows/day
+    vw_brand_discount_freq, vw_near_atl, vw_price_trend_direction, vw_daily_market_index,
+    vw_restock_pricing, vw_review_velocity
+- Scale: ~19,557 products | ~209,167 snapshots | ~7k new rows/day
 
 ## Running Code
 ```powershell
@@ -123,7 +120,7 @@ start them manually or as separate Task Scheduler / Windows Service entries.
 
 ## Logs & Outputs
 - Pipeline log: `logs/pipeline_YYYY-MM-DD.log` (created daily)
-- Scraper logs: `scraper_phones.log`, `scraper_laptops.log`, etc. (in project root)
+- Scraper logs: `logs/skroutz_phonesWHILE_YYYY-MM-DD.log`, `logs/Data_Phone_YYYY-MM-DD.log`, etc. (in logs/ folder, one file per scraper/cleaner per day)
 - Charts output: `charts/price_trend_{phone,laptop,smartwatch,tablet}.png`
 - Dashboard: `dashboard/dashboard_latest.html` (+ dated copy)
 - Telegram dedup cache: `logs/tg_sent_YYYY-MM-DD.json` (auto-created by notifications.py; prevents duplicate alerts)

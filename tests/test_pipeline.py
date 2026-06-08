@@ -18,75 +18,20 @@ No network or DB connections required — all tests are pure-unit.
 """
 
 import os
-import re
 import sys
 import tempfile
 import unittest
-
-import pandas as pd
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import importlib as _imp
+from Data_Phone import clean_price, extract_ram_storage
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Inline copies of Data_Phone pure functions (no file I/O at module level)
-# Kept in sync with production code; changes there must be mirrored here.
-# ─────────────────────────────────────────────────────────────────────────────
-
-def clean_price(val):
-    s = re.sub(r'[^\d.,]', '', str(val)).strip()
-    if s.count('.') > 1:
-        parts = s.split('.')
-        s = ''.join(parts[:-1]) + '.' + parts[-1]
-    s = s.replace(',', '.')
-    return pd.to_numeric(s, errors='coerce')
-
-
-def extract_ram_storage(row):
-    text = str(row.get('Product', '')) + " " + str(row.get('Memory_Info', '')) + " " + str(row.get('Specs', ''))
-    match = re.search(r'\((\d+)/(\d+)(GB|TB)\)', text, re.IGNORECASE)
-    if match:
-        ram, storage = int(match.group(1)), int(match.group(2))
-        if (match.group(3) or '').upper() == 'TB':
-            storage *= 1000
-        return ram, storage
-    match = re.search(r'Μνήμη:\s*(\d+)/(\d+)(GB|TB)?', text, re.IGNORECASE)
-    if match:
-        ram, storage = int(match.group(1)), int(match.group(2))
-        if (match.group(3) or '').upper() == 'TB':
-            storage *= 1000
-        return ram, storage
-    return None, None
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Inline copies of 4csvsTOsql helper functions
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _val(row, col):
-    v = row.get(col)
-    if v is None:
-        return None
-    try:
-        if pd.isna(v):
-            return None
-    except (TypeError, ValueError):
-        pass
-    return v
-
-def _int(row, col):
-    v = _val(row, col)
-    try:
-        return int(v) if v is not None else None
-    except (ValueError, TypeError):
-        return None
-
-def _float(row, col):
-    v = _val(row, col)
-    try:
-        return float(v) if v is not None else None
-    except (ValueError, TypeError):
-        return None
+_csvs  = _imp.import_module('4csvsTOsql')
+_val   = _csvs._val
+_int   = _csvs._int
+_float = _csvs._float
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -367,6 +312,347 @@ class TestNALinkGuard(unittest.TestCase):
     def test_partial_na_not_caught(self):
         # "N/A phone" is not literally N/A
         self.assertFalse(self._is_invalid("N/A phone"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. load_category (Stage 3 core function)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestLoadCategory(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _csv(self, content: str, name: str = "clean.csv") -> str:
+        path = os.path.join(self.tmp.name, name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return path
+
+    def test_skip_missing_file(self):
+        conn = MagicMock()
+        _csvs.load_category(conn, "phone", os.path.join(self.tmp.name, "nope.csv"))
+        conn.execute.assert_not_called()
+
+    def test_skip_all_na_links(self):
+        path = self._csv("link,price_eur,product,brand,model\nN/A,299,Test,Samsung,X\n")
+        conn = MagicMock()
+        _csvs.load_category(conn, "phone", path)
+        conn.execute.assert_not_called()
+
+    def test_skip_empty_csv(self):
+        path = self._csv("link,price_eur,product,brand,model\n")
+        conn = MagicMock()
+        _csvs.load_category(conn, "phone", path)
+        conn.execute.assert_not_called()
+
+    def test_executes_five_times_for_valid_row(self):
+        url  = "https://www.skroutz.gr/s/1/test.html"
+        path = self._csv(
+            f"link,price_eur,product,brand,model\n{url},299.00,Samsung Galaxy X,Samsung,Galaxy X\n"
+        )
+        fake_row            = MagicMock()
+        fake_row.skroutz_link = url
+        fake_row.id           = 42
+
+        pre_r = MagicMock()
+        pre_r.scalar.return_value = 0
+        post_r = MagicMock()
+        post_r.scalar.return_value = 1
+        conn = MagicMock()
+        # calls: pre_count, upsert products, post_count, fetch id_map, insert snapshots
+        conn.execute.side_effect = [pre_r, MagicMock(), post_r, [fake_row], MagicMock()]
+
+        _csvs.load_category(conn, "phone", path)
+        self.assertEqual(conn.execute.call_count, 5)
+
+    def test_snapshot_not_inserted_when_id_missing(self):
+        # If the id_map query returns no rows, snapshot_rows is empty → no 5th call
+        url  = "https://www.skroutz.gr/s/2/other.html"
+        path = self._csv(
+            f"link,price_eur,product,brand,model\n{url},199.00,Xiaomi X,Xiaomi,X\n"
+        )
+        pre_r = MagicMock()
+        pre_r.scalar.return_value = 0
+        post_r = MagicMock()
+        post_r.scalar.return_value = 0
+        conn = MagicMock()
+        conn.execute.side_effect = [pre_r, MagicMock(), post_r, []]  # empty id_map
+
+        _csvs.load_category(conn, "phone", path)
+        # 4 calls: pre_count, upsert, post_count, id_map — no snapshot insert
+        self.assertEqual(conn.execute.call_count, 4)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. _cmd_find parsing (no-DB paths only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestCmdFind(unittest.TestCase):
+    from unittest.mock import patch, MagicMock
+
+    def test_empty_args_returns_usage(self):
+        import telegram_bot as tb
+        result = tb._cmd_find("")
+        self.assertIn("Usage:", result)
+
+    def test_whitespace_args_returns_usage(self):
+        import telegram_bot as tb
+        result = tb._cmd_find("   ")
+        self.assertIn("Usage:", result)
+
+    def test_db_error_returns_error_string(self):
+        from unittest.mock import patch
+        import telegram_bot as tb
+        with patch("telegram_bot.get_engine", side_effect=Exception("connection refused")):
+            result = tb._cmd_find("galaxy s25")
+        self.assertIn("❌", result)
+
+    def test_no_results_message(self):
+        from unittest.mock import patch, MagicMock
+        import telegram_bot as tb
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_engine.connect.return_value.__exit__.return_value = False
+        mock_conn.execute.return_value.fetchall.return_value = []
+        with patch("telegram_bot.get_engine", return_value=mock_engine):
+            result = tb._cmd_find("nonexistent xyz abc")
+        self.assertIn("No products found", result)
+
+    def test_results_contain_brand_and_price(self):
+        from unittest.mock import patch, MagicMock
+        import telegram_bot as tb
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_engine.connect.return_value.__exit__.return_value = False
+        row = MagicMock()
+        row.brand = "Samsung"
+        row.model = "Galaxy S25"
+        row.category = "phone"
+        row.price_eur = 799.0
+        row.all_time_low = 750.0
+        row.pct_above_atl = 6.5
+        mock_conn.execute.return_value.fetchall.return_value = [row]
+        with patch("telegram_bot.get_engine", return_value=mock_engine):
+            result = tb._cmd_find("galaxy s25")
+        self.assertIn("Samsung", result)
+        self.assertIn("799€", result)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. _cmd_history parsing (no-DB paths only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestCmdHistory(unittest.TestCase):
+
+    def test_empty_args_returns_usage(self):
+        import telegram_bot as tb
+        result = tb._cmd_history("")
+        self.assertIn("Usage:", result)
+
+    def test_whitespace_args_returns_usage(self):
+        import telegram_bot as tb
+        result = tb._cmd_history("   ")
+        self.assertIn("Usage:", result)
+
+    def test_db_error_returns_error_string(self):
+        from unittest.mock import patch
+        import telegram_bot as tb
+        with patch("telegram_bot.get_engine", side_effect=Exception("timeout")):
+            result = tb._cmd_history("iphone 16")
+        self.assertIn("❌", result)
+
+    def test_no_product_found(self):
+        from unittest.mock import patch, MagicMock
+        import telegram_bot as tb
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_engine.connect.return_value.__exit__.return_value = False
+        mock_conn.execute.return_value.fetchone.return_value = None
+        with patch("telegram_bot.get_engine", return_value=mock_engine):
+            result = tb._cmd_history("nonexistent xyz abc")
+        self.assertIn("No product found", result)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. send_drop_digest
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSendDropDigest(unittest.TestCase):
+
+    def _mock_engine(self, rows):
+        mock_engine = MagicMock()
+        mock_conn   = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_engine.connect.return_value.__exit__.return_value  = False
+        mock_conn.execute.return_value.fetchall.return_value    = rows
+        return mock_engine
+
+    def test_no_credentials_returns_immediately(self):
+        import run_pipeline
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", ""), \
+             patch.object(run_pipeline._notif, "_TOKEN", ""), \
+             patch("run_pipeline.get_engine") as mock_ge:
+            run_pipeline.send_drop_digest()
+        mock_ge.assert_not_called()
+
+    def test_no_drops_skips_smtp(self):
+        import run_pipeline
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", "test-pw"), \
+             patch("run_pipeline.get_engine", return_value=self._mock_engine([])), \
+             patch("smtplib.SMTP") as mock_smtp:
+            run_pipeline.send_drop_digest()
+        mock_smtp.assert_not_called()
+
+    def test_drops_present_calls_tg_drops(self):
+        import run_pipeline
+        row = MagicMock()
+        row.brand = "Samsung"
+        row.model = "S25"
+        row.category = "phone"
+        row.prev_price = 999.0
+        row.new_price = 849.0
+        row.drop_eur = -150.0
+        row.drop_pct = -15.0
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", "test-pw"), \
+             patch("run_pipeline.get_engine", return_value=self._mock_engine([row])), \
+             patch.object(run_pipeline._notif, "tg_drops") as mock_tg, \
+             patch("smtplib.SMTP"):
+            run_pipeline.send_drop_digest()
+        mock_tg.assert_called_once_with([row])
+
+    def test_drops_present_calls_smtp(self):
+        import run_pipeline
+        row = MagicMock()
+        row.brand = "Apple"
+        row.model = "iPhone 16"
+        row.category = "phone"
+        row.prev_price = 1099.0
+        row.new_price = 899.0
+        row.drop_eur = -200.0
+        row.drop_pct = -18.2
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", "test-pw"), \
+             patch("run_pipeline.get_engine", return_value=self._mock_engine([row])), \
+             patch.object(run_pipeline._notif, "tg_drops"), \
+             patch("smtplib.SMTP") as mock_smtp:
+            run_pipeline.send_drop_digest()
+        mock_smtp.assert_called_once()
+
+    def test_db_error_skips_smtp(self):
+        import run_pipeline
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", "test-pw"), \
+             patch("run_pipeline.get_engine", side_effect=Exception("DB down")), \
+             patch("smtplib.SMTP") as mock_smtp:
+            run_pipeline.send_drop_digest()
+        mock_smtp.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. send_success_summary
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSendSuccessSummary(unittest.TestCase):
+
+    def _mock_engine(self, snaps, new_prods, drops, yesterday_snaps):
+        def _scalar(val):
+            r = MagicMock()
+            r.scalar.return_value = val
+            return r
+
+        mock_engine = MagicMock()
+        mock_conn   = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_engine.connect.return_value.__exit__.return_value  = False
+        mock_conn.execute.side_effect = [
+            _scalar(snaps), _scalar(new_prods), _scalar(drops), _scalar(yesterday_snaps),
+        ]
+        return mock_engine
+
+    def test_no_credentials_returns_immediately(self):
+        import run_pipeline
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", ""), \
+             patch.object(run_pipeline._notif, "_TOKEN", ""), \
+             patch("run_pipeline.get_engine") as mock_ge:
+            run_pipeline.send_success_summary("0:01:30")
+        mock_ge.assert_not_called()
+
+    def test_normal_run_calls_tg_success(self):
+        import run_pipeline
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", "test-pw"), \
+             patch("run_pipeline.get_engine", return_value=self._mock_engine(7000, 50, 12, 6800)), \
+             patch.object(run_pipeline._notif, "tg_success") as mock_tg, \
+             patch("smtplib.SMTP"):
+            run_pipeline.send_success_summary("0:01:30")
+        mock_tg.assert_called_once()
+
+    def test_email_subject_contains_ok(self):
+        import run_pipeline
+        subjects = []
+
+        class _SMTP:
+            def __init__(self, *a, **kw): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def starttls(self): pass
+            def login(self, *a): pass
+            def send_message(self, msg): subjects.append(msg["Subject"])
+
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", "test-pw"), \
+             patch("run_pipeline.get_engine", return_value=self._mock_engine(7000, 50, 12, 6800)), \
+             patch.object(run_pipeline._notif, "tg_success"), \
+             patch("smtplib.SMTP", _SMTP):
+            run_pipeline.send_success_summary("0:01:30")
+        self.assertTrue(any("OK" in s for s in subjects))
+
+    def test_anomaly_fires_tg_send(self):
+        """snaps < 70% of yesterday triggers Telegram anomaly alert."""
+        import run_pipeline
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", "test-pw"), \
+             patch("run_pipeline.get_engine", return_value=self._mock_engine(3000, 10, 5, 5000)), \
+             patch.object(run_pipeline._notif, "tg_send") as mock_tg_send, \
+             patch.object(run_pipeline._notif, "tg_success"), \
+             patch("smtplib.SMTP"):
+            run_pipeline.send_success_summary("0:01:00")
+        mock_tg_send.assert_called_once()
+        self.assertIn("anomaly", mock_tg_send.call_args[0][0].lower())
+
+    def test_no_anomaly_at_threshold(self):
+        """snaps exactly = 70% of yesterday (boundary) does NOT trigger anomaly."""
+        import run_pipeline
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", "test-pw"), \
+             patch("run_pipeline.get_engine", return_value=self._mock_engine(3500, 10, 5, 5000)), \
+             patch.object(run_pipeline._notif, "tg_send") as mock_tg_send, \
+             patch.object(run_pipeline._notif, "tg_success"), \
+             patch("smtplib.SMTP"):
+            run_pipeline.send_success_summary("0:01:00")
+        mock_tg_send.assert_not_called()
+
+    def test_no_anomaly_when_snaps_sufficient(self):
+        import run_pipeline
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", "test-pw"), \
+             patch("run_pipeline.get_engine", return_value=self._mock_engine(4900, 10, 5, 5000)), \
+             patch.object(run_pipeline._notif, "tg_send") as mock_tg_send, \
+             patch.object(run_pipeline._notif, "tg_success"), \
+             patch("smtplib.SMTP"):
+            run_pipeline.send_success_summary("0:01:00")
+        mock_tg_send.assert_not_called()
+
+    def test_missing_gmail_password_skips_smtp(self):
+        """With _TOKEN set but no GMAIL_APP_PASSWORD, _send_html_email returns early."""
+        import run_pipeline
+        with patch("run_pipeline.GMAIL_APP_PASSWORD", ""), \
+             patch.object(run_pipeline._notif, "_TOKEN", "real-token"), \
+             patch("run_pipeline.get_engine", return_value=self._mock_engine(7000, 50, 12, 6800)), \
+             patch.object(run_pipeline._notif, "tg_success"), \
+             patch("smtplib.SMTP") as mock_smtp:
+            run_pipeline.send_success_summary("0:01:30")
+        mock_smtp.assert_not_called()
 
 
 if __name__ == "__main__":

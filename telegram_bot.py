@@ -4,15 +4,18 @@ telegram_bot.py
 Interactive Telegram bot for the Skroutz Price Tracker.
 
 Commands:
-  /status         — last pipeline run result (tail of today's log)
-  /drops          — today's top 10 price drops from the DB
-  /watchlist      — numbered watchlist with live prices
-  /add <url> <€>  — add a product to the watchlist
-  /remove <n>     — remove item #n from the watchlist
-  /find <name>    — search products by name
-  /stats          — database snapshot counts
-  /cancel         — cancel any in-progress conversation
-  /help           — list all commands
+  /status             — last pipeline run result (tail of today's log)
+  /drops [category]   — today's top 10 price drops from the DB
+  /watchlist          — numbered watchlist with live prices
+  /add <url> <€>      — add a product to the watchlist
+  /remove <n>         — remove item #n from the watchlist
+  /find <name>        — search products by name + ATL context
+  /history <name>     — 14-day price timeline with ATL/ATH context
+  /best [category]    — products closest to all-time low
+  /restock            — products that came back after a 3+ day stock gap
+  /stats              — database snapshot counts
+  /cancel             — cancel any in-progress conversation
+  /help               — list all commands
 
 Conversation flow (easiest way to add):
   Send any skroutz.gr URL → bot looks it up and asks for your target price
@@ -227,17 +230,18 @@ def _cmd_drops(args: str = "") -> str:
     if cat and not resolved:
         return "Usage: <code>/drops</code> or <code>/drops phones|laptops|smartwatches|tablets</code>"
 
-    where  = "AND category = :cat" if resolved else ""
-    params = {"cat": resolved} if resolved else {}
-    label  = _CAT_LABEL.get(resolved, resolved) if resolved else "all categories"
+    cat_clause = "AND category = :cat " if resolved else ""
+    params     = {"cat": resolved} if resolved else {}
+    label      = _CAT_LABEL.get(resolved, resolved) if resolved else "all categories"
 
     try:
         engine = get_engine()
         with engine.connect() as conn:
             rows = conn.execute(text(
-                f"SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
-                f"FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE {where} "
-                f"ORDER BY drop_eur ASC LIMIT 10"
+                "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
+                "FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE "
+                + cat_clause +
+                "ORDER BY ABS(drop_eur) DESC LIMIT 10"
             ), params).fetchall()
     except Exception as e:
         return f"❌ DB error: {_e(str(e))}"
@@ -268,26 +272,27 @@ def _cmd_watchlist() -> str:
         engine = get_engine()
         count  = len(items)
         lines  = [f"<b>Watchlist — {count} item{'s' if count != 1 else ''}:</b>\n"]
+        urls = [item.get("url", "").strip() for item in items]
         with engine.connect() as conn:
-            for i, item in enumerate(items, 1):
-                url       = item.get("url", "").strip()
-                label     = item.get("label", url)
-                threshold = float(item.get("threshold_eur", 0))
-                row = conn.execute(text(
-                    "SELECT brand, model, price_eur FROM vw_latest_prices "
-                    "WHERE skroutz_link = :url OR skroutz_link LIKE :pfx"
-                ), {"url": url, "pfx": url + "%"}).fetchone()
-
-                if row:
-                    price = float(row.price_eur)
-                    flag  = "✅" if price <= threshold else "⏳"
-                    name  = _e(f"{row.brand or ''} {row.model or ''}".strip() or label)
-                    diff  = price - threshold
-                    hint  = f"<i>({diff:+.0f}€)</i>"
-                    lines.append(f"{i}. {flag} <b>{name}</b>  {price:.0f}€ → {threshold:.0f}€  {hint}")
-                else:
-                    lines.append(f"{i}. ❓ <b>{_e(label)}</b>  target {threshold:.0f}€  <i>(not in DB)</i>")
-
+            db_rows = conn.execute(text(
+                "SELECT brand, model, price_eur, skroutz_link FROM vw_latest_prices "
+                "WHERE skroutz_link = ANY(:urls)"
+            ), {"urls": urls}).fetchall()
+        price_map = {r.skroutz_link: r for r in db_rows}
+        for i, item in enumerate(items, 1):
+            url       = item.get("url", "").strip()
+            label     = item.get("label", url)
+            threshold = float(item.get("threshold_eur", 0))
+            row       = price_map.get(url)
+            if row:
+                price = float(row.price_eur)
+                flag  = "✅" if price <= threshold else "⏳"
+                name  = _e(f"{row.brand or ''} {row.model or ''}".strip() or label)
+                diff  = price - threshold
+                hint  = f"<i>({diff:+.0f}€)</i>"
+                lines.append(f"{i}. {flag} <b>{name}</b>  {price:.0f}€ → {threshold:.0f}€  {hint}")
+            else:
+                lines.append(f"{i}. ❓ <b>{_e(label)}</b>  target {threshold:.0f}€  <i>(not in DB)</i>")
         lines.append("\n<i>/remove &lt;number&gt; to delete  ·  send a URL to add</i>")
         return "\n".join(lines)
     except Exception as e:
@@ -534,6 +539,46 @@ def _cmd_stats() -> str:
     )
 
 
+def _cmd_restock() -> str:
+    """Products that came back after a 3+ day stock gap, with price change."""
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT brand, model, category, price_before, price_after,
+                       price_chg_pct, gap_days, after_gap
+                FROM vw_restock_pricing
+                WHERE after_gap >= CURRENT_DATE - 14
+                ORDER BY after_gap DESC, ABS(price_chg_pct) DESC
+                LIMIT 10
+            """)).fetchall()
+    except Exception as e:
+        return f"❌ DB error: {_e(str(e))}"
+
+    if not rows:
+        return "No restocked products in the last 14 days."
+
+    lines = ["🔄 <b>Restocked products (last 14 days):</b>\n"]
+    for r in rows:
+        icon  = _CAT_ICON.get(r.category, "🏷️")
+        pb    = float(r.price_before)
+        pa    = float(r.price_after)
+        pct   = float(r.price_chg_pct)
+        gap   = int(r.gap_days)
+        if pct < -0.5:
+            sign = f"↓<b>{abs(pct):.1f}%</b> cheaper"
+        elif pct > 0.5:
+            sign = f"↑<b>{pct:.1f}%</b> pricier"
+        else:
+            sign = "→ same price"
+        lines.append(
+            f"{icon} <b>{_e(r.brand or '')} {_e(r.model or '')}</b>  <i>({r.after_gap})</i>\n"
+            f"  {pb:.0f}€ → <b>{pa:.0f}€</b>  {sign}  <i>was gone {gap}d</i>"
+        )
+    lines.append("\n<i>Gap ≥ 3 days between consecutive scrapes. Price change vs last seen.</i>")
+    return "\n".join(lines)
+
+
 def _cmd_help() -> str:
     return (
         "🤖 <b>Skroutz Price Tracker Bot</b>\n\n"
@@ -549,7 +594,8 @@ def _cmd_help() -> str:
         "<b>Search &amp; Discovery</b>\n"
         "/find &lt;name&gt;         — search products by name + ATL context\n"
         "/history &lt;name&gt;     — full price timeline for a product\n"
-        "/best [category]     — products closest to all-time low\n\n"
+        "/best [category]     — products closest to all-time low\n"
+        "/restock             — products that came back after a stock gap\n\n"
         "<i>Tip: send any skroutz.gr URL and I'll guide you through adding it.</i>\n"
         "<i>Categories: phones · laptops · smartwatches · tablets</i>"
     )
@@ -567,6 +613,7 @@ def _set_commands() -> None:
         {"command": "add",       "description": "Add product to watchlist"},
         {"command": "remove",    "description": "Remove watchlist item by number"},
         {"command": "stats",     "description": "Database snapshot counts"},
+        {"command": "restock",   "description": "Products that came back after a stock gap"},
         {"command": "cancel",    "description": "Cancel in-progress conversation"},
         {"command": "help",      "description": "List all commands"},
     ]})
@@ -622,6 +669,7 @@ def _dispatch(text_: str, chat_id: str) -> None:
             "/find":      lambda: _cmd_find(args),
             "/history":   lambda: _cmd_history(args),
             "/best":      lambda: _cmd_best(args),
+            "/restock":   lambda: _cmd_restock(),
             "/cancel":    lambda: "Cancelled.",
         }
         handler = dispatch_map.get(cmd)
