@@ -1,9 +1,9 @@
 # Skroutz Price Tracker
 
-![Products](https://img.shields.io/badge/Products-19%2C614-blue?style=flat-square)
-![Snapshots](https://img.shields.io/badge/Snapshots-223k-green?style=flat-square)
+![Products](https://img.shields.io/badge/Products-20%2C634-blue?style=flat-square)
+![Snapshots](https://img.shields.io/badge/Snapshots-353k-green?style=flat-square)
 ![Categories](https://img.shields.io/badge/Categories-4-orange?style=flat-square)
-![Daily rows](https://img.shields.io/badge/Daily_rows-~8k-purple?style=flat-square)
+![Daily rows](https://img.shields.io/badge/Daily_rows-~7k-purple?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -14,7 +14,7 @@ Daily price-tracking pipeline for [Skroutz.gr](https://www.skroutz.gr) — Greec
 
 ## What This Project Does
 
-Every morning at 08:00, four Selenium scrapers collect every product listing across phones, laptops, smartwatches, and tablets from Skroutz.gr and store the results in PostgreSQL. Over 7,965 new price observations are appended each day, building a historical record that now spans 223,027 snapshots across 19,614 products since June 2025. The pipeline then automatically delivers price-drop alerts via Gmail and Telegram, generates chart images and a self-contained HTML report, and keeps a live Streamlit dashboard up to date.
+Daily, four Selenium scrapers collect every product listing across phones, laptops, smartwatches, and tablets from Skroutz.gr and store the results in PostgreSQL. Around 6,900 new price observations are appended each day, building a historical record that now spans 352,903 snapshots across 20,634 products since June 2025. The pipeline then automatically delivers price-drop alerts via Gmail and Telegram, generates chart images and a self-contained HTML report, and keeps a live Streamlit dashboard up to date.
 
 ---
 
@@ -22,7 +22,7 @@ Every morning at 08:00, four Selenium scrapers collect every product listing acr
 
 ```mermaid
 flowchart LR
-  A["🕗 08:00\nTask Scheduler"] --> B["Scrape\n4 categories"]
+  A["🕗 Daily\nTask Scheduler"] --> B["Scrape\n4 categories"]
   B --> C["Clean\nCSV normalisation"]
   C --> D["Load\nPostgreSQL upsert"]
   D --> E["Charts\nPNG generation"]
@@ -68,13 +68,13 @@ erDiagram
 
 | Category | Products | Snapshots | Avg Price | Range | Brands |
 |---|---|---|---|---|---|
-| Laptop | 6,841 | 64,700 | €1,549 | €52–€10,358 | 45 |
-| Phone | 5,214 | 58,133 | €352 | €9–€3,839 | 127 |
-| Smartwatch | 5,923 | 83,972 | €93 | €5–€3,399 | — |
-| Tablet | 1,636 | 16,222 | €552 | €33–€5,367 | 95 |
-| **Total** | **19,614** | **223,027** | | | |
+| Laptop | 7,344 | 112,853 | €1,604 | €52–€9,885 | 45 |
+| Phone | 5,483 | 79,593 | €374 | €10–€3,420 | 128 |
+| Smartwatch | 6,091 | 135,842 | €105 | €5–€3,399 | — |
+| Tablet | 1,716 | 24,615 | €592 | €33–€4,472 | 97 |
+| **Total** | **20,634** | **352,903** | | | |
 
-Updated daily at 08:00 · last pipeline run: 2026-06-08
+Updated daily via Task Scheduler · last pipeline run: 2026-06-29
 
 ---
 
