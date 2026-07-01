@@ -47,11 +47,10 @@ Automation: Windows Task Scheduler at 08:00 via `run_pipeline.bat`.
 | `watchlist.json` | Price alert targets (array of {url, label, threshold_eur}) |
 | `run_pipeline.bat` | Task Scheduler launcher — update PYTHON path inside before registering |
 | `notifications.py` | Telegram notification layer — HTML parse mode, dedup, inline buttons, retry |
-| `telegram_bot.py` | Interactive Telegram bot — long-polling; /status /drops /watchlist /add /remove /find /stats; URL→price conversation flow for adding watchlist items |
+| `telegram_bot.py` | Interactive Telegram bot — long-polling; /status /drops /watchlist /add /remove /find /stats /history /best /restock /cancel; URL→price conversation flow for adding watchlist items |
 | `streamlit_app.py` | Interactive Streamlit dashboard; live DB queries cached 1h; runs at localhost:8501 |
 | `tests/test_pipeline.py` | pytest test suite (unit tests for pipeline, DB helpers, notifications) |
 | `create_new_schema.sql` | DDL for a fresh PostgreSQL install (run once on a new DB) |
-| `Skroutz_data_EDA.py` | Exploratory data analysis script (standalone, not part of pipeline) |
 
 ## Database
 - Engine: PostgreSQL 16

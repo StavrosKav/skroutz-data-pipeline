@@ -705,11 +705,18 @@ if __name__ == "__main__":
         pass
     for label, script in STAGES:
         run_stage(label, script)
-    run_charts()
-    send_drop_digest()
-    send_watchlist_alerts()
-    send_disappeared_alert()
-    run_dashboard()
+    for _fn, _label in [
+        (run_charts,              "Charts"),
+        (send_drop_digest,        "Drop digest"),
+        (send_watchlist_alerts,   "Watchlist alerts"),
+        (send_disappeared_alert,  "Disappeared alert"),
+        (run_dashboard,           "Dashboard"),
+    ]:
+        try:
+            _fn()
+        except Exception as _e:
+            logger.error(f"{_label} raised an unhandled exception: {_e}")
+            _notif.tg_send(f"⚠️ <b>{_label} failed</b>\n<code>{_e}</code>")
     elapsed = datetime.datetime.now() - start
     send_success_summary(elapsed)
     logger.info(f"Pipeline finished in {elapsed}")
