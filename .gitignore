@@ -4,6 +4,9 @@
 # Atomic-write temp files (left behind on crash mid-write)
 *.tmp
 
+# Pipeline concurrency lock (runtime artifact)
+pipeline.lock
+
 # Python cache
 __pycache__/
 *.pyc

@@ -40,6 +40,7 @@ import os
 import re
 import smtplib
 import json
+import time
 from email.message import EmailMessage
 from dotenv import load_dotenv
 from sqlalchemy import text
@@ -94,6 +95,35 @@ def _cleanup_old_logs(days: int = 30) -> None:
             pass
     if removed:
         logger.info(f"Cleaned up {removed} log file(s) older than {days} days.")
+
+_LOCK_FILE = os.path.join(BASE, "pipeline.lock")
+_LOCK_STALE_SECONDS = 2 * 3600
+
+
+def _acquire_lock() -> bool:
+    """One pipeline at a time — a concurrent run doubles scraper load and risks
+    bot detection. A lock older than 2h can only be a crashed run's leftover
+    (a full run takes ~10-15 min), so it is reclaimed."""
+    try:
+        if time.time() - os.path.getmtime(_LOCK_FILE) > _LOCK_STALE_SECONDS:
+            os.remove(_LOCK_FILE)
+    except OSError:
+        pass
+    try:
+        fd = os.open(_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w") as f:
+        f.write(str(os.getpid()))
+    return True
+
+
+def _release_lock() -> None:
+    try:
+        os.remove(_LOCK_FILE)
+    except FileNotFoundError:
+        pass
+
 
 _ALL_STAGES = [
     ("Scrape",   os.path.join(BASE, "1scriptToGet4.py")),
@@ -687,36 +717,46 @@ def run_stage(label, script):
 
 
 if __name__ == "__main__":
-    start = datetime.datetime.now()
-    _cleanup_old_logs()
-    _notif.tg_pipeline_start()
+    if not _acquire_lock():
+        logger.warning("Another pipeline instance is already running — exiting.")
+        _notif.tg_send(
+            "⚠️ <b>Pipeline skipped</b>\n"
+            "Another instance is already running (pipeline.lock present)."
+        )
+        sys.exit(0)
     try:
-        with get_engine().connect() as _conn:
-            _last_date = _conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
-        if _last_date and (datetime.date.today() - _last_date).days > 1:
-            _gap = (datetime.date.today() - _last_date).days
-            logger.warning(f"Pipeline gap: last run was {_last_date} ({_gap} days ago)")
-            _notif.tg_send(
-                f"⚠️ <b>Pipeline gap detected</b>\n"
-                f"Last successful run: <b>{_last_date}</b> ({_gap} days ago)\n"
-                f"Data may be stale — check Task Scheduler."
-            )
-    except Exception:
-        pass
-    for label, script in STAGES:
-        run_stage(label, script)
-    for _fn, _label in [
-        (run_charts,              "Charts"),
-        (send_drop_digest,        "Drop digest"),
-        (send_watchlist_alerts,   "Watchlist alerts"),
-        (send_disappeared_alert,  "Disappeared alert"),
-        (run_dashboard,           "Dashboard"),
-    ]:
+        start = datetime.datetime.now()
+        _cleanup_old_logs()
+        _notif.tg_pipeline_start()
         try:
-            _fn()
-        except Exception as _e:
-            logger.error(f"{_label} raised an unhandled exception: {_e}")
-            _notif.tg_send(f"⚠️ <b>{_label} failed</b>\n<code>{_e}</code>")
-    elapsed = datetime.datetime.now() - start
-    send_success_summary(elapsed)
-    logger.info(f"Pipeline finished in {elapsed}")
+            with get_engine().connect() as _conn:
+                _last_date = _conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
+            if _last_date and (datetime.date.today() - _last_date).days > 1:
+                _gap = (datetime.date.today() - _last_date).days
+                logger.warning(f"Pipeline gap: last run was {_last_date} ({_gap} days ago)")
+                _notif.tg_send(
+                    f"⚠️ <b>Pipeline gap detected</b>\n"
+                    f"Last successful run: <b>{_last_date}</b> ({_gap} days ago)\n"
+                    f"Data may be stale — check Task Scheduler."
+                )
+        except Exception:
+            pass
+        for label, script in STAGES:
+            run_stage(label, script)
+        for _fn, _label in [
+            (run_charts,              "Charts"),
+            (send_drop_digest,        "Drop digest"),
+            (send_watchlist_alerts,   "Watchlist alerts"),
+            (send_disappeared_alert,  "Disappeared alert"),
+            (run_dashboard,           "Dashboard"),
+        ]:
+            try:
+                _fn()
+            except Exception as _e:
+                logger.error(f"{_label} raised an unhandled exception: {_e}")
+                _notif.tg_send(f"⚠️ <b>{_label} failed</b>\n<code>{_e}</code>")
+        elapsed = datetime.datetime.now() - start
+        send_success_summary(elapsed)
+        logger.info(f"Pipeline finished in {elapsed}")
+    finally:
+        _release_lock()

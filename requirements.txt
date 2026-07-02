@@ -8,3 +8,7 @@ sqlalchemy>=2.0,<3
 psycopg2-binary==2.9.12
 python-dotenv==1.1.0
 streamlit>=1.35.0,<2
+
+# Dev tools (tests + lint)
+pytest>=8,<9
+ruff>=0.4
