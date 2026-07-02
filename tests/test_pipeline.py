@@ -10,6 +10,9 @@ Covers:
   - Notification deduplication (_already_sent / _mark_sent)
   - Watchlist atomic write / read (telegram_bot._wl_write / _wl_read)
   - N/A link guard logic
+  - Pipeline concurrency lock (_acquire_lock / _release_lock)
+  - tg_send transport (no-token guard, HTTP status handling, retry)
+  - /add and /remove argument parsing
 
 Run:
   python -m pytest tests/ -v
@@ -20,6 +23,7 @@ No network or DB connections required — all tests are pure-unit.
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -653,6 +657,159 @@ class TestSendSuccessSummary(unittest.TestCase):
              patch("smtplib.SMTP") as mock_smtp:
             run_pipeline.send_success_summary("0:01:30")
         mock_smtp.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. Pipeline concurrency lock
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPipelineLock(unittest.TestCase):
+
+    def setUp(self):
+        import run_pipeline
+        self.rp  = run_pipeline
+        self.tmp = tempfile.TemporaryDirectory()
+        self._orig = self.rp._LOCK_FILE
+        self.rp._LOCK_FILE = os.path.join(self.tmp.name, "pipeline.lock")
+
+    def tearDown(self):
+        self.rp._LOCK_FILE = self._orig
+        self.tmp.cleanup()
+
+    def test_acquire_when_free(self):
+        self.assertTrue(self.rp._acquire_lock())
+        self.assertTrue(os.path.exists(self.rp._LOCK_FILE))
+
+    def test_second_acquire_blocked(self):
+        self.assertTrue(self.rp._acquire_lock())
+        self.assertFalse(self.rp._acquire_lock())
+
+    def test_release_then_acquire(self):
+        self.rp._acquire_lock()
+        self.rp._release_lock()
+        self.assertTrue(self.rp._acquire_lock())
+
+    def test_stale_lock_reclaimed(self):
+        self.rp._acquire_lock()
+        stale = time.time() - self.rp._LOCK_STALE_SECONDS - 60
+        os.utime(self.rp._LOCK_FILE, (stale, stale))
+        self.assertTrue(self.rp._acquire_lock())
+
+    def test_release_missing_lock_no_error(self):
+        self.rp._release_lock()
+
+    def test_lock_contains_pid(self):
+        self.rp._acquire_lock()
+        with open(self.rp._LOCK_FILE) as f:
+            self.assertEqual(f.read(), str(os.getpid()))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. tg_send transport (no-token guard, HTTP status, retry)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTgSend(unittest.TestCase):
+
+    def _resp_cm(self, status):
+        cm = MagicMock()
+        cm.__enter__.return_value = MagicMock(status=status)
+        cm.__exit__.return_value = False
+        return cm
+
+    def test_no_token_returns_false_without_network(self):
+        import notifications as nf
+        with patch.object(nf, "_TOKEN", ""), \
+             patch("urllib.request.urlopen") as mock_open:
+            self.assertFalse(nf.tg_send("hello"))
+        mock_open.assert_not_called()
+
+    def test_http_200_returns_true(self):
+        import notifications as nf
+        with patch.object(nf, "_TOKEN", "t"), patch.object(nf, "_CHAT_ID", "c"), \
+             patch("urllib.request.urlopen", return_value=self._resp_cm(200)):
+            self.assertTrue(nf.tg_send("hello"))
+
+    def test_http_error_status_returns_false_no_retry(self):
+        import notifications as nf
+        with patch.object(nf, "_TOKEN", "t"), patch.object(nf, "_CHAT_ID", "c"), \
+             patch("urllib.request.urlopen", return_value=self._resp_cm(500)) as mock_open:
+            self.assertFalse(nf.tg_send("hello"))
+        self.assertEqual(mock_open.call_count, 1)
+
+    def test_transient_error_retries_once_then_succeeds(self):
+        import notifications as nf
+        import urllib.error
+        with patch.object(nf, "_TOKEN", "t"), patch.object(nf, "_CHAT_ID", "c"), \
+             patch("urllib.request.urlopen",
+                   side_effect=[urllib.error.URLError("boom"), self._resp_cm(200)]) as mock_open, \
+             patch("time.sleep"):
+            self.assertTrue(nf.tg_send("hello"))
+        self.assertEqual(mock_open.call_count, 2)
+
+    def test_both_attempts_fail_returns_false(self):
+        import notifications as nf
+        import urllib.error
+        with patch.object(nf, "_TOKEN", "t"), patch.object(nf, "_CHAT_ID", "c"), \
+             patch("urllib.request.urlopen",
+                   side_effect=urllib.error.URLError("boom")) as mock_open, \
+             patch("time.sleep"):
+            self.assertFalse(nf.tg_send("hello"))
+        self.assertEqual(mock_open.call_count, 2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. /add and /remove argument parsing
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestCmdAddRemove(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        import telegram_bot as tb
+        self.tb = tb
+        self._orig_path = tb._WL_PATH
+        tb._WL_PATH = os.path.join(self.tmp.name, "watchlist.json")
+
+    def tearDown(self):
+        self.tb._WL_PATH = self._orig_path
+        self.tmp.cleanup()
+
+    def test_add_no_args_returns_usage(self):
+        self.assertIn("Usage", self.tb._cmd_add(""))
+
+    def test_add_missing_price_returns_usage(self):
+        self.assertIn("Usage", self.tb._cmd_add("https://www.skroutz.gr/s/1/a.html"))
+
+    def test_add_non_skroutz_url_rejected(self):
+        self.assertIn("skroutz.gr", self.tb._cmd_add("https://example.com/x 100"))
+        self.assertEqual(self.tb._wl_read(), [])
+
+    def test_add_invalid_price_rejected(self):
+        self.assertIn("Invalid price", self.tb._cmd_add("https://www.skroutz.gr/s/1/a.html abc"))
+        self.assertEqual(self.tb._wl_read(), [])
+
+    def test_add_comma_decimal_and_euro_sign_parsed(self):
+        self.tb._cmd_add("https://www.skroutz.gr/s/1/a.html 299,50€")
+        items = self.tb._wl_read()
+        self.assertEqual(len(items), 1)
+        self.assertAlmostEqual(items[0]["threshold_eur"], 299.5)
+
+    def test_remove_non_numeric_returns_usage(self):
+        self.assertIn("Usage", self.tb._cmd_remove("abc"))
+
+    def test_remove_from_empty_watchlist(self):
+        self.assertIn("empty", self.tb._cmd_remove("1"))
+
+    def test_remove_out_of_range(self):
+        self.tb._wl_write([{"url": "https://a.gr/s/1/x.html", "label": "A", "threshold_eur": 100.0}])
+        self.assertIn("No item #5", self.tb._cmd_remove("5"))
+        self.assertEqual(len(self.tb._wl_read()), 1)
+
+    def test_remove_valid_item(self):
+        self.tb._wl_write([{"url": "https://a.gr/s/1/x.html", "label": "A", "threshold_eur": 100.0}])
+        result = self.tb._cmd_remove("1")
+        self.assertIn("Removed", result)
+        self.assertEqual(self.tb._wl_read(), [])
 
 
 if __name__ == "__main__":

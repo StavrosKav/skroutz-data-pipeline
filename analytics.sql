@@ -284,8 +284,8 @@ ORDER BY hot_score DESC;
 CREATE INDEX IF NOT EXISTS idx_price_snapshots_date
     ON price_snapshots(date);
 
-CREATE INDEX IF NOT EXISTS idx_price_snapshots_product_date
-    ON price_snapshots(product_id, date);
+-- (product_id, date) lookups are covered by the UNIQUE(product_id, date)
+-- constraint's index — no separate index needed.
 
 -- Speeds up all views that filter or group by category or brand
 -- (vw_brand_summary, vw_brand_price_trend, vw_brand_discount_freq, vw_near_atl, etc.)

@@ -64,7 +64,7 @@ Automation: Windows Task Scheduler at 08:00 via `run_pipeline.bat`.
     vw_price_volatility, vw_brand_price_trend, vw_hot_deals, vw_price_floor,
     vw_brand_discount_freq, vw_near_atl, vw_price_trend_direction, vw_daily_market_index,
     vw_restock_pricing, vw_review_velocity
-- Scale: ~19,557 products | ~209,167 snapshots | ~7k new rows/day
+- Scale: ~20,800 products | ~376,000 snapshots | ~7.5k new rows/day (as of 2026-07-02)
 
 ## Running Code
 ```powershell
@@ -123,6 +123,7 @@ start them manually or as separate Task Scheduler / Windows Service entries.
 - Charts output: `charts/price_trend_{phone,laptop,smartwatch,tablet}.png`
 - Dashboard: `dashboard/dashboard_latest.html` (+ dated copy)
 - Telegram dedup cache: `logs/tg_sent_YYYY-MM-DD.json` (auto-created by notifications.py; prevents duplicate alerts)
+- Run lock: `pipeline.lock` (blocks concurrent pipeline runs; auto-removed on exit, reclaimed if older than 2h)
 
 ## Docker Notes
 CRITICAL: Scrapers CANNOT run in Docker — Skroutz bot-detection blocks headless Chrome.

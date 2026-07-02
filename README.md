@@ -186,8 +186,6 @@ Configure `ALERT_EMAIL` and `GMAIL_APP_PASSWORD` (a Gmail App Password, not your
 | `/remove <n>` | Remove item from watchlist |
 | `/restock` | Products back after stock gap |
 | `/stats` | DB counts |
-| `/pulse` | Market-wide price direction |
-| `/buynow` | Products with BUY NOW signal |
 | `/help` | All commands |
 
 Send any Skroutz.gr URL directly to the bot and it guides you through adding it to the watchlist interactively.
