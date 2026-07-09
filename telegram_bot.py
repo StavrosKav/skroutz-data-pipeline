@@ -42,6 +42,13 @@ from db import get_engine
 from dotenv import load_dotenv
 from sqlalchemy import text
 
+# Optional NIM-powered commands (requires NIM_API_KEY in .env)
+try:
+    from telegram_nim import register_nim_commands
+    _NIM_AVAILABLE = True
+except ImportError:
+    _NIM_AVAILABLE = False
+
 load_dotenv()
 
 logging.basicConfig(
@@ -603,7 +610,7 @@ def _cmd_help() -> str:
 
 def _set_commands() -> None:
     """Register the bot's command list with Telegram for the / autocomplete menu."""
-    _post("setMyCommands", {"commands": [
+    commands = [
         {"command": "status",    "description": "Last pipeline run result"},
         {"command": "drops",     "description": "Today's price drops (opt: category)"},
         {"command": "watchlist", "description": "Watchlist with live prices"},
@@ -616,7 +623,15 @@ def _set_commands() -> None:
         {"command": "restock",   "description": "Products that came back after a stock gap"},
         {"command": "cancel",    "description": "Cancel in-progress conversation"},
         {"command": "help",      "description": "List all commands"},
-    ]})
+    ]
+    # Add NIM commands if available
+    if _NIM_AVAILABLE:
+        commands.extend([
+            {"command": "chat",      "description": "Chat with price tracker AI"},
+            {"command": "analyze",   "description": "AI market analysis for category"},
+            {"command": "summarize", "description": "AI daily summary with insights"},
+        ])
+    _post("setMyCommands", {"commands": commands})
 
 
 # ── Conversation flow ──────────────────────────────────────────────────────────
@@ -672,6 +687,9 @@ def _dispatch(text_: str, chat_id: str) -> None:
             "/restock":   lambda: _cmd_restock(),
             "/cancel":    lambda: "Cancelled.",
         }
+        # Add NIM commands if available (module already imported at top)
+        if _NIM_AVAILABLE:
+            register_nim_commands(dispatch_map, args)
         handler = dispatch_map.get(cmd)
         if handler:
             _send(handler(), chat_id=chat_id)
