@@ -11,11 +11,15 @@ flowchart TD
 
     subgraph Core["Core Pipeline  run_pipeline.py"]
         direction TB
-        S1["Stage 1 — SCRAPE\n1scriptToGet4.py\n4× Selenium in parallel\nskroutz.gr → raw CSVs"]
-        S2["Stage 2 — CLEAN\n1scriptToGet4MANIPULATION.py\n4× cleaners in parallel\nprice · brand · RAM · storage"]
-        S3["Stage 3 — LOAD SQL\n4csvsTOsql.py\nbatch upsert → PostgreSQL 16\n~19k rows / ~5s"]
-        S1 -->|raw CSVs| S2
-        S2 -->|cleaned CSVs| S3
+        S1["Stage 1 — SCRAPE  [fatal]\n1scriptToGet4.py\n4× Selenium in parallel\nskroutz.gr → raw CSVs"]
+        HM["Stage 2 — HEALTH MONITOR  [observer]\nrun_scraper_health_monitor.py\nraw CSVs: exist · fresh · enough rows"]
+        S2["Stage 3 — CLEAN  [fatal]\n1scriptToGet4MANIPULATION.py\n4× cleaners in parallel\nprice · brand · RAM · storage"]
+        DQ["Stage 4 — DATA QUALITY  [observer]\nrun_data_quality_agent.py\nread-only report → logs/data_quality_*.json"]
+        S3["Stage 5 — LOAD SQL  [fatal]\n4csvsTOsql.py\nbatch upsert → PostgreSQL 16\n~19k rows / ~5s"]
+        S1 -->|raw CSVs| HM
+        HM --> S2
+        S2 -->|cleaned CSVs| DQ
+        DQ --> S3
     end
 
     subgraph Post["Post-Pipeline  non-fatal, independent"]
@@ -54,9 +58,17 @@ skroutz-data-pipeline/
 ├── run_pipeline.py              # Master orchestrator
 ├── run_pipeline.bat             # Task Scheduler launcher (update PYTHON path)
 │
-├── 1scriptToGet4.py             # Stage 1: parallel scraper launcher
-├── 1scriptToGet4MANIPULATION.py # Stage 2: parallel cleaner launcher
-├── 4csvsTOsql.py                # Stage 3: PostgreSQL upsert
+├── 1scriptToGet4.py             # Stage 1: parallel scraper launcher (fatal)
+├── run_scraper_health_monitor.py# Stage 2: raw-CSV health check (observer)
+├── 1scriptToGet4MANIPULATION.py # Stage 3: parallel cleaner launcher (fatal)
+├── run_data_quality_agent.py    # Stage 4: read-only quality report (observer)
+├── 4csvsTOsql.py                # Stage 5: PostgreSQL upsert (fatal)
+│
+├── agents/                      # Observer-stage implementations
+│   ├── base.py                  #   shared BaseAgent
+│   ├── pipeline_monitoring/     #   scraper health monitor
+│   └── data_quality/            #   schema/completeness/anomaly checks
+├── config/agents.json           # Observer thresholds + raw-CSV schema
 │
 ├── skroutz_phonesWHILE.py       # Selenium scraper — phones
 ├── skroutz_laptopsWHILE.py      # Selenium scraper — laptops
@@ -74,6 +86,9 @@ skroutz-data-pipeline/
 │
 ├── notifications.py             # Telegram notification layer
 ├── telegram_bot.py              # Interactive Telegram bot (long-polling)
+├── telegram_nim.py              # Optional LLM bot commands (/chat /analyze /summarize)
+├── nim_client.py                # NVIDIA NIM API client (async, retries)
+├── nim_routing.py               # Task → model routing config
 ├── db.py                        # SQLAlchemy engine singleton
 │
 ├── analytics.sql                # 13 analytics views — run once against DB
@@ -84,7 +99,8 @@ skroutz-data-pipeline/
 ├── Dockerfile                   # Python image for Clean + Load
 │
 ├── tests/
-│   └── test_pipeline.py         # 49 unit tests (pytest)
+│   ├── test_pipeline.py         # unit tests (pytest)
+│   └── test_smoke.py            # stage compile/import + observer-contract tests
 │
 ├── .github/
 │   └── workflows/
@@ -123,6 +139,8 @@ Copy `.env.example` → `.env` and fill in all values before running anything.
 | `GMAIL_APP_PASSWORD` | Recommended | Gmail App Password (not your account password) |
 | `TELEGRAM_BOT_TOKEN` | Optional | Bot token from `@BotFather` |
 | `TELEGRAM_CHAT_ID` | Optional | Your numeric chat ID from `@userinfobot` |
+| `NIM_API_KEY` | Optional | NVIDIA NIM key (build.nvidia.com) — enables LLM bot commands |
+| `NIM_BASE_URL` | Optional | NIM endpoint (default `https://integrate.api.nvidia.com/v1`) |
 
 > **Security:** `.env` is in `.gitignore` and must never be committed. If you accidentally expose credentials, rotate them immediately.
 
@@ -149,7 +167,20 @@ Subprocess timeout: **2 hours** per scraper. On timeout the process is killed an
 
 ---
 
-## Stage 2 — Clean
+## Stage 2 — Scraper Health Monitor  (observer)
+
+**Script:** `run_scraper_health_monitor.py` · config in `config/agents.json`
+Checks each category's raw-CSV folder after the scrape: folder exists, at least
+one `skroutz_*.csv`, newest file younger than 25h, more than 10 rows.
+
+**Observer semantics:** on failure it logs errors and sends a Telegram warning,
+but the pipeline **continues** — it inspects data someone else produced, so its
+own failure must never block Clean/Load (lesson from the 2026-07-09 outage).
+Skipped when `SKIP_SCRAPE=1`.
+
+---
+
+## Stage 3 — Clean
 
 **Script:** `1scriptToGet4MANIPULATION.py`  
 Launches 4 cleaners in parallel, each reading the latest raw CSV for its category.
@@ -170,7 +201,21 @@ Launches 4 cleaners in parallel, each reading the latest raw CSV for its categor
 
 ---
 
-## Stage 3 — Load SQL
+## Stage 4 — Data Quality Agent  (observer, read-only)
+
+**Script:** `run_data_quality_agent.py` · schema in `config/agents.json`
+Validates the day's **raw** CSVs against the real scraper columns (`Product`,
+`Price_EUR`, `Link`, `Rating`, `Reviews`, …): schema conformance, completeness
+of critical fields, IQR-based anomaly detection on `Rating`/`Reviews`.
+
+Writes a summary report to `logs/data_quality_YYYY-MM-DD.json` (per category:
+record count, schema failures, missing critical fields, anomalies, top
+validation errors). **Never modifies the CSVs** — raw scraper output is the
+pipeline's source of truth. Same observer semantics as Stage 2.
+
+---
+
+## Stage 5 — Load SQL
 
 **Script:** `4csvsTOsql.py`  
 Reads all 4 cleaned CSVs and **upserts** into PostgreSQL using SQLAlchemy.
@@ -304,6 +349,9 @@ Long-polling bot — run as a **separate persistent process**, not part of the d
 | `/remove <n>` | Remove watchlist item by index |
 | `/find <query>` | Full-text product search by name/brand |
 | `/stats` | DB totals: products, snapshots, categories |
+| `/chat <question>` | LLM chat (requires `NIM_API_KEY`) |
+| `/analyze <category>` | LLM market analysis (requires `NIM_API_KEY`) |
+| `/summarize` | LLM daily summary from DB stats (requires `NIM_API_KEY`) |
 
 ---
 
@@ -397,13 +445,18 @@ The `Clean/` and `*_skroutz/` folders are bind-mounted so the container reads ra
 ## Failure Behaviour & Rollback
 
 ```
-Core stage fails (non-zero exit code)
+Fatal stage fails (Scrape / Clean / Load SQL)
          │
          ├─► send_failure_alert()   Gmail + Telegram
          │
          └─► sys.exit()             pipeline aborts immediately
                                     no downstream stage runs
                                     DB is in last-good state
+
+Observer stage fails (Health Monitor / Data Quality)
+         │
+         └─► Telegram warning       pipeline CONTINUES
+                                    observers report on data, they never gate it
 ```
 
 Post-pipeline steps (charts, emails, dashboard) are **non-fatal** — failure is logged as a WARNING and the pipeline continues.
@@ -464,7 +517,7 @@ Register-ScheduledTask -TaskName "SkroutzPipeline" -Action $action -Trigger $tri
 & "C:\Users\StavrosKV\anaconda33\python.exe" -m pytest tests/ --cov=. --cov-report=term-missing
 ```
 
-**Test coverage (49 tests):**
+**Test coverage (101 tests):**
 
 | Class | Tests | What it covers |
 |---|---|---|
@@ -474,6 +527,8 @@ Register-ScheduledTask -TaskName "SkroutzPipeline" -Action $action -Trigger $tri
 | `TestNotificationsDedup` | 6 | Dedup file read/write/reset cycle |
 | `TestWatchlistAtomicWrite` | 7 | `os.replace()` roundtrip, corrupted-file safety |
 | `TestNALinkGuard` | 6 | Invalid link detection (N/A, empty, whitespace) |
+| `tests/test_smoke.py` | 6 | Every stage script compiles/imports; observer failures never abort, fatal ones always do |
+| *(and others)* | — | loader, bot commands, digests, lock, dedup |
 
 All tests are pure unit tests — no database, no Chrome, no network. Safe to run in CI.
 
