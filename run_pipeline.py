@@ -4,22 +4,32 @@ run_pipeline.py
 Master orchestration script for the daily Skroutz price-tracking pipeline.
 
 Pipeline stages (run sequentially):
-  1. Scrape   — 1scriptToGet4.py
+  1. Scrape   — 1scriptToGet4.py                           [fatal]
                 Launches Chrome, scrapes all 4 product categories from skroutz.gr,
                 saves raw CSVs to the category folders.
 
-  2. Clean    — 1scriptToGet4MANIPULATION.py
+  2. Scraper Health Monitor — run_scraper_health_monitor.py [observer]
+                Checks raw CSVs exist, are fresh, and have enough rows.
+                Warns via Telegram on problems; never blocks the pipeline.
+
+  3. Clean    — 1scriptToGet4MANIPULATION.py                [fatal]
                 Reads raw CSVs, applies data cleaning and feature extraction
                 (price normalisation, RAM/storage parsing, brand/model/color split),
                 saves cleaned CSVs to Clean/.
 
-  3. Load SQL — 4csvsTOsql.py
+  4. Data Quality Agent — run_data_quality_agent.py         [observer]
+                Read-only quality report on the day's raw CSVs, written to
+                logs/data_quality_YYYY-MM-DD.json. Never modifies data.
+
+  5. Load SQL — 4csvsTOsql.py                               [fatal]
                 Upserts cleaned data into PostgreSQL (products + price_snapshots).
 
 Abort behaviour:
-  If any stage exits with a non-zero return code the pipeline stops immediately,
-  preventing corrupted or partial data from reaching the database.
+  If a fatal stage exits with a non-zero return code the pipeline stops
+  immediately, preventing corrupted or partial data from reaching the database.
   An alert email is sent to ALERT_TO so silent failures never go unnoticed.
+  Observer stages only report on data produced by other stages: on failure they
+  send a Telegram warning and the pipeline continues.
 
 Typical usage:
   python run_pipeline.py
@@ -135,7 +145,24 @@ _ALL_STAGES = [
 _skip_scrape = os.environ.get("SKIP_SCRAPE", "").lower() in ("1", "true", "yes")
 if _skip_scrape:
     logger.info("SKIP_SCRAPE=1 — skipping Scrape stage, running Clean + Load only")
-STAGES = [s for s in _ALL_STAGES if not (_skip_scrape and s[0] == "Scrape")]
+
+# Build STAGES as (label, script, fatal). Core stages (fatal=True) abort the
+# pipeline on failure so corrupted data never reaches the database. Observer
+# stages (fatal=False) only report on data someone else produced — their
+# failure must never block Clean/Load (2026-07-09: a crash in the health
+# monitor blocked a whole day's load of perfectly good scrape data).
+_STAGES = []
+for name, path in _ALL_STAGES:
+    if _skip_scrape and name == "Scrape":
+        continue  # skip this stage
+    _STAGES.append((name, path, True))
+    # After Scrape, add health monitor if we didn't skip scrape
+    if name == "Scrape" and not _skip_scrape:
+        _STAGES.append(("Scraper Health Monitor", os.path.join(BASE, "run_scraper_health_monitor.py"), False))
+    # After Clean, add data quality agent
+    if name == "Clean":
+        _STAGES.append(("Data Quality Agent", os.path.join(BASE, "run_data_quality_agent.py"), False))
+STAGES = _STAGES
 
 # ── Email alerts ───────────────────────────────────────────────────────────────
 # Set ALERT_EMAIL and GMAIL_APP_PASSWORD in your .env file to enable alerts.
@@ -699,20 +726,28 @@ def send_success_summary(elapsed):
     logger.info(f"Success summary sent — {snaps:,} snapshots, {new_prods:,} new products, {drops} drops.")
 
 
-def run_stage(label, script):
+def run_stage(label, script, fatal=True):
     """
     Run a single pipeline stage as a subprocess.
-    On failure: sends an alert email then exits, so downstream stages
+    Fatal stage failure: sends an alert email then exits, so downstream stages
     never run against incomplete input data.
+    Observer stage failure: logs + Telegram warning, pipeline continues.
     """
     logger.info(f"=== {label} started ===")
     t = datetime.datetime.now()
     result = subprocess.run([sys.executable, script])
     elapsed = (datetime.datetime.now() - t).total_seconds()
     if result.returncode != 0:
-        logger.error(f"{label} failed (exit {result.returncode}) after {elapsed:.0f}s. Aborting pipeline.")
-        send_failure_alert(label, result.returncode)
-        sys.exit(result.returncode)
+        if fatal:
+            logger.error(f"{label} failed (exit {result.returncode}) after {elapsed:.0f}s. Aborting pipeline.")
+            send_failure_alert(label, result.returncode)
+            sys.exit(result.returncode)
+        logger.error(f"{label} failed (exit {result.returncode}) after {elapsed:.0f}s. Observer stage — continuing.")
+        _notif.tg_send(
+            f"⚠️ <b>{html.escape(label)} failed</b> (exit {result.returncode})\n"
+            f"Observer stage — pipeline continues. Check logs/pipeline_{datetime.date.today()}.log"
+        )
+        return
     logger.info(f"=== {label} complete in {elapsed:.0f}s ===")
 
 
@@ -741,8 +776,8 @@ if __name__ == "__main__":
                 )
         except Exception:
             pass
-        for label, script in STAGES:
-            run_stage(label, script)
+        for label, script, fatal in STAGES:
+            run_stage(label, script, fatal)
         for _fn, _label in [
             (run_charts,              "Charts"),
             (send_drop_digest,        "Drop digest"),

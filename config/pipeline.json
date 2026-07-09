@@ -1,0 +1,9 @@
+{
+  "pipeline": {
+    "run_scraper_health_monitor": true,
+    "run_data_quality_agent": true,
+    "data_quality_warn_only": false,
+    "anomaly_threshold": 0.1,
+    "invalid_schema_threshold": 0.05
+  }
+}

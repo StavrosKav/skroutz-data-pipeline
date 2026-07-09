@@ -1,0 +1,221 @@
+{
+  "scraper_health_monitor": {
+    "max_age_hours": 25,
+    "min_rows": 10,
+    "categories": [
+      "phones",
+      "laptops",
+      "smartwatches",
+      "tablets"
+    ],
+    "folder_map": {
+      "phones": "Phones_skroutz",
+      "laptops": "Laptops_skroutz",
+      "smartwatches": "Smartwatches_skroutz",
+      "tablets": "Tablets_skroutz"
+    }
+  },
+  "data_quality": {
+    "schema_validator": {
+      "_comment": "Schema mirrors the RAW scraper CSV columns (Product, Price_EUR, ...). Price_EUR is a string in raw CSVs (European format, e.g. '1.800.00'); parsing it is the Clean stage's job.",
+      "required_fields": [
+        "Product",
+        "Price_EUR",
+        "Link"
+      ],
+      "schema": {
+        "Product": {
+          "type": "string",
+          "min_length": 1
+        },
+        "Price_EUR": {
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "Link": {
+          "type": "string",
+          "regex": "^https://www\\.skroutz\\.gr/"
+        },
+        "Specs": {
+          "type": "string"
+        },
+        "Memory_Info": {
+          "type": "string"
+        },
+        "Rating": {
+          "type": "number",
+          "min": 0,
+          "max": 5
+        },
+        "Reviews": {
+          "type": [
+            "number",
+            "string"
+          ],
+          "regex": "^\\d+(\\.\\d+)?\\Z",
+          "min": 0
+        }
+      }
+    },
+    "anomaly_detector": {
+      "method": "iqr",
+      "threshold": 1.5,
+      "numeric_fields": [
+        "Rating",
+        "Reviews"
+      ],
+      "min_samples": 10,
+      "anomaly_threshold": 1.0
+    },
+    "brand_normalizer": {
+      "map_unknown_to_other": true,
+      "known_brands": [
+        "Apple",
+        "Samsung",
+        "Xiaomi",
+        "Oppo",
+        "Vivo",
+        "Realme",
+        "OnePlus",
+        "Google",
+        "Huawei",
+        "Honor",
+        "Motorola",
+        "Nokia",
+        "LG",
+        "Sony",
+        "Asus",
+        "ZTE",
+        "Alcatel",
+        "Tecno",
+        "Infinix",
+        "Itel",
+        "Umeox",
+        "Blackview",
+        "Umidigi",
+        "Cubot",
+        "Doogee",
+        "Elephone",
+        "Gionee",
+        "Lenovo",
+        "Meizu",
+        "Poco",
+        "Redmi",
+        "Sharp",
+        "Panasonic",
+        "Dell",
+        "HP",
+        "Lenovo",
+        "Asus",
+        "Acer",
+        "MSI",
+        "Apple",
+        "Microsoft",
+        "Samsung",
+        "LG",
+        "Gateway",
+        "Panasonic",
+        "Fujitsu",
+        "Toshiba",
+        "Alienware",
+        "Razer",
+        "Gigabyte",
+        "Garmin",
+        "Fitbit",
+        "Amazfit",
+        "Huami",
+        "Mobvoi",
+        "Suunto",
+        "Polar",
+        "Withings",
+        "Fossil",
+        "Skagen",
+        "Diesel",
+        "Michael Kors",
+        "Kate Spade",
+        "Fossil Group",
+        "Misfit",
+        "Whoop"
+      ],
+      "variation_map": {
+        "iphone": "Apple",
+        "ipad": "Apple",
+        "macbook": "Apple",
+        "iwatch": "Apple",
+        "galaxy": "Samsung",
+        "note": "Samsung",
+        "redmi": "Xiaomi",
+        "poco": "Xiaomi",
+        "mi": "Xiaomi",
+        "galaxy watch": "Samsung",
+        "galaxy buds": "Samsung",
+        "airpods": "Apple",
+        "apple watch": "Apple",
+        "macbook air": "Apple",
+        "macbook pro": "Apple",
+        "ipad pro": "Apple",
+        "ipad mini": "Apple",
+        "appl": "Apple",
+        "sams ung": "Samsung",
+        "samsang": "Samsung",
+        "xismaomi": "Xiaomi"
+      }
+    },
+    "consistency_checker": {
+      "rules": [
+        {
+          "condition": {
+            "brand": "Apple"
+          },
+          "check": {
+            "model_contains": [
+              "iPhone",
+              "iPad",
+              "MacBook",
+              "Watch"
+            ]
+          },
+          "message": "Apple product model should contain iPhone, iPad, MacBook, or Watch"
+        },
+        {
+          "condition": {
+            "brand": "Samsung"
+          },
+          "check": {
+            "model_contains": [
+              "Galaxy"
+            ]
+          },
+          "message": "Samsung product model should contain Galaxy"
+        },
+        {
+          "condition": {
+            "brand": "Xiaomi"
+          },
+          "check": {
+            "model_contains": [
+              "Redmi",
+              "Mi",
+              "Poco"
+            ]
+          },
+          "message": "Xiaomi product model should contain Redmi, Mi, or Poco"
+        }
+      ]
+    },
+    "completeness_validator": {
+      "critical_fields": [
+        "Product",
+        "Price_EUR",
+        "Link"
+      ],
+      "warning_fields": [
+        "Specs",
+        "Rating",
+        "Reviews"
+      ]
+    }
+  }
+}
