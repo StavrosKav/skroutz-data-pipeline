@@ -24,18 +24,19 @@ logger = logging.getLogger(__name__)
 
 
 class NIMModel(str, Enum):
-    """Available NIM models with their optimal use cases."""
+    """NIM models, restricted to what's actually invokable on the free-tier
+    build.nvidia.com catalog (verified live 2026-07-09 — being listed in
+    GET /v1/models does NOT mean an account can invoke it; most
+    non-Llama/Nemotron-Llama models 404 with "Not found for account")."""
     # Chat / Reasoning
-    NEMOTRON_3_ULTRA = "nvidia/nemotron-3-ultra"           # Best reasoning, complex tasks
+    NEMOTRON_SUPER_49B = "nvidia/llama-3.3-nemotron-super-49b-v1"  # Best reasoning available
+    LLAMA_3_3_70B = "meta/llama-3.3-70b-instruct"          # General chat, newer than 3.1
     LLAMA_3_1_70B = "meta/llama-3.1-70b-instruct"          # General chat, good balance
     LLAMA_3_1_8B = "meta/llama-3.1-8b-instruct"            # Fast, cheap, simple tasks
-    LLAMA_3_1_405B = "meta/llama-3.1-405b-instruct"        # Highest quality, slower
-    MISTRAL_LARGE = "mistralai/mistral-large"              # Multilingual, coding
-    CODELLAMA_70B = "meta/codellama-70b-instruct"          # Code generation/review
 
-    # Embeddings
-    NV_EMBED_QA = "nvidia/nv-embedqa-e5-v5"                # QA retrieval
-    NV_EMBED_V2 = "nvidia/nv-embed-v2"                     # General purpose
+    # Embeddings — only nv-embedqa-e5-v5 is invokable on this account;
+    # nv-embed-v1/v2 and llama-3.2 embed variants all 404.
+    NV_EMBED_QA = "nvidia/nv-embedqa-e5-v5"
 
 
 class TaskType(str, Enum):
@@ -50,29 +51,29 @@ class TaskType(str, Enum):
     EMBEDDING_GENERAL = "embedding_general"
 
 
-# Default routing: task -> model
+# Default routing: task -> model.
+# No dedicated code or multilingual model is invokable on this account
+# (codellama-70b-instruct, mistral-large, codestral, granite, starcoder,
+# deepseek-coder all 404) — those tasks fall back to the best general model.
 DEFAULT_MODEL_ROUTING: dict[TaskType, NIMModel] = {
     TaskType.CHAT_DEFAULT: NIMModel.LLAMA_3_1_70B,
-    TaskType.REASONING_HEAVY: NIMModel.NEMOTRON_3_ULTRA,
-    TaskType.CODE_GENERATION: NIMModel.CODELLAMA_70B,
-    TaskType.CODE_REVIEW: NIMModel.CODELLAMA_70B,
+    TaskType.REASONING_HEAVY: NIMModel.NEMOTRON_SUPER_49B,
+    TaskType.CODE_GENERATION: NIMModel.LLAMA_3_3_70B,
+    TaskType.CODE_REVIEW: NIMModel.LLAMA_3_3_70B,
     TaskType.FAST_SIMPLE: NIMModel.LLAMA_3_1_8B,
-    TaskType.MULTILINGUAL: NIMModel.MISTRAL_LARGE,
+    TaskType.MULTILINGUAL: NIMModel.LLAMA_3_3_70B,
     TaskType.EMBEDDING_QA: NIMModel.NV_EMBED_QA,
-    TaskType.EMBEDDING_GENERAL: NIMModel.NV_EMBED_V2,
+    TaskType.EMBEDDING_GENERAL: NIMModel.NV_EMBED_QA,
 }
 
 
 # Cost estimates (USD per 1M tokens in/out) - for monitoring
 MODEL_COSTS: dict[NIMModel, tuple[float, float]] = {
-    NIMModel.NEMOTRON_3_ULTRA: (0.0, 0.0),      # NVIDIA-hosted, free tier
+    NIMModel.NEMOTRON_SUPER_49B: (0.0, 0.0),    # NVIDIA-hosted, free tier
+    NIMModel.LLAMA_3_3_70B: (0.0, 0.0),
     NIMModel.LLAMA_3_1_70B: (0.0, 0.0),
     NIMModel.LLAMA_3_1_8B: (0.0, 0.0),
-    NIMModel.LLAMA_3_1_405B: (0.0, 0.0),
-    NIMModel.MISTRAL_LARGE: (0.0, 0.0),
-    NIMModel.CODELLAMA_70B: (0.0, 0.0),
     NIMModel.NV_EMBED_QA: (0.0, 0.0),
-    NIMModel.NV_EMBED_V2: (0.0, 0.0),
 }
 
 
