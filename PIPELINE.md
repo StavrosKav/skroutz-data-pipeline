@@ -70,15 +70,17 @@ skroutz-data-pipeline/
 │   └── data_quality/            #   schema/completeness/anomaly checks
 ├── config/agents.json           # Observer thresholds + raw-CSV schema
 │
-├── skroutz_phonesWHILE.py       # Selenium scraper — phones
-├── skroutz_laptopsWHILE.py      # Selenium scraper — laptops
-├── skroutz_tabletsWHILE.py      # Selenium scraper — tablets
-├── skroutz_SmartwatchesWHILE.py # Selenium scraper — smartwatches
+├── scraper_core.py              # Shared scraping engine (pagination, parsing, retries, drift guard)
+├── skroutz_phonesWHILE.py       # Scraper entry point — phones
+├── skroutz_laptopsWHILE.py      # Scraper entry point — laptops
+├── skroutz_tabletsWHILE.py      # Scraper entry point — tablets
+├── skroutz_SmartwatchesWHILE.py # Scraper entry point — smartwatches
 │
-├── Data_Phone.py                # Cleaner — phones
-├── Data_Laptops.py              # Cleaner — laptops
-├── Data_Tablets.py              # Cleaner — tablets
-├── Data_Smartwatches.py         # Cleaner — smartwatches
+├── clean_common.py              # Shared cleaning engine (price/brand/installments/reviews, I/O)
+├── Data_Phone.py                # Cleaner entry point — phones (adds spec enrichment)
+├── Data_Laptops.py              # Cleaner entry point — laptops
+├── Data_Tablets.py              # Cleaner entry point — tablets
+├── Data_Smartwatches.py         # Cleaner entry point — smartwatches
 │
 ├── charts_from_db.py            # Brand price-trend charts (PNG)
 ├── generate_dashboard.py        # Self-contained HTML dashboard
@@ -154,11 +156,23 @@ Launches 4 scrapers **in parallel** as subprocesses. Each runs in its own proces
 | Scraper | Category | Output folder | Filename pattern |
 |---|---|---|---|
 | `skroutz_phonesWHILE.py` | phone | `Phones_skroutz/` | `skroutz_phones_YYYY-MM-DD.csv` |
-| `skroutz_laptopsWHILE.py` | laptop | `Laptops_skroutz/` | `skroutz_laptos_YYYY-MM-DD.csv` |
+| `skroutz_laptopsWHILE.py` | laptop | `Laptops_skroutz/` | `skroutz_laptops_YYYY-MM-DD.csv` |
 | `skroutz_tabletsWHILE.py` | tablet | `Tablets_skroutz/` | `skroutz_tablets_YYYY-MM-DD.csv` |
 | `skroutz_SmartwatchesWHILE.py` | smartwatch | `Smartwatches_skroutz/` | `skroutz_Smartwatches_YYYY-MM-DD.csv` |
 
+The four scraper files are thin entry points — the pagination loop, card parsing,
+retry logic, and CSV writing live in **`scraper_core.py`** (one parameterized
+`scrape(config)` with per-category `CONFIGS`). Laptops files before 2026-07-17
+use the historical `skroutz_laptos_` prefix; `Data_Laptops.py` falls back to it
+automatically when the new name is absent.
+
 Each scraper uses **`undetected-chromedriver`** to bypass skroutz bot-detection. `version_main` is auto-detected from the installed Chrome binary; falls back to `None` (auto-select) on failure.
+
+**Resilience (in `scraper_core.py`):**
+- Bounded retries (3 attempts, backoff) around page load, card-wait (with refresh), and next-page click. A category's total failure is still fatal to the run.
+- **Markup-drift guard:** after scraping, if <90% of rows have a valid `Product`/`Link` or <80% a numeric `Price_EUR`, the scraper logs which selector broke and exits non-zero **without writing a CSV** — a silently renamed Skroutz class can no longer load a day of NULL prices. (Specs/Rating/Installments are legitimately sparse and are not guarded.)
+- Atomic CSV writes (`.tmp` + `os.replace`) — a killed scraper never leaves a half-written file.
+- Review counts are extracted with a digit regex — the count/rating-joined-by-newline markup variant (~25 rows/day) no longer produces malformed values.
 
 Subprocess timeout: **2 hours** per scraper. On timeout the process is killed and the handle reaped.
 
@@ -192,11 +206,18 @@ Launches 4 cleaners in parallel, each reading the latest raw CSV for its categor
 | `Data_Tablets.py` | `Tablets_skroutz/*.csv` | `Clean/Tablets_skroutz_clean/clean_YYYY-MM-DD.csv` |
 | `Data_Smartwatches.py` | `Smartwatches_skroutz/*.csv` | `Clean/Smartwatches_skroutz_clean/clean_YYYY-MM-DD.csv` |
 
+The four cleaner files are thin entry points — shared logic (price normalisation,
+brand/model split, installment parsing, review-count recovery, standardized
+`read_csv` options and atomic writes) lives in **`clean_common.py`** via
+`run_clean(CleanerConfig)`. `Data_Phone.py` adds the phone-specific enrichment
+(RAM/storage, camera, display, battery extraction).
+
 **Operations per cleaner:**
 - Price normalisation — strips `€`, handles Greek decimal commas, price ranges
 - Brand / model / color extraction (regex + lookup tables)
-- RAM / storage parsing (`"8/128GB"` → `ram_gb=8`, `storage_gb=128`)
-- Camera count, display size, battery info extraction
+- RAM / storage parsing (`"8/128GB"` → `ram_gb=8`, `storage_gb=128`) — phones only
+- Camera count, display size, battery info extraction — phones only
+- Review counts: first digit run extracted before numeric cast, so historical malformed values (`"1\n0.0"`) are recovered instead of nulled
 - Deduplication within the daily file
 
 ---
@@ -504,8 +525,8 @@ All tests are pure unit tests — no database, no Chrome, no network. Safe to ru
 
 ### Add a new product category
 
-1. Write a new scraper `skroutz_<category>WHILE.py` — copy `skroutz_SmartwatchesWHILE.py` as template
-2. Write a new cleaner `Data_<Category>.py` — copy `Data_Smartwatches.py` as template
+1. Add a `ScraperConfig` to `CONFIGS` in `scraper_core.py` and create a thin entry point `skroutz_<category>WHILE.py` (copy `skroutz_SmartwatchesWHILE.py` — it's 4 lines)
+2. Create a thin cleaner `Data_<Category>.py` with a `CleanerConfig` (copy `Data_Smartwatches.py`)
 3. Register both in `1scriptToGet4.py` and `1scriptToGet4MANIPULATION.py`
 4. Add the category string to `CATEGORIES` in `charts_from_db.py`
 5. Add the new output folder to `.gitignore` and `docker-compose.yml` bind mounts
