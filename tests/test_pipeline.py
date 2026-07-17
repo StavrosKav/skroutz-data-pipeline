@@ -20,6 +20,7 @@ Run:
 No network or DB connections required — all tests are pure-unit.
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -235,6 +236,30 @@ class TestNotificationsDedup(unittest.TestCase):
         # Pass fake rows with the expected attrs — function returns False immediately
         result = n.tg_drops([object()])
         self.assertFalse(result)
+
+    def test_corrupt_dedup_file_treated_as_empty(self):
+        """A truncated/invalid JSON file must not make _already_sent crash or
+        permanently return True/False for everything — it resets to empty."""
+        import notifications as n
+        with open(n._sent_file(), "w", encoding="utf-8") as f:
+            f.write("{not valid json")
+        self.assertFalse(n._already_sent("drops"))
+
+    def test_mark_sent_recovers_from_corrupt_file(self):
+        """_mark_sent must still succeed (and self-heal the file) even when
+        the existing dedup file on disk is corrupt."""
+        import notifications as n
+        with open(n._sent_file(), "w", encoding="utf-8") as f:
+            f.write("{not valid json")
+        n._mark_sent("drops")
+        self.assertTrue(n._already_sent("drops"))
+        with open(n._sent_file(), encoding="utf-8") as f:
+            json.load(f)  # must be valid JSON now
+
+    def test_mark_sent_write_is_atomic_no_tmp_left_behind(self):
+        import notifications as n
+        n._mark_sent("drops")
+        self.assertFalse(os.path.exists(n._sent_file() + ".tmp"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
