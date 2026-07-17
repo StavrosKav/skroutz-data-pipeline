@@ -534,9 +534,9 @@ Register-ScheduledTask -TaskName "SkroutzPipeline" -Action $action -Trigger $tri
 | Signal | Source | Retention |
 |---|---|---|
 | Pipeline log | `logs/pipeline_YYYY-MM-DD.log` | 30 days (auto-rotated by `_cleanup_old_logs()`) |
-| Scraper logs (dated) | `logs/skroutz_*WHILE_YYYY-MM-DD.log` | 30 days |
-| Scraper logs (current run) | `scraper_{phones,laptops,tablets,smartwatches}.log` | Overwritten each run (`mode="w"`) |
+| Scraper logs | `logs/skroutz_*WHILE_YYYY-MM-DD.log` (subprocess stdout/stderr, append mode) | 30 days |
 | Telegram dedup records | `logs/tg_sent_YYYY-MM-DD.json` | 30 days |
+| Data quality reports | `logs/data_quality_YYYY-MM-DD.json` | 30 days |
 | Anomaly detection | `send_success_summary()` — warns if today < 50% of yesterday | Logged + emailed |
 | Stage timing | `=== Stage complete in Xs ===` log lines | Per run |
 
@@ -621,9 +621,9 @@ Edit the Windows Task Scheduler trigger time, or update the `cron:` schedule in 
 | HTML dashboard | `dashboard/dashboard_latest.html` | Tracked; dated copies gitignored |
 | Streamlit dashboard | `http://localhost:8501` | `streamlit run streamlit_app.py` |
 | Pipeline log | `logs/pipeline_YYYY-MM-DD.log` | Rotated at 30 days |
-| Scraper logs (root) | `scraper_*.log` | Overwritten each run |
-| Scraper logs (dated) | `logs/skroutz_*WHILE_YYYY-MM-DD.log` | Rotated at 30 days |
+| Scraper logs | `logs/skroutz_*WHILE_YYYY-MM-DD.log` | Rotated at 30 days |
 | Telegram dedup | `logs/tg_sent_YYYY-MM-DD.json` | Rotated at 30 days |
+| Data quality reports | `logs/data_quality_YYYY-MM-DD.json` | Rotated at 30 days |
 
 ---
 

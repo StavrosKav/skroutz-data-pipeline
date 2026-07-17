@@ -57,7 +57,6 @@ class ScraperConfig:
     url: str
     folder: str
     file_prefix: str
-    log_name: str
     extract_memory_info: bool = False
 
 
@@ -67,7 +66,6 @@ CONFIGS = {
         url="https://www.skroutz.gr/c/40/kinhta-thlefwna.html",
         folder="Phones_skroutz",
         file_prefix="skroutz_phones",
-        log_name="scraper_phones.log",
         extract_memory_info=True,
     ),
     "laptops": ScraperConfig(
@@ -75,21 +73,18 @@ CONFIGS = {
         url="https://www.skroutz.gr/c/25/laptop.html",
         folder="Laptops_skroutz",
         file_prefix="skroutz_laptops",
-        log_name="scraper_laptops.log",
     ),
     "tablets": ScraperConfig(
         category="tablets",
         url="https://www.skroutz.gr/c/1105/tablet.html",
         folder="Tablets_skroutz",
         file_prefix="skroutz_tablets",
-        log_name="scraper_tablets.log",
     ),
     "smartwatches": ScraperConfig(
         category="smartwatches",
         url="https://www.skroutz.gr/c/1705/Smartwatches.html",
         folder="Smartwatches_skroutz",
         file_prefix="skroutz_Smartwatches",
-        log_name="scraper_smartwatches.log",
     ),
 }
 
@@ -123,37 +118,37 @@ def parse_card(card, extract_memory_info=False):
         # Some hrefs are relative paths; ensure we always store a full URL
         full = href if href.startswith("http") else "https://www.skroutz.gr" + href
         link = full.split("?")[0]   # strip tracking params before storing
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Selector failed \"{NAME_LINK_SELECTOR}\": {e.__class__.__name__}: {e}")
         name = link = "N/A"
 
     # --- Short spec summary shown on the card ---
     try:
         specs = card.find_element(By.CSS_SELECTOR, SPECS_SELECTOR).text.strip()
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Selector failed \"{SPECS_SELECTOR}\": {e.__class__.__name__}: {e}")
         specs = "N/A"
 
     # --- RAM / Storage variants (phones only, e.g. "Μνήμη: 8/128GB, 8/256GB") ---
     # Try DOM elements first; fall back to full card text regex if not found
     memory_info = "N/A"
     if extract_memory_info:
+        memory_xpath = ".//p[contains(text(), 'Μνήμη:')] | .//div[contains(text(), 'Μνήμη:')] | .//span[contains(text(), 'Μνήμη:')]"
         try:
-            memory_els = card.find_elements(
-                By.XPATH,
-                ".//p[contains(text(), 'Μνήμη:')] | .//div[contains(text(), 'Μνήμη:')] | .//span[contains(text(), 'Μνήμη:')]"
-            )
+            memory_els = card.find_elements(By.XPATH, memory_xpath)
             for el in memory_els:
                 if "Μνήμη:" in el.text:
                     memory_info = el.text.strip()
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Selector failed \"{memory_xpath}\": {e.__class__.__name__}: {e}")
         if memory_info == "N/A":
             try:
                 match = re.search(r"Μνήμη:\s*([^\n]+)", card.text)
                 if match:
                     memory_info = match.group(0).strip()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Memory_Info regex fallback failed: {e.__class__.__name__}: {e}")
 
     # --- Price ---
     # Stored raw (e.g. "1.800,00 €" → "1.800.00") so the cleaner handles formatting
@@ -162,7 +157,8 @@ def parse_card(card, extract_memory_info=False):
         price = (price_el.text.strip()
                  .replace(" ", "").replace(",", ".")
                  .replace("€", "").replace("από", "").strip())
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Selector failed \"{PRICE_SELECTOR}\": {e.__class__.__name__}: {e}")
         price = "N/A"
 
     # --- Installment plan ---
@@ -176,13 +172,14 @@ def parse_card(card, extract_memory_info=False):
         if match:
             per_month = match.group(1)
             all_installments = match.group(2)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Selector failed \"{INSTALLMENTS_SELECTOR}\": {e.__class__.__name__}: {e}")
 
     # --- User rating & review count ---
     try:
         rating = card.find_element(By.CSS_SELECTOR, RATING_SELECTOR).text.strip()
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Selector failed \"{RATING_SELECTOR}\": {e.__class__.__name__}: {e}")
         rating = "N/A"
 
     # The reviews element sometimes renders count and rating joined by a newline
@@ -191,7 +188,8 @@ def parse_card(card, extract_memory_info=False):
         reviews_text = card.find_element(By.CSS_SELECTOR, REVIEWS_SELECTOR).text.strip()
         m = re.search(r"\d+", reviews_text)
         reviews = m.group(0) if m else "N/A"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Selector failed \"{REVIEWS_SELECTOR}\": {e.__class__.__name__}: {e}")
         reviews = "N/A"
 
     row = {"Product": name, "Specs": specs}
@@ -295,14 +293,13 @@ def _check_markup_drift(df, category):
 
 
 def scrape(cfg: ScraperConfig):
-    # Log to both console and a persistent file so failures are traceable
+    # Log to console only — 1scriptToGet4.py redirects each scraper subprocess's
+    # stdout/stderr into logs/skroutz_<category>WHILE_<date>.log (append mode),
+    # so a second, truncated-every-run root-level log file was pure duplication.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(os.path.join(HERE, cfg.log_name), encoding="utf-8", mode="w"),
-        ],
+        handlers=[logging.StreamHandler()],
     )
 
     # --headless is intentionally omitted because it triggers bot-detection on skroutz
