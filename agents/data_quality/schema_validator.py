@@ -26,29 +26,27 @@ class SchemaValidator(BaseAgent):
 
     def __init__(self, config: Optional[dict] = None):
         super().__init__("schema_validator", config)
-        # Schema definition: field name -> definition
-        # Definition can be:
-        #   - a type or tuple of types (for backward compatibility)
-        #   - a dict with keys: type, min, max, enum, regex, min_length
-        raw_schema = self.config.get(
-            "schema",
-            {
-                "product_id": {"type": int, "min": 1},
-                "sku": {"type": str, "regex": r"^[a-zA-Z0-9_-]+$"},
-                "name": {"type": str, "min_length": 1},
-                "brand": {"type": str},
-                "model": {"type": str},
-                "price_eur": {"type": [float, int], "min": 0, "max": 10000},
-                "availability": {"type": str, "enum": ["in_stock", "out_of_stock", "preorder"]},
-                "category": {"type": str, "enum": ["phones", "laptops", "smartwatches", "tablets"]},
-            },
-        )
-        self.schema = self._parse_schema(raw_schema)
+        # Schema definition: field name -> definition. Must come from config
+        # (config/agents.json's data_quality.schema_validator.schema) — there is
+        # no built-in default, because a made-up schema for fields that don't
+        # exist in the real data (product_id, sku, availability, ...) would
+        # silently flag every record as invalid instead of surfacing the real
+        # problem: config/agents.json failed to load.
+        if "schema" not in self.config:
+            raise ValueError(
+                "SchemaValidator requires 'schema' in its config — none was "
+                "provided. Check that config/agents.json exists and defines "
+                "data_quality.schema_validator.schema."
+            )
+        self.schema = self._parse_schema(self.config["schema"])
         # Fields that are required (must be present and not None)
-        self.required_fields = self.config.get(
-            "required_fields",
-            ["product_id", "name", "price_eur", "category"]
-        )
+        if "required_fields" not in self.config:
+            raise ValueError(
+                "SchemaValidator requires 'required_fields' in its config — "
+                "none was provided. Check that config/agents.json exists and "
+                "defines data_quality.schema_validator.required_fields."
+            )
+        self.required_fields = self.config["required_fields"]
         # Optional: validation functions for fields
         self.validation_funcs = self.config.get("validators", {})
 

@@ -6,10 +6,8 @@ import logging
 from typing import List, Optional
 from agents.base import BaseAgent
 
-from .brand_normalizer import BrandNormalizer
 from .anomaly_detector import AnomalyDetector
 from .schema_validator import SchemaValidator
-from .consistency_checker import ConsistencyChecker
 from .completeness_validator import CompletenessValidator
 
 logger = logging.getLogger(__name__)
@@ -17,12 +15,16 @@ logger = logging.getLogger(__name__)
 
 class DataQualityAgent(BaseAgent):
     """
-    Data Quality Agent that runs a pipeline of data quality checks:
+    Data Quality Agent that runs a pipeline of data quality checks over the
+    RAW scraper CSVs:
     1. Schema Validation
-    2. Consistency Check
-    3. Completeness Validation
-    4. Anomaly Detection
-    5. Brand Normalization
+    2. Completeness Validation
+    3. Anomaly Detection
+
+    Consistency checking and brand normalization are deliberately not run
+    here — both operate on brand/model fields that only exist after the
+    Clean stage; against raw records (Product, Price_EUR, Link, ...) they
+    never match anything and every brand silently normalizes to "Other".
     """
 
     def __init__(self, config: Optional[dict] = None):
@@ -31,17 +33,11 @@ class DataQualityAgent(BaseAgent):
         self.schema_validator = SchemaValidator(
             config.get("schema_validator", {})
         )
-        self.consistency_checker = ConsistencyChecker(
-            config.get("consistency_checker", {})
-        )
         self.completeness_validator = CompletenessValidator(
             config.get("completeness_validator", {})
         )
         self.anomaly_detector = AnomalyDetector(
             config.get("anomaly_detector", {})
-        )
-        self.brand_normalizer = BrandNormalizer(
-            config.get("brand_normalizer", {})
         )
 
     def process(self, input_data: List[dict]) -> List[dict]:
@@ -55,21 +51,13 @@ class DataQualityAgent(BaseAgent):
         self.logger.debug("Running schema validation")
         data = self.schema_validator.process(input_data)
 
-        # Step 2: Consistency Check
-        self.logger.debug("Running consistency check")
-        data = self.consistency_checker.process(data)
-
-        # Step 3: Completeness Validation
+        # Step 2: Completeness Validation
         self.logger.debug("Running completeness validation")
         data = self.completeness_validator.process(data)
 
-        # Step 4: Anomaly Detection
+        # Step 3: Anomaly Detection
         self.logger.debug("Running anomaly detection")
         data = self.anomaly_detector.process(data)
-
-        # Step 5: Brand Normalization
-        self.logger.debug("Running brand normalization")
-        data = self.brand_normalizer.process(data)
 
         self.logger.info("Data Quality Agent pipeline completed")
         return data
