@@ -96,7 +96,8 @@ def main():
     # Determine exit code: 0 if healthy, 1 if any issues
     healthy = result.get("healthy", True)
     if not healthy:
-        logger.error("Scraper health check FAILED. Pipeline will stop.")
+        logger.error("Scraper health check FAILED. This is an observer stage — "
+                      "the pipeline continues; check the issues above.")
         return 1
     else:
         logger.info("Scraper health check PASSED.")
