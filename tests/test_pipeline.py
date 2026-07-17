@@ -30,7 +30,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import importlib as _imp
-from Data_Phone import clean_price, extract_ram_storage
+from Data_Phone import extract_ram_storage
 
 _csvs  = _imp.import_module('4csvsTOsql')
 _val   = _csvs._val
@@ -42,44 +42,57 @@ _float = _csvs._float
 # 1. clean_price
 # ─────────────────────────────────────────────────────────────────────────────
 
+# All four cleaner entry points re-export clean_price from clean_common; every
+# case runs against each module so a broken re-export fails the suite.
+CLEANER_MODULES = ("Data_Phone", "Data_Laptops", "Data_Tablets", "Data_Smartwatches")
+
+
 class TestCleanPrice(unittest.TestCase):
     # NOTE: the scraper pre-processes prices before the cleaner sees them:
     #   scraper: "1.800,00 €" → "1.800.00" (comma→dot, strip €/spaces)
     # clean_price() receives the already-pre-processed format from the CSV.
 
+    def _assert_all(self, raw, expected):
+        import math
+        for mod_name in CLEANER_MODULES:
+            with self.subTest(module=mod_name):
+                result = _imp.import_module(mod_name).clean_price(raw)
+                if expected is None:
+                    self.assertTrue(math.isnan(result))
+                else:
+                    self.assertAlmostEqual(result, expected)
+
     def test_plain_integer(self):
-        self.assertAlmostEqual(clean_price("299"), 299.0)
+        self._assert_all("299", 299.0)
 
     def test_scraper_preprocessed_thousands(self):
         # "1.800,00 €" via scraper becomes "1.800.00" in the CSV
-        self.assertAlmostEqual(clean_price("1.800.00"), 1800.0)
+        self._assert_all("1.800.00", 1800.0)
 
     def test_scraper_preprocessed_high_value(self):
-        self.assertAlmostEqual(clean_price("2.299.99"), 2299.99)
+        self._assert_all("2.299.99", 2299.99)
 
     def test_scraper_preprocessed_1200(self):
-        self.assertAlmostEqual(clean_price("1.200.00"), 1200.0)
+        self._assert_all("1.200.00", 1200.0)
 
     def test_plain_with_euro_sign(self):
-        self.assertAlmostEqual(clean_price("599 €"), 599.0)
+        self._assert_all("599 €", 599.0)
 
     def test_decimal_dot_format(self):
-        self.assertAlmostEqual(clean_price("599.99"), 599.99)
+        self._assert_all("599.99", 599.99)
 
     def test_na_returns_nan(self):
-        import math
-        self.assertTrue(math.isnan(clean_price("N/A")))
+        self._assert_all("N/A", None)
 
     def test_empty_returns_nan(self):
-        import math
-        self.assertTrue(math.isnan(clean_price("")))
+        self._assert_all("", None)
 
     def test_comma_decimal_format(self):
         # "249,00" (Greek decimal comma, no thousands) → 249.0
-        self.assertAlmostEqual(clean_price("249,00"), 249.0)
+        self._assert_all("249,00", 249.0)
 
     def test_whitespace_stripped(self):
-        self.assertAlmostEqual(clean_price("  249,00  "), 249.0)
+        self._assert_all("  249,00  ", 249.0)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -908,6 +921,109 @@ class TestUpdateReadmeStats(unittest.TestCase):
             with open(readme_path, "r", encoding="utf-8") as f:
                 content = f.read()
         self.assertEqual(content, self.README_TEMPLATE)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# clean_reviews — recovery of malformed review counts
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestCleanReviews(unittest.TestCase):
+
+    def _clean(self, values):
+        import pandas as pd
+        from clean_common import clean_reviews
+        return clean_reviews(pd.Series(values))
+
+    def test_plain_counts(self):
+        result = self._clean(["37", "416", "1"])
+        self.assertEqual(result.tolist(), [37.0, 416.0, 1.0])
+
+    def test_malformed_count_rating_joined(self):
+        # The scraper's reviews element sometimes captured count and rating
+        # joined by a newline; the count (first integer) must be recovered.
+        result = self._clean(["1\n0.0", "12\n4.5"])
+        self.assertEqual(result.tolist(), [1.0, 12.0])
+
+    def test_na_and_missing_become_nan(self):
+        result = self._clean(["N/A", None])
+        self.assertTrue(result.isna().all())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# parse_card against real skroutz markup (tests/fixtures/listing_card_phone.html)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _LxmlElement:
+    """
+    Minimal Selenium-element stand-in backed by lxml, so parse_card's real CSS
+    and XPath selectors run against saved fixture markup without a browser.
+    """
+
+    def __init__(self, el):
+        self._el = el
+
+    def find_elements(self, by, sel):
+        from selenium.webdriver.common.by import By
+        found = self._el.xpath(sel) if by == By.XPATH else self._el.cssselect(sel)
+        return [_LxmlElement(e) for e in found]
+
+    def find_element(self, by, sel):
+        found = self.find_elements(by, sel)
+        if not found:
+            raise LookupError(sel)
+        return found[0]
+
+    @property
+    def text(self):
+        return self._el.text_content().strip()
+
+    def get_attribute(self, name):
+        return self._el.get(name) or ""
+
+
+class TestParseCardFixture(unittest.TestCase):
+    """
+    Parses a real listing card captured from skroutz.gr on 2026-07-17.
+
+    This is the markup-change early-warning test: if skroutz renames a class,
+    re-capture the fixture (first card's outerHTML from any listing page) —
+    this failing on a fresh fixture means the selectors in scraper_core broke.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import lxml.html
+        from scraper_core import parse_card
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "fixtures", "listing_card_phone.html")
+        with open(path, encoding="utf-8") as f:
+            card = lxml.html.fromstring(f.read())
+        cls.row = parse_card(_LxmlElement(card), extract_memory_info=True)
+
+    def test_product_title(self):
+        self.assertEqual(self.row["Product"], "Samsung Galaxy A17 5G Dual SIM (4/128GB) Μπλε")
+
+    def test_link_absolute_and_stripped(self):
+        self.assertEqual(
+            self.row["Link"],
+            "https://www.skroutz.gr/s/62516671/samsung-galaxy-a17-5g-dual-sim-4-128gb-mple.html",
+        )
+
+    def test_price(self):
+        self.assertEqual(self.row["Price_EUR"], "174.00")
+
+    def test_reviews_count(self):
+        self.assertEqual(self.row["Reviews"], "109")
+
+    def test_rating(self):
+        self.assertEqual(self.row["Rating"], "4.7")
+
+    def test_installments(self):
+        self.assertEqual(self.row["Installments_per_month"], "30,50")
+        self.assertEqual(self.row["Installments_in_total"], "6")
+
+    def test_specs(self):
+        self.assertIn("Κάμερα 50MP", self.row["Specs"])
 
 
 if __name__ == "__main__":

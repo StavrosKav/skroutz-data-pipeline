@@ -16,3 +16,5 @@ pydantic>=2.0.0
 # Dev tools (tests + lint)
 pytest>=9,<10
 ruff>=0.4
+lxml>=5  # fixture-based parse tests run scraper selectors against saved HTML
+cssselect>=1.2
