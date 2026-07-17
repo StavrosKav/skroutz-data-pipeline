@@ -20,6 +20,12 @@
 --   vw_daily_market_index     — daily avg category price (macro market trend)
 --   vw_restock_pricing        — price before vs. after a 3+ day stock gap
 --   vw_review_velocity        — products gaining the most new reviews in the last 14 days
+--
+-- v4 (see bottom of file): vw_latest_prices, vw_price_history, vw_biggest_drops,
+--   vw_price_floor, vw_price_volatility, vw_price_trend_direction, vw_brand_summary,
+--   vw_brand_price_trend, vw_daily_market_index, vw_restock_pricing, vw_review_velocity
+--   are backed by MATERIALIZED VIEWs (mv_*), refreshed once/day by
+--   run_pipeline.py's refresh_matviews(). Names and columns are unchanged.
 -- =============================================================================
 
 
@@ -504,3 +510,375 @@ WHERE a.rev_now IS NOT NULL
   AND a.rev_14d IS NOT NULL
   AND a.rev_now > a.rev_14d
 ORDER BY COALESCE(a.rev_now - a.rev_14d, 0) DESC;
+
+
+-- =============================================================================
+-- Performance pass (v4) — materialized aggregate views + trigram search indexes
+-- =============================================================================
+--
+-- Data changes ONCE per day (the 08:00 pipeline). Every view above that GROUPs
+-- or windows (LAG/LEAD/FILTER) over the full price_snapshots table was paying
+-- that cost on every single read — including the hottest path in the whole
+-- project (vw_biggest_drops, hit by the HTML dashboard, Streamlit, the
+-- Telegram drop digest, and /status on every call).
+--
+-- The 10 heaviest full-table aggregates below are now MATERIALIZED VIEWs,
+-- refreshed once by run_pipeline.py's refresh_matviews() step right after
+-- Load SQL. The original view names are preserved as thin
+-- `SELECT * FROM mv_...` wrappers — CREATE OR REPLACE VIEW here further
+-- redefines the CREATE OR REPLACE VIEW statements earlier in this same file,
+-- so a fresh install run top-to-bottom ends in the matview-backed state and
+-- no consumer's SQL (view name, columns, column order) changes.
+--
+-- Left as plain (non-materialized) views, deliberately:
+--   vw_disappeared          — filters the small `products` table only
+--   vw_hot_deals            — WHERE date IN (last 2 dates), index-bound already
+--   vw_brand_discount_freq  — now reads the matview-backed vw_price_history;
+--                              its own GROUP BY is bounded by the date index (90d)
+--   vw_near_atl             — joins two now-cheap views, no aggregation of its own
+--
+-- Every materialized view gets a UNIQUE index so REFRESH ... CONCURRENTLY can
+-- run without locking the view against readers.
+
+-- ── mv_latest_prices — backs vw_latest_prices ──────────────────────────────────
+-- Initially assessed as "already cheap" (DISTINCT ON drives an index scan, not
+-- a seq scan) and left as a plain view — EXPLAIN ANALYZE on the /find query
+-- proved that wrong: DISTINCT ON still visits every one of the ~450k snapshot
+-- rows to find each product's latest one, and vw_latest_prices sits underneath
+-- both /find and /best. Materializing it was the actual fix for /find's
+-- latency, not the trigram indexes below.
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_latest_prices AS
+SELECT DISTINCT ON (p.id)
+    p.id,
+    p.category,
+    p.brand,
+    p.model,
+    p.product_name,
+    p.specs,
+    s.date         AS last_price_date,
+    s.price_eur,
+    s.rating,
+    s.reviews,
+    s.installments_per_month,
+    s.installments_in_total,
+    p.first_seen,
+    p.last_seen,
+    p.skroutz_link
+FROM products p
+JOIN price_snapshots s ON s.product_id = p.id
+ORDER BY p.id, s.date DESC
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_latest_prices_id
+    ON mv_latest_prices (id);
+
+CREATE OR REPLACE VIEW vw_latest_prices AS
+SELECT * FROM mv_latest_prices;
+
+
+-- ── mv_price_history — backs vw_price_history AND vw_biggest_drops ────────────
+-- The single most expensive query in the app: LAG() over all ~450k snapshot
+-- rows, previously recomputed on every dashboard/bot/digest call.
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_price_history AS
+WITH ph AS (
+    SELECT
+        s.product_id,
+        s.date,
+        s.price_eur,
+        s.rating,
+        s.reviews,
+        LAG(s.price_eur) OVER (PARTITION BY s.product_id ORDER BY s.date) AS prev_price
+    FROM price_snapshots s
+)
+SELECT
+    p.id                                                               AS product_id,
+    p.category,
+    p.brand,
+    p.model,
+    p.product_name,
+    ph.date,
+    ph.price_eur,
+    ph.prev_price,
+    ph.price_eur - ph.prev_price                                       AS price_change,
+    ROUND(
+        100.0 * (ph.price_eur - ph.prev_price)
+        / NULLIF(ph.prev_price, 0),
+        2
+    )                                                                  AS pct_change,
+    ph.rating,
+    ph.reviews,
+    p.skroutz_link
+FROM ph
+JOIN products p ON p.id = ph.product_id
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_price_history_pid_date
+    ON mv_price_history (product_id, date);
+CREATE INDEX IF NOT EXISTS idx_mv_price_history_date
+    ON mv_price_history (date);
+
+CREATE OR REPLACE VIEW vw_price_history AS
+SELECT * FROM mv_price_history;
+
+CREATE OR REPLACE VIEW vw_biggest_drops AS
+SELECT
+    product_id, category, brand, model, product_name,
+    date          AS drop_date,
+    prev_price,
+    price_eur     AS new_price,
+    price_change  AS drop_eur,
+    pct_change    AS drop_pct,
+    skroutz_link
+FROM mv_price_history
+WHERE price_change < 0
+ORDER BY price_change ASC;
+
+
+-- ── mv_price_floor — all-time low/high per product ─────────────────────────────
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_price_floor AS
+SELECT
+    product_id,
+    ROUND(MIN(price_eur)::NUMERIC, 2) AS all_time_low,
+    ROUND(MAX(price_eur)::NUMERIC, 2) AS all_time_high,
+    COUNT(*)                           AS snapshot_count
+FROM price_snapshots
+GROUP BY product_id
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_price_floor_pid
+    ON mv_price_floor (product_id);
+
+CREATE OR REPLACE VIEW vw_price_floor AS
+SELECT * FROM mv_price_floor;
+
+
+-- ── mv_price_volatility — 30-day coefficient of variation per product ─────────
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_price_volatility AS
+SELECT
+    product_id,
+    ROUND(STDDEV(price_eur)::NUMERIC, 2)                                       AS stddev_price,
+    ROUND((STDDEV(price_eur) / NULLIF(AVG(price_eur), 0) * 100)::NUMERIC, 1)  AS cv_pct,
+    COUNT(*)                                                                    AS snap_count
+FROM price_snapshots
+WHERE date >= CURRENT_DATE - 30
+GROUP BY product_id
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_price_volatility_pid
+    ON mv_price_volatility (product_id);
+
+CREATE OR REPLACE VIEW vw_price_volatility AS
+SELECT * FROM mv_price_volatility;
+
+
+-- ── mv_price_trend_direction — 7-day vs 30-day momentum per product ───────────
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_price_trend_direction AS
+SELECT
+    product_id,
+    ROUND(AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7),  2) AS avg_7d,
+    ROUND(AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30), 2) AS avg_30d,
+    CASE
+        WHEN AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7)
+           < AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30) * 0.97
+        THEN 'falling'
+        WHEN AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7)
+           > AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30) * 1.03
+        THEN 'rising'
+        ELSE 'stable'
+    END AS trend
+FROM price_snapshots
+WHERE date >= CURRENT_DATE - 30
+GROUP BY product_id
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_price_trend_direction_pid
+    ON mv_price_trend_direction (product_id);
+
+CREATE OR REPLACE VIEW vw_price_trend_direction AS
+SELECT * FROM mv_price_trend_direction;
+
+
+-- ── mv_brand_summary — price stats per brand per category ─────────────────────
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_brand_summary AS
+SELECT
+    p.category,
+    p.brand,
+    COUNT(DISTINCT p.id)                              AS product_count,
+    ROUND(AVG(s.price_eur),    2)                     AS avg_price,
+    ROUND(MIN(s.price_eur),    2)                     AS min_price,
+    ROUND(MAX(s.price_eur),    2)                     AS max_price,
+    ROUND(PERCENTILE_CONT(0.5)
+          WITHIN GROUP (ORDER BY s.price_eur)::NUMERIC, 2)
+                                                      AS median_price,
+    COUNT(s.id)                                       AS total_snapshots
+FROM products p
+JOIN price_snapshots s ON s.product_id = p.id
+WHERE s.price_eur IS NOT NULL
+GROUP BY p.category, p.brand
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_brand_summary_cat_brand
+    ON mv_brand_summary (category, brand);
+
+CREATE OR REPLACE VIEW vw_brand_summary AS
+SELECT * FROM mv_brand_summary;
+
+
+-- ── mv_brand_price_trend — daily avg price per brand/category ─────────────────
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_brand_price_trend AS
+SELECT
+    p.category,
+    p.brand,
+    ps.date,
+    ROUND(AVG(ps.price_eur)::NUMERIC, 2) AS avg_price,
+    COUNT(DISTINCT ps.product_id)         AS product_count
+FROM price_snapshots ps
+JOIN products p ON p.id = ps.product_id
+WHERE p.brand IS NOT NULL
+GROUP BY p.category, p.brand, ps.date
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_brand_price_trend_cat_brand_date
+    ON mv_brand_price_trend (category, brand, date);
+
+CREATE OR REPLACE VIEW vw_brand_price_trend AS
+SELECT * FROM mv_brand_price_trend;
+
+
+-- ── mv_daily_market_index — daily avg/min/max price per category ──────────────
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_daily_market_index AS
+SELECT
+    p.category,
+    ps.date,
+    ROUND(AVG(ps.price_eur)::NUMERIC,  2) AS avg_price,
+    ROUND(MIN(ps.price_eur)::NUMERIC,  2) AS min_price,
+    ROUND(MAX(ps.price_eur)::NUMERIC,  2) AS max_price,
+    COUNT(DISTINCT ps.product_id)          AS products_tracked
+FROM price_snapshots ps
+JOIN products p ON p.id = ps.product_id
+GROUP BY p.category, ps.date
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_daily_market_index_cat_date
+    ON mv_daily_market_index (category, date);
+
+CREATE OR REPLACE VIEW vw_daily_market_index AS
+SELECT * FROM mv_daily_market_index
+ORDER BY category, date;
+
+
+-- ── mv_restock_pricing — price before/after a 3+ day stock gap ────────────────
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_restock_pricing AS
+WITH consecutive AS (
+    SELECT
+        product_id,
+        date                                                               AS before_gap,
+        LEAD(date)      OVER (PARTITION BY product_id ORDER BY date)      AS after_gap,
+        price_eur                                                          AS price_before,
+        LEAD(price_eur) OVER (PARTITION BY product_id ORDER BY date)      AS price_after
+    FROM price_snapshots
+)
+SELECT
+    p.id,
+    p.category,
+    p.brand,
+    p.model,
+    p.product_name,
+    p.skroutz_link,
+    c.before_gap,
+    c.after_gap,
+    (c.after_gap - c.before_gap)                                         AS gap_days,
+    c.price_before,
+    c.price_after,
+    ROUND(
+        ((c.price_after - c.price_before) / NULLIF(c.price_before, 0) * 100)::NUMERIC, 1
+    )                                                                     AS price_chg_pct
+FROM consecutive c
+JOIN products p ON p.id = c.product_id
+WHERE (c.after_gap - c.before_gap) >= 3
+  AND c.price_before IS NOT NULL
+  AND c.price_after  IS NOT NULL
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_restock_pricing_id_gap
+    ON mv_restock_pricing (id, before_gap);
+
+CREATE OR REPLACE VIEW vw_restock_pricing AS
+SELECT * FROM mv_restock_pricing
+ORDER BY after_gap DESC, ABS(price_after - price_before) DESC;
+
+
+-- ── mv_review_velocity — products gaining the most reviews in 14 days ─────────
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_review_velocity AS
+WITH bounds AS (
+    SELECT MAX(date) AS latest_date, MAX(date) - 14 AS cutoff_date
+    FROM price_snapshots
+),
+agg AS (
+    SELECT
+        ps.product_id,
+        MAX(ps.reviews) FILTER (WHERE ps.date  = b.latest_date) AS rev_now,
+        MAX(ps.reviews) FILTER (WHERE ps.date <= b.cutoff_date) AS rev_14d
+    FROM price_snapshots ps, bounds b
+    GROUP BY ps.product_id
+)
+SELECT
+    p.id            AS product_id,
+    p.category,
+    p.brand,
+    p.model,
+    p.product_name,
+    p.skroutz_link,
+    a.rev_now,
+    a.rev_14d,
+    COALESCE(a.rev_now - a.rev_14d, 0)                              AS new_reviews_14d,
+    ROUND(COALESCE(a.rev_now - a.rev_14d, 0)::NUMERIC / 14.0, 2)   AS reviews_per_day
+FROM agg a
+JOIN products p ON p.id = a.product_id
+WHERE a.rev_now IS NOT NULL
+  AND a.rev_14d IS NOT NULL
+  AND a.rev_now > a.rev_14d
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mv_review_velocity_pid
+    ON mv_review_velocity (product_id);
+
+CREATE OR REPLACE VIEW vw_review_velocity AS
+SELECT * FROM mv_review_velocity
+ORDER BY new_reviews_14d DESC;
+
+
+-- ── Trigram search indexes ──────────────────────────────────────────────────
+-- telegram_bot.py's /find and /history do leading-wildcard ILIKE '%term%',
+-- which a btree index cannot use at all (previously: sequential scan on every
+-- interactive command). pg_trgm's GIN indexes support arbitrary substring
+-- ILIKE. The fourth index of each set covers the concatenated "brand model"
+-- clause both commands also query, so a query spanning the brand/model
+-- boundary (e.g. "galaxy s25") is index-backed too.
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE INDEX IF NOT EXISTS idx_products_brand_trgm
+    ON products USING GIN (brand gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_products_model_trgm
+    ON products USING GIN (model gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_products_product_name_trgm
+    ON products USING GIN (product_name gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_products_brand_model_trgm
+    ON products USING GIN ((brand || ' ' || model) gin_trgm_ops);
+
+-- /find actually queries vw_latest_prices, which — as of this same v4 section —
+-- is materialized (mv_latest_prices), so the ILIKE runs against that table, not
+-- `products` directly. Mirror the same trigram indexes there or the ones above
+-- go unused on /find's hot path (confirmed by EXPLAIN ANALYZE below).
+CREATE INDEX IF NOT EXISTS idx_mv_latest_prices_brand_trgm
+    ON mv_latest_prices USING GIN (brand gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_mv_latest_prices_model_trgm
+    ON mv_latest_prices USING GIN (model gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_mv_latest_prices_brand_model_trgm
+    ON mv_latest_prices USING GIN ((brand || ' ' || model) gin_trgm_ops);
