@@ -12,6 +12,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Virtual environment
+.venv/
+
 # Raw scraped CSVs (regenerated daily by the pipeline)
 Phones_skroutz/
 Laptops_skroutz/
@@ -55,6 +58,7 @@ charts/*.png
 
 # Scratch/utility scripts with _ prefix
 _*.py
+!**/__init__.py
 
 # Daily dated dashboard snapshots (regenerated each run; only dashboard_latest.html is tracked)
 dashboard/dashboard_2*.html

@@ -78,7 +78,6 @@ def process_csv_file(file_path: str, agent):
             1 for r in processed
             if any(f in r.get('_missing_fields', []) for f in agent.completeness_validator.critical_fields)
         )
-        consistency_violations = sum(1 for r in processed if r.get('_consistency_violations'))
 
         # Most common validation errors, for a quick read of what's wrong
         error_counts = {}
@@ -97,7 +96,6 @@ def process_csv_file(file_path: str, agent):
             "records": total,
             "schema_invalid": schema_invalid,
             "missing_critical": missing_critical,
-            "consistency_violations": consistency_violations,
             "anomalies": anomalies,
             "top_validation_errors": [{"error": e, "count": c} for e, c in top_errors],
         }
@@ -114,10 +112,10 @@ def main():
     # Create the data quality agent with the loaded config
     dq_agent = create_data_quality_agent(config.get("data_quality", {}))
 
-    # Define the directories for cleaned data (one per category)
+    # Directories for the raw scraper CSVs (one per category) — same mapping
+    # as the scraper health monitor. This agent validates raw output, not
+    # Clean/ — see DataQualityAgent's docstring for why.
     base_dir = BASE
-    # Note: the actual folder names might have different casing or suffixes
-    # We'll use the same mapping as in the scraper health monitor
     folder_map = {
         "phones": "Phones_skroutz",
         "laptops": "Laptops_skroutz",
