@@ -16,6 +16,7 @@ Pipeline stages (run sequentially by `run_pipeline.py`):
   3. Load SQL → `4csvsTOsql.py`                 upserts into PostgreSQL
 
 Post-pipeline (non-fatal, each runs independently after Load SQL):
+  - `refresh_matviews()`        → REFRESH MATERIALIZED VIEW CONCURRENTLY for the 10 mv_* views (analytics.sql v4); runs first, everything downstream reads them
   - `run_charts()`              → charts/price_trend_*.png
   - `send_drop_digest()`        → Gmail: today's top 10 price drops
   - `send_watchlist_alerts()`   → Gmail: watchlist.json threshold hits
@@ -62,7 +63,8 @@ Automation: Windows Task Scheduler at 08:00 via `run_pipeline.bat`.
 - Helper: `db.py` exports `get_engine()` — use this everywhere; never inline credentials
 - Schema: `products` (static metadata) + `price_snapshots` (daily rows)
 - Key constraint: `price_snapshots` has UNIQUE(product_id, date) — pipeline is re-run safe
-- Analytics views (run analytics.sql once to create, 15 views — see README's Analytics Views table for the full list)
+- Analytics views (run analytics.sql once to create, 15 views — see README's Analytics Views table for the full list). 10 of the 15 are backed by MATERIALIZED VIEWs (`mv_*`, analytics.sql v4 section) refreshed daily by `refresh_matviews()` — view names/columns unchanged, consumers unaffected
+- pg_trgm GIN trigram indexes on `products.brand/model/product_name` and `mv_latest_prices.brand/model` power leading-wildcard ILIKE search (`/find`, `/history`) — sequential scan otherwise
 - Scale: see README (auto-updated) — Live Market Snapshot table + Products/Snapshots badges
 
 ## Running Code
