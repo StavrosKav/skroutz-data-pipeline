@@ -87,12 +87,13 @@ logger = logging.getLogger(__name__)
 
 
 def _cleanup_old_logs(days: int = 30) -> None:
-    """Delete pipeline, scraper, and dedup log files older than `days` days."""
+    """Delete pipeline, scraper, dedup, and data-quality-report files older than `days` days."""
     cutoff = datetime.date.today() - datetime.timedelta(days=days)
     removed = 0
     for fname in os.listdir(_log_dir):
         if not (fname.endswith(".log") or
-                (fname.startswith("tg_sent_") and fname.endswith(".json"))):
+                (fname.startswith("tg_sent_") and fname.endswith(".json")) or
+                (fname.startswith("data_quality_") and fname.endswith(".json"))):
             continue
         m = re.search(r"(\d{4}-\d{2}-\d{2})", fname)
         if not m:
