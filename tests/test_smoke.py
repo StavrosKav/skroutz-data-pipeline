@@ -9,14 +9,12 @@ pipeline, a failing core stage always does.
 
 import os
 import py_compile
-import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, BASE)
-
 import run_pipeline
+
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class TestStageScriptsCompile(unittest.TestCase):

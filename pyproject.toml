@@ -1,8 +1,13 @@
+[tool.ruff]
 target-version = "py312"
 
-[lint.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 # These scripts insert BASE onto sys.path before importing local packages
 # (documented convention, CLAUDE.md) — the import can't move to the top.
+# Tests don't need this: pytest's pythonpath (below) puts the project root
+# on sys.path before collection.
 "run_data_quality_agent.py" = ["E402"]
 "run_scraper_health_monitor.py" = ["E402"]
-"tests/test_smoke.py" = ["E402"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
