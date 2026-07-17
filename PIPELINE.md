@@ -249,6 +249,68 @@ Reads all 4 cleaned CSVs and **upserts** into PostgreSQL using SQLAlchemy.
 
 ---
 
+## Post-Load — Materialized View Refresh  (observer)
+
+**Function:** `refresh_matviews()` in `run_pipeline.py` · runs first in the post-Load
+step list, before Charts/Dashboard/digests — everything downstream reads these views.
+
+Data changes once per day, but 10 of the 15 analytics views in `analytics.sql`
+were recomputing full-table `GROUP BY`/`LAG`/`FILTER` aggregates over all of
+`price_snapshots` (~450k rows) on **every single call** — including
+`vw_biggest_drops`, hit by the HTML dashboard, Streamlit, the Telegram drop
+digest, and `/status`. Those 10 are now `MATERIALIZED VIEW`s (`mv_*`), and the
+original view names are kept as thin `SELECT * FROM mv_*` wrappers so no
+consumer's SQL changed:
+
+| View | Backed by |
+|---|---|
+| `vw_latest_prices` | `mv_latest_prices` |
+| `vw_price_history` | `mv_price_history` |
+| `vw_biggest_drops` | `mv_price_history` (filtered) |
+| `vw_price_floor` | `mv_price_floor` |
+| `vw_price_volatility` | `mv_price_volatility` |
+| `vw_price_trend_direction` | `mv_price_trend_direction` |
+| `vw_brand_summary` | `mv_brand_summary` |
+| `vw_brand_price_trend` | `mv_brand_price_trend` |
+| `vw_daily_market_index` | `mv_daily_market_index` |
+| `vw_restock_pricing` | `mv_restock_pricing` |
+| `vw_review_velocity` | `mv_review_velocity` |
+
+`vw_disappeared`, `vw_hot_deals`, `vw_brand_discount_freq`, and `vw_near_atl`
+stayed plain views — they're either already index-bound (`vw_hot_deals` filters
+to the 2 latest dates) or now read from the cheap matview-backed views above,
+so their own remaining work is small.
+
+`refresh_matviews()` runs `REFRESH MATERIALIZED VIEW CONCURRENTLY` for each of
+the 10, one at a time in its own transaction. Every matview carries a `UNIQUE`
+index specifically so `CONCURRENTLY` works — readers never see a locked or
+momentarily-empty view during the ~08:00 refresh. **Observer semantics:** a
+failed refresh is logged and the pipeline continues; the underlying tables
+Load SQL just wrote are untouched, so a stale matview is a freshness bug, not
+data loss.
+
+**Measured impact** (EXPLAIN ANALYZE, ~452k snapshot rows / ~21.5k products,
+2026-07-18):
+
+| Query | Before | After |
+|---|---|---|
+| Today's drops (`vw_biggest_drops WHERE drop_date = CURRENT_DATE`) | 655 ms | 38 ms |
+| Drop count (`/status`, Streamlit header) | 404 ms | 5 ms |
+| `/find`-style ILIKE search | 662 ms | 2 ms |
+| `/history`-style ILIKE lookup | 547 ms | 2 ms |
+
+`/find`'s biggest win wasn't the trigram indexes — it was materializing
+`vw_latest_prices`, which the original audit didn't flag but which turned out
+to be the actual bottleneck (`DISTINCT ON` still visits every snapshot row on
+every call, even via an index scan). GIN trigram indexes (`pg_trgm`) on
+`products.brand/model/product_name` and on `mv_latest_prices.brand/model` (plus
+a `brand || ' ' || model` expression index on both, for queries spanning the
+brand/model word boundary) turn the bot's leading-wildcard `ILIKE '%term%'`
+from a sequential scan into a `Bitmap Index Scan`/`BitmapOr` — confirmed via
+`EXPLAIN ANALYZE` showing `idx_mv_latest_prices_brand_trgm` etc. in the plan.
+
+---
+
 ## Database Schema
 
 ```
