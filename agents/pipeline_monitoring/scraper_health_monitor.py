@@ -54,8 +54,6 @@ class ScraperHealthMonitor(BaseAgent):
 
     def _check_category(self, category: str) -> dict:
         """Check the health of a specific category's scraper output."""
-        # Map category to folder name (the 'laptos' typo lives in the CSV
-        # filenames, e.g. skroutz_laptos_YYYY-MM-DD.csv, not the folder)
         folder_map = {
             "phones": "Phones_skroutz",
             "laptops": "Laptops_skroutz",
