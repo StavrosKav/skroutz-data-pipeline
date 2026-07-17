@@ -3,9 +3,6 @@ telegram_nim.py
 ---------------
 Optional NIM-powered commands for the Telegram bot.
 Provides LLM-enhanced features:
-- /explain <drop_id>       — LLM explains why a price dropped
-- /predict <product>       — LLM predicts price trend with reasoning
-- /compare <prod1> <prod2> — LLM compares two products
 - /analyze <category>      — LLM market analysis for a category
 - /summarize               — LLM daily summary with insights
 - /chat <message>          — Free-form chat with the price tracker AI
@@ -209,18 +206,6 @@ def _run_async(coro):
         return loop.run_until_complete(coro)
 
 
-def nim_explain_drop_sync(*args, **kwargs) -> str:
-    return _run_async(nim_explain_drop(*args, **kwargs))
-
-
-def nim_predict_price_sync(*args, **kwargs) -> str:
-    return _run_async(nim_predict_price(*args, **kwargs))
-
-
-def nim_compare_products_sync(*args, **kwargs) -> str:
-    return _run_async(nim_compare_products(*args, **kwargs))
-
-
 def nim_analyze_category_sync(*args, **kwargs) -> str:
     return _run_async(nim_analyze_category(*args, **kwargs))
 
@@ -234,22 +219,6 @@ def nim_chat_sync(*args, **kwargs) -> str:
 
 
 # Bot command handlers (to be integrated into telegram_bot.py)
-def cmd_explain(args: str) -> str:
-    """Usage: /explain <drop_number_from__drops>"""
-    # Would need to parse /drops output and match
-    return "🚧 /explain — requires integration with /drops output. Use /chat for now."
-
-
-def cmd_predict(args: str) -> str:
-    """Usage: /predict <product name>"""
-    return "🚧 /predict — needs DB lookup + NIM. Use /chat <question> for now."
-
-
-def cmd_compare(args: str) -> str:
-    """Usage: /compare <prod1> | <prod2>"""
-    return "🚧 /compare — needs DB lookup + NIM. Use /chat for now."
-
-
 def cmd_analyze(args: str) -> str:
     """Usage: /analyze <category>"""
     cat = args.strip().lower()
@@ -301,9 +270,6 @@ def register_nim_commands(dispatch_map: dict, args: str = "") -> None:
     Handlers are zero-arg closures over `args`, matching the shape of
     telegram_bot's dispatch_map entries."""
     dispatch_map.update({
-        "/explain":   lambda: cmd_explain(args),
-        "/predict":   lambda: cmd_predict(args),
-        "/compare":   lambda: cmd_compare(args),
         "/analyze":   lambda: cmd_analyze(args),
         "/summarize": lambda: cmd_summarize(),
         "/chat":      lambda: cmd_chat(args),
