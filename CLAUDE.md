@@ -34,14 +34,16 @@ Automation: Windows Task Scheduler at 08:00 via `run_pipeline.bat`.
 | `1scriptToGet4.py` | Stage 1: launches 4 scrapers in parallel (subprocess) |
 | `1scriptToGet4MANIPULATION.py` | Stage 2: launches 4 cleaners in parallel |
 | `4csvsTOsql.py` | Stage 3: upserts to PostgreSQL |
-| `skroutz_phonesWHILE.py` | Selenium scraper — phones → Phones_skroutz/ |
-| `skroutz_laptopsWHILE.py` | Selenium scraper — laptops → Laptops_skroutz/ |
-| `skroutz_tabletsWHILE.py` | Selenium scraper — tablets → Tablets_skroutz/ |
-| `skroutz_SmartwatchesWHILE.py` | Selenium scraper — smartwatches → Smartwatches_skroutz/ |
-| `Data_Phone.py` | Cleaner — phones |
-| `Data_Laptops.py` | Cleaner — laptops |
-| `Data_Tablets.py` | Cleaner — tablets |
-| `Data_Smartwatches.py` | Cleaner — smartwatches |
+| `scraper_core.py` | Shared scraping engine — `scrape(CONFIGS[cat])`: pagination, card parsing, bounded retries, markup-drift guard, atomic CSV writes |
+| `clean_common.py` | Shared cleaning engine — `run_clean(CleanerConfig)`: clean_price, brand/model split, installments, review-count recovery |
+| `skroutz_phonesWHILE.py` | Scraper entry point — phones → Phones_skroutz/ |
+| `skroutz_laptopsWHILE.py` | Scraper entry point — laptops → Laptops_skroutz/ |
+| `skroutz_tabletsWHILE.py` | Scraper entry point — tablets → Tablets_skroutz/ |
+| `skroutz_SmartwatchesWHILE.py` | Scraper entry point — smartwatches → Smartwatches_skroutz/ |
+| `Data_Phone.py` | Cleaner entry point — phones (adds RAM/camera/display/battery enrichment) |
+| `Data_Laptops.py` | Cleaner entry point — laptops |
+| `Data_Tablets.py` | Cleaner entry point — tablets |
+| `Data_Smartwatches.py` | Cleaner entry point — smartwatches |
 | `charts_from_db.py` | Brand price-trend charts (dark-themed PNG per category) |
 | `generate_dashboard.py` | Self-contained HTML dashboard from PostgreSQL |
 | `analytics.sql` | 15 views: run once against DB to enable all analytics |
@@ -133,7 +135,7 @@ The SKIP_SCRAPE=1 env var is set automatically in docker-compose.yml.
 - Credentials always via `.env` / `get_engine()` — never hardcoded
 - CSVs are gitignored — never commit data files under any circumstance
 - All scripts resolve BASE = os.path.dirname(os.path.abspath(__file__)) — always use this pattern
-- Each scraper writes to its own dated CSV: e.g. Phones_skroutz/skroutz_phones_YYYY-MM-DD.csv (PascalCase folder, skroutz_ prefix; laptops uses "laptos" typo in filename)
+- Each scraper writes to its own dated CSV: e.g. Phones_skroutz/skroutz_phones_YYYY-MM-DD.csv (PascalCase folder, skroutz_ prefix). Laptops files before 2026-07-17 use the historical "skroutz_laptos_" typo; Data_Laptops.py falls back to it automatically
 
 ## What NOT To Do
 - NEVER use bare `python` — always the venv path above
