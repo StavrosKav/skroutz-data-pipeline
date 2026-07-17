@@ -3,7 +3,7 @@ NIM Model Routing Configuration
 Maps Telegram bot commands and pipeline tasks to optimal NIM models.
 """
 
-from nim_client import TaskType, NIMModel
+from nim_client import TaskType
 
 # =============================================================================
 # TELEGRAM BOT COMMAND ROUTING

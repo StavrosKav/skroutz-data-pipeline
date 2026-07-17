@@ -1,7 +1,7 @@
 # CLAUDE.md — Skroutz Price Tracker
 
 ## Environment
-- Python: `C:\Users\StavrosKV\anaconda33\python.exe` — always use this full path
+- Python: `.venv\Scripts\python.exe` — always use this full path
 - Project:  `C:\Users\StavrosKV\Documents\Projects\ProjectsPY`
 - Shell: PowerShell (Windows 11). Use PowerShell syntax for all commands.
 - Git user: StavrosKav / branch: main
@@ -21,6 +21,7 @@ Post-pipeline (non-fatal, each runs independently after Load SQL):
   - `send_watchlist_alerts()`   → Gmail: watchlist.json threshold hits
   - `send_disappeared_alert()`  → Gmail: products not seen in 1–2 days
   - `run_dashboard()`           → dashboard/dashboard_latest.html
+  - `update_readme_stats()`     → rewrites README.md's STATS:BADGES/STATS:TABLE blocks from live DB counts
   - `send_success_summary(elapsed)` → Gmail: daily OK summary (snapshots, new products, drop count)
 
 Automation: Windows Task Scheduler at 08:00 via `run_pipeline.bat`.
@@ -59,43 +60,39 @@ Automation: Windows Task Scheduler at 08:00 via `run_pipeline.bat`.
 - Helper: `db.py` exports `get_engine()` — use this everywhere; never inline credentials
 - Schema: `products` (static metadata) + `price_snapshots` (daily rows)
 - Key constraint: `price_snapshots` has UNIQUE(product_id, date) — pipeline is re-run safe
-- Analytics views (run analytics.sql once to create, 15 views):
-    vw_latest_prices, vw_price_history, vw_biggest_drops, vw_brand_summary, vw_disappeared,
-    vw_price_volatility, vw_brand_price_trend, vw_hot_deals, vw_price_floor,
-    vw_brand_discount_freq, vw_near_atl, vw_price_trend_direction, vw_daily_market_index,
-    vw_restock_pricing, vw_review_velocity
-- Scale: ~20,800 products | ~376,000 snapshots | ~7.5k new rows/day (as of 2026-07-02)
+- Analytics views (run analytics.sql once to create, 15 views — see README's Analytics Views table for the full list)
+- Scale: see README (auto-updated) — Live Market Snapshot table + Products/Snapshots badges
 
 ## Running Code
 ```powershell
 # Standard Python execution
-& "C:\Users\StavrosKV\anaconda33\python.exe" <script.py>
+& ".venv\Scripts\python.exe" <script.py>
 
 # Full pipeline
-& "C:\Users\StavrosKV\anaconda33\python.exe" run_pipeline.py
+& ".venv\Scripts\python.exe" run_pipeline.py
 
 # Charts only (needs DB connection)
-& "C:\Users\StavrosKV\anaconda33\python.exe" charts_from_db.py
+& ".venv\Scripts\python.exe" charts_from_db.py
 
 # Dashboard only
-& "C:\Users\StavrosKV\anaconda33\python.exe" generate_dashboard.py
+& ".venv\Scripts\python.exe" generate_dashboard.py
 
 # Skip scraping, run Clean + Load only (for Docker workflow)
 $env:SKIP_SCRAPE = "1"
-& "C:\Users\StavrosKV\anaconda33\python.exe" run_pipeline.py
+& ".venv\Scripts\python.exe" run_pipeline.py
 
 # Streamlit dashboard (runs until stopped — separate terminal)
-& "C:\Users\StavrosKV\anaconda33\python.exe" -m streamlit run streamlit_app.py
+& ".venv\Scripts\python.exe" -m streamlit run streamlit_app.py
 # Opens at http://localhost:8501
 
 # Telegram bot (runs until stopped — separate terminal)
-& "C:\Users\StavrosKV\anaconda33\python.exe" telegram_bot.py
+& ".venv\Scripts\python.exe" telegram_bot.py
 
 # Run tests
-& "C:\Users\StavrosKV\anaconda33\python.exe" -m pytest tests/ -v
+& ".venv\Scripts\python.exe" -m pytest tests/ -v
 
 # Lint check
-& "C:\Users\StavrosKV\anaconda33\python.exe" -m ruff check .
+& ".venv\Scripts\python.exe" -m ruff check .
 ```
 
 ## Services
@@ -110,12 +107,12 @@ Both require DB_* vars in .env. Neither is called by run_pipeline.py —
 start them manually or as separate Task Scheduler / Windows Service entries.
 
 ## Testing
-& "C:\Users\StavrosKV\anaconda33\python.exe" -m pytest tests/ -v
+& ".venv\Scripts\python.exe" -m pytest tests/ -v
 
 - Test file: tests/test_pipeline.py
 - Covers: DB helpers, pipeline stage entry points, notification dedup logic
 - Does NOT run scrapers or write to the live DB — uses mocks/fixtures
-- Lint: & "C:\Users\StavrosKV\anaconda33\python.exe" -m ruff check .
+- Lint: & ".venv\Scripts\python.exe" -m ruff check .
 
 ## Logs & Outputs
 - Pipeline log: `logs/pipeline_YYYY-MM-DD.log` (created daily)
@@ -139,7 +136,7 @@ The SKIP_SCRAPE=1 env var is set automatically in docker-compose.yml.
 - Each scraper writes to its own dated CSV: e.g. Phones_skroutz/skroutz_phones_YYYY-MM-DD.csv (PascalCase folder, skroutz_ prefix; laptops uses "laptos" typo in filename)
 
 ## What NOT To Do
-- NEVER use bare `python` — always the full Anaconda path above
+- NEVER use bare `python` — always the venv path above
 - NEVER create new files without explicit instruction
 - NEVER touch `.env` — it contains live production credentials
 - NEVER add backwards-compatibility shims — change the code directly

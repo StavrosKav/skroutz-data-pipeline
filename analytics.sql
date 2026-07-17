@@ -18,6 +18,8 @@
 --   vw_near_atl               — products currently within a given % of their all-time low
 --   vw_price_trend_direction  — 7-day vs 30-day avg price momentum (falling/stable/rising)
 --   vw_daily_market_index     — daily avg category price (macro market trend)
+--   vw_restock_pricing        — price before vs. after a 3+ day stock gap
+--   vw_review_velocity        — products gaining the most new reviews in the last 14 days
 -- =============================================================================
 
 

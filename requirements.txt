@@ -4,14 +4,15 @@ matplotlib>=3.10,<4
 plotly>=5.18.0,<6
 selenium==4.41.0
 undetected-chromedriver==3.5.5
+setuptools>=68  # provides distutils, removed from stdlib in Python 3.12+
 sqlalchemy>=2.0,<3
 psycopg2-binary==2.9.12
-python-dotenv==1.1.0
+python-dotenv==1.2.2
 streamlit>=1.35.0,<2
 httpx>=0.25.0
 tenacity>=8.0.0
 pydantic>=2.0.0
 
 # Dev tools (tests + lint)
-pytest>=8,<9
+pytest>=9,<10
 ruff>=0.4

@@ -646,6 +646,89 @@ def run_dashboard():
         logger.info(f"=== Dashboard complete in {elapsed:.0f}s ===")
 
 
+def update_readme_stats():
+    """
+    Rewrite the auto-generated stat block(s) in README.md — product/snapshot totals,
+    per-category table, last pipeline run date. Non-fatal — pipeline result is
+    unaffected if this fails. Same simple direct-count SQL style as send_success_summary().
+    """
+    logger.info("=== README stats started ===")
+    t = datetime.datetime.now()
+    readme_path = os.path.join(BASE, "README.md")
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            total_products  = conn.execute(text("SELECT COUNT(*) FROM products")).scalar()
+            total_snapshots = conn.execute(text("SELECT COUNT(*) FROM price_snapshots")).scalar()
+            rows = conn.execute(text(
+                "SELECT p.category, "
+                "       COUNT(DISTINCT p.id)    AS products, "
+                "       COUNT(s.id)              AS snapshots, "
+                "       ROUND(AVG(s.price_eur))  AS avg_price, "
+                "       ROUND(MIN(s.price_eur))  AS min_price, "
+                "       ROUND(MAX(s.price_eur))  AS max_price, "
+                "       COUNT(DISTINCT p.brand)  AS brands "
+                "FROM products p "
+                "JOIN price_snapshots s ON s.product_id = p.id "
+                "GROUP BY p.category ORDER BY p.category"
+            )).fetchall()
+    except Exception as e:
+        logger.warning(f"README stats: DB query failed — {e}")
+        return
+
+    def _abbrev(n):
+        return f"{round(n / 1000)}k" if n >= 1000 else str(n)
+
+    products_badge  = f'![Products](https://img.shields.io/badge/Products-{total_products:,}-blue?style=flat-square)'.replace(",", "%2C")
+    snapshots_badge = f'![Snapshots](https://img.shields.io/badge/Snapshots-{_abbrev(total_snapshots)}-green?style=flat-square)'
+    badges_block    = f"{products_badge}\n{snapshots_badge}"
+
+    CAT_LABELS = {"laptop": "Laptop", "phone": "Phone", "smartwatch": "Smartwatch", "tablet": "Tablet"}
+    table_rows = []
+    for r in rows:
+        label  = CAT_LABELS.get(r.category, r.category.capitalize())
+        avg_p  = f"€{int(r.avg_price):,}" if r.avg_price is not None else "—"
+        rng    = f"€{int(r.min_price):,}–€{int(r.max_price):,}" if r.min_price is not None else "—"
+        # Smartwatch brand extraction is unreliable (garbage/placeholder values inflate
+        # the distinct count into the hundreds) — omit rather than show a misleading number.
+        brands = str(r.brands) if r.brands and r.category != "smartwatch" else "—"
+        table_rows.append(f"| {label} | {r.products:,} | {r.snapshots:,} | {avg_p} | {rng} | {brands} |")
+    table_rows.append(f"| **Total** | **{total_products:,}** | **{total_snapshots:,}** | | | |")
+
+    today_str   = datetime.date.today().isoformat()
+    table_block = (
+        "| Category | Products | Snapshots | Avg Price | Range | Brands |\n"
+        "|---|---|---|---|---|---|\n"
+        + "\n".join(table_rows)
+        + f"\n\nUpdated daily via Task Scheduler · last pipeline run: {today_str}"
+    )
+
+    try:
+        with open(readme_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        content = re.sub(
+            r"(<!-- STATS:BADGES:START -->\n).*?(\n<!-- STATS:BADGES:END -->)",
+            lambda m: m.group(1) + badges_block + m.group(2),
+            content, count=1, flags=re.DOTALL,
+        )
+        content = re.sub(
+            r"(<!-- STATS:TABLE:START -->\n).*?(\n<!-- STATS:TABLE:END -->)",
+            lambda m: m.group(1) + table_block + m.group(2),
+            content, count=1, flags=re.DOTALL,
+        )
+        with open(readme_path, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception as e:
+        logger.warning(f"README stats: could not rewrite README.md — {e}")
+        return
+
+    elapsed = (datetime.datetime.now() - t).total_seconds()
+    logger.info(
+        f"=== README stats complete in {elapsed:.0f}s — "
+        f"{total_products:,} products, {total_snapshots:,} snapshots ==="
+    )
+
+
 def send_success_summary(elapsed):
     """Email + Telegram daily summary after a successful pipeline run."""
     if not GMAIL_APP_PASSWORD and not _notif._TOKEN:
@@ -784,6 +867,7 @@ if __name__ == "__main__":
             (send_watchlist_alerts,   "Watchlist alerts"),
             (send_disappeared_alert,  "Disappeared alert"),
             (run_dashboard,           "Dashboard"),
+            (update_readme_stats,     "README stats"),
         ]:
             try:
                 _fn()

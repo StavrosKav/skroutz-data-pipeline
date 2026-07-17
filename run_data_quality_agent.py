@@ -116,7 +116,6 @@ def main():
 
     # Define the directories for cleaned data (one per category)
     base_dir = BASE
-    categories = ["phones", "laptops", "smartwatches", "tablets"]
     # Note: the actual folder names might have different casing or suffixes
     # We'll use the same mapping as in the scraper health monitor
     folder_map = {

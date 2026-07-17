@@ -1,0 +1,8 @@
+target-version = "py312"
+
+[lint.per-file-ignores]
+# These scripts insert BASE onto sys.path before importing local packages
+# (documented convention, CLAUDE.md) — the import can't move to the top.
+"run_data_quality_agent.py" = ["E402"]
+"run_scraper_health_monitor.py" = ["E402"]
+"tests/test_smoke.py" = ["E402"]

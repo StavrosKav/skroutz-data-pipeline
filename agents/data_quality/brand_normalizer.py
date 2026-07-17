@@ -4,7 +4,7 @@ Brand normalizer for standardizing brand names, especially for smartwatch pollut
 
 import re
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from agents.base import BaseAgent
 
 logger = logging.getLogger(__name__)

@@ -4,7 +4,7 @@ Checks for missing values in critical and warning fields.
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
 from agents.base import BaseAgent
 
 logger = logging.getLogger(__name__)
@@ -63,8 +63,6 @@ class CompletenessValidator(BaseAgent):
         # We'll weight critical fields more heavily
         for record in input_data:
             missing = set(record.get("_missing_fields", []))
-            critical_missing = missing & set(self.critical_fields)
-            warning_missing = missing & set(self.warning_fields)
             # Score: 1.0 - (0. * len(critical_missing) + 0.5 * len(warning_missing)) / (len(critical_fields) + 0.5 * len(warning_fields))
             # But we want a simple score between 0 and 1
             # Let's do: score = 1.0 if no missing, else reduce by 0.1 for each missing critical and 0.05 for each missing warning
