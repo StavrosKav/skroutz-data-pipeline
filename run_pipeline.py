@@ -305,6 +305,55 @@ def send_failure_alert(stage, returncode):
         logger.warning(f"Could not send alert email: {e}")
 
 
+# Every analytical view backed by a MATERIALIZED VIEW (analytics.sql v4) —
+# refreshed here, once per day, right after Load SQL. All ten carry a UNIQUE
+# index so CONCURRENTLY works: readers (dashboard/bot/Streamlit) never see the
+# view locked or empty mid-refresh.
+MATVIEWS = [
+    "mv_latest_prices",
+    "mv_price_history",
+    "mv_price_floor",
+    "mv_price_volatility",
+    "mv_price_trend_direction",
+    "mv_brand_summary",
+    "mv_brand_price_trend",
+    "mv_daily_market_index",
+    "mv_restock_pricing",
+    "mv_review_velocity",
+]
+
+
+def refresh_matviews():
+    """
+    Refresh the analytics materialized views so today's data shows up in
+    vw_biggest_drops, vw_latest_prices, etc. Non-fatal — pipeline result is
+    unaffected if this fails (a stale matview is a staleness bug, not data
+    loss; the underlying tables Load SQL just wrote are untouched).
+    """
+    logger.info("=== Materialized view refresh started ===")
+    t = datetime.datetime.now()
+    try:
+        engine = get_engine()
+        failed = []
+        for name in MATVIEWS:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {name}"))
+            except Exception as e:
+                failed.append(name)
+                logger.warning(f"Matview refresh failed for {name}: {e}")
+        elapsed = (datetime.datetime.now() - t).total_seconds()
+        if failed:
+            logger.warning(
+                f"=== Materialized view refresh finished with errors in {elapsed:.0f}s — "
+                f"failed: {', '.join(failed)} ==="
+            )
+        else:
+            logger.info(f"=== Materialized view refresh complete in {elapsed:.0f}s — {len(MATVIEWS)} views ===")
+    except Exception as e:
+        logger.warning(f"Matview refresh: could not obtain DB engine — {e}")
+
+
 def run_charts():
     """Regenerate price trend charts. Non-fatal — pipeline result is unaffected if this fails."""
     logger.info("=== Charts started ===")
@@ -862,6 +911,7 @@ if __name__ == "__main__":
         for label, script, fatal in STAGES:
             run_stage(label, script, fatal)
         for _fn, _label in [
+            (refresh_matviews,        "Matview refresh"),
             (run_charts,              "Charts"),
             (send_drop_digest,        "Drop digest"),
             (send_watchlist_alerts,   "Watchlist alerts"),
