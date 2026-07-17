@@ -62,30 +62,38 @@ def _sent_file() -> str:
     return os.path.join(BASE, "logs", f"tg_sent_{datetime.date.today()}.json")
 
 
-def _already_sent(key: str) -> bool:
+def _read_sent() -> dict:
+    """Load today's dedup file. Missing or corrupt is treated as empty — a
+    truncated/invalid JSON file (e.g. from a crash mid-write) resets the day's
+    dedup state instead of making _already_sent permanently return False for
+    the rest of the day, which would silently re-send every alert."""
+    path = _sent_file()
+    if not os.path.exists(path):
+        return {}
     try:
-        path = _sent_file()
-        if os.path.exists(path):
-            with open(path, encoding="utf-8") as f:
-                return key in json.load(f)
-    except Exception:
-        pass
-    return False
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Corrupt dedup file {path}, treating as empty: {e}")
+        return {}
+
+
+def _already_sent(key: str) -> bool:
+    return key in _read_sent()
 
 
 def _mark_sent(key: str) -> None:
+    path = _sent_file()
     try:
-        path = _sent_file()
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        sent = {}
-        if os.path.exists(path):
-            with open(path, encoding="utf-8") as f:
-                sent = json.load(f)
+        sent = _read_sent()
         sent[key] = datetime.datetime.now().isoformat()
-        with open(path, "w", encoding="utf-8") as f:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(sent, f)
-    except Exception:
-        pass
+        os.replace(tmp, path)   # atomic: a crash mid-write never corrupts the real file
+    except OSError as e:
+        logger.warning(f"Could not write dedup file {path}: {e}")
 
 
 # ── Core sender ────────────────────────────────────────────────────────────────
