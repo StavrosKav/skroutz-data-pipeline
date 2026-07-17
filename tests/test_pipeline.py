@@ -812,5 +812,103 @@ class TestCmdAddRemove(unittest.TestCase):
         self.assertEqual(self.tb._wl_read(), [])
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. update_readme_stats
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestUpdateReadmeStats(unittest.TestCase):
+
+    README_TEMPLATE = (
+        "# Title\n\n"
+        "<!-- STATS:BADGES:START -->\n"
+        "![Products](old-products-badge)\n"
+        "![Snapshots](old-snapshots-badge)\n"
+        "<!-- STATS:BADGES:END -->\n"
+        "![Other](untouched-badge)\n\n"
+        "<!-- STATS:TABLE:START -->\n"
+        "old table content\n"
+        "<!-- STATS:TABLE:END -->\n\n"
+        "## Untouched section\n"
+    )
+
+    def _mock_engine(self, rows):
+        mock_engine = MagicMock()
+        mock_conn   = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_engine.connect.return_value.__exit__.return_value  = False
+
+        def _scalar(val):
+            r = MagicMock()
+            r.scalar.return_value = val
+            return r
+
+        def _fetchall(rows):
+            r = MagicMock()
+            r.fetchall.return_value = rows
+            return r
+
+        total_products  = sum(r.products for r in rows)
+        total_snapshots = sum(r.snapshots for r in rows)
+        mock_conn.execute.side_effect = [
+            _scalar(total_products), _scalar(total_snapshots), _fetchall(rows),
+        ]
+        return mock_engine
+
+    def _row(self, category, products, snapshots, avg_price, min_price, max_price, brands):
+        r = MagicMock()
+        r.category, r.products, r.snapshots = category, products, snapshots
+        r.avg_price, r.min_price, r.max_price, r.brands = avg_price, min_price, max_price, brands
+        return r
+
+    def _run_with_tempdir(self, rows):
+        import run_pipeline
+        with tempfile.TemporaryDirectory() as tmp:
+            readme_path = os.path.join(tmp, "README.md")
+            with open(readme_path, "w", encoding="utf-8") as f:
+                f.write(self.README_TEMPLATE)
+            with patch("run_pipeline.BASE", tmp), \
+                 patch("run_pipeline.get_engine", return_value=self._mock_engine(rows)):
+                run_pipeline.update_readme_stats()
+            with open(readme_path, "r", encoding="utf-8") as f:
+                return f.read()
+
+    def test_rewrites_badges_and_table(self):
+        rows = [self._row("laptop", 100, 2000, 500, 50, 5000, 10)]
+        content = self._run_with_tempdir(rows)
+        self.assertIn("Products-100-blue", content)
+        self.assertIn("Snapshots-2k-green", content)
+        self.assertIn("| Laptop | 100 | 2,000 | €500 | €50–€5,000 | 10 |", content)
+        self.assertIn("| **Total** | **100** | **2,000** |", content)
+
+    def test_leaves_surrounding_content_untouched(self):
+        rows = [self._row("laptop", 100, 2000, 500, 50, 5000, 10)]
+        content = self._run_with_tempdir(rows)
+        self.assertIn("![Other](untouched-badge)", content)
+        self.assertIn("## Untouched section", content)
+        self.assertNotIn("old-products-badge", content)
+        self.assertNotIn("old table content", content)
+
+    def test_smartwatch_brand_count_omitted(self):
+        rows = [self._row("smartwatch", 50, 900, 100, 5, 300, 999)]
+        content = self._run_with_tempdir(rows)
+        self.assertIn("| Smartwatch | 50 | 900 | €100 | €5–€300 | — |", content)
+        self.assertNotIn("999", content)
+
+    def test_db_error_does_not_touch_readme(self):
+        import run_pipeline
+        with tempfile.TemporaryDirectory() as tmp:
+            readme_path = os.path.join(tmp, "README.md")
+            with open(readme_path, "w", encoding="utf-8") as f:
+                f.write(self.README_TEMPLATE)
+            broken_engine = MagicMock()
+            broken_engine.connect.side_effect = Exception("db down")
+            with patch("run_pipeline.BASE", tmp), \
+                 patch("run_pipeline.get_engine", return_value=broken_engine):
+                run_pipeline.update_readme_stats()
+            with open(readme_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        self.assertEqual(content, self.README_TEMPLATE)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

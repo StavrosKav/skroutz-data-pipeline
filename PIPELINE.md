@@ -37,7 +37,7 @@ flowchart TD
     end
 
     subgraph Store["Data Store"]
-        PG[("PostgreSQL 16\nSkroutzPR\nproducts + price_snapshots\n13 analytics views")]
+        PG[("PostgreSQL 16\nSkroutzPR\nproducts + price_snapshots\n15 analytics views")]
     end
 
     WTS --> Core
@@ -91,7 +91,7 @@ skroutz-data-pipeline/
 ├── nim_routing.py               # Task → model routing config
 ├── db.py                        # SQLAlchemy engine singleton
 │
-├── analytics.sql                # 13 analytics views — run once against DB
+├── analytics.sql                # 15 analytics views — run once against DB
 ├── watchlist.json               # Price alert targets [{url, label, threshold_eur}]
 │
 ├── requirements.txt             # Python dependencies
@@ -272,8 +272,8 @@ Indexes
  idx_products_last_seen            (last_seen)
 ```
 
-**Scale:** ~19,600 products · ~146,000+ snapshots · ~19,000 new rows/day  
-**Projection:** `price_snapshots` reaches ~100M rows in ~14 years at current growth rate.
+**Scale:** see README (auto-updated) — Live Market Snapshot table + Products/Snapshots badges.  
+**Projection:** at the current daily growth rate (see README), `price_snapshots` reaches ~100M rows within roughly a decade — re-check the projection against README's current numbers rather than trusting this figure verbatim.
 
 ---
 
@@ -294,6 +294,8 @@ Indexes
 | `vw_near_atl` | Products within N% of their all-time low |
 | `vw_price_trend_direction` | 7-day vs 30-day avg → falling / stable / rising |
 | `vw_daily_market_index` | Daily avg/min/max price per category (macro trend) |
+| `vw_restock_pricing` | Price before vs. after a 3+ day stock gap |
+| `vw_review_velocity` | Products gaining the most new reviews in the last 14 days |
 
 ```sql
 -- Sample: cheapest phones near their all-time low
@@ -357,65 +359,20 @@ Long-polling bot — run as a **separate persistent process**, not part of the d
 
 ## CI/CD  (GitHub Actions)
 
-The CI pipeline runs on every push and pull request. It **cannot** run the Selenium scrapers — it validates code quality and runs the unit test suite only.
-
-**`.github/workflows/ci.yml`**
-
-```yaml
-name: CI
-
-on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
-  schedule:
-    - cron: "0 6 * * *"   # nightly health check
-
-jobs:
-  lint-and-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt pytest ruff
-
-      - name: Lint (ruff)
-        run: ruff check .
-
-      - name: Unit tests
-        run: pytest tests/ -v --tb=short
-
-  security-scan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Dependency vulnerability scan (pip-audit)
-        run: |
-          pip install pip-audit
-          pip-audit -r requirements.txt
-
-      - name: Secret detection (truffleHog)
-        uses: trufflesecurity/trufflehog@main
-        with:
-          path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
-          extra_args: --only-verified
-```
+The CI pipeline runs on every push and pull request, plus a nightly schedule. It **cannot**
+run the Selenium scrapers — it validates code quality and runs the unit test suite only.
+The actual, current workflow lives at `.github/workflows/ci.yml` — read that file for the
+source of truth; this section is a summary, not a copy, so it can't drift out of sync again.
 
 **What CI checks:**
-- **Ruff** — linting and code style (replaces flake8 + isort + pyupgrade)
-- **pytest** — 49 unit tests covering price parsing, DB coercions, notifications, watchlist I/O
+- **Ruff** (`ruff.toml` at repo root) — linting and code style (replaces flake8 + isort + pyupgrade).
+  Per-file-ignores exist for the intentional `sys.path.insert()`-before-import convention
+  (see `CLAUDE.md`'s "All scripts resolve BASE ..." rule) — not an oversight.
+- **pytest** — the full suite in `tests/` (see the Testing section above for current count)
 - **pip-audit** — CVE scan of all pinned dependencies in `requirements.txt`
-- **TruffleHog** — scans commits for accidentally committed secrets
+- **TruffleHog** — scans for secrets. On `push` it diffs `before`/`after` (needs
+  `fetch-depth: 0` on checkout, since GitHub Actions' default shallow clone doesn't have
+  those commits); on `schedule`/manual runs it falls back to a full-repo scan.
 
 **What CI does NOT do** (by design):
 - Run scrapers (Selenium + real browser required)
@@ -431,7 +388,7 @@ Docker is used only for **Stage 2 (Clean) + Stage 3 (Load SQL)** when raw CSVs a
 
 ```
 # 1. Run scrapers on Windows first (produces raw CSVs)
-& "C:\Users\StavrosKV\anaconda33\python.exe" 1scriptToGet4.py
+& ".venv\Scripts\python.exe" 1scriptToGet4.py
 
 # 2. Run Clean + Load in Docker
 docker compose up --build
@@ -475,7 +432,7 @@ Post-pipeline steps (charts, emails, dashboard) are **non-fatal** — failure is
 ```
 Task Scheduler
   └─► run_pipeline.bat  (08:00 daily)
-        └─► C:\Users\StavrosKV\anaconda33\python.exe run_pipeline.py
+        └─► .venv\Scripts\python.exe run_pipeline.py
 ```
 
 **To register the scheduled task (run once as Administrator):**
@@ -511,24 +468,18 @@ Register-ScheduledTask -TaskName "SkroutzPipeline" -Action $action -Trigger $tri
 
 ```powershell
 # Run all tests
-& "C:\Users\StavrosKV\anaconda33\python.exe" -m pytest tests/ -v
+& ".venv\Scripts\python.exe" -m pytest tests/ -v
 
 # Run with coverage
-& "C:\Users\StavrosKV\anaconda33\python.exe" -m pytest tests/ --cov=. --cov-report=term-missing
+& ".venv\Scripts\python.exe" -m pytest tests/ --cov=. --cov-report=term-missing
 ```
 
-**Test coverage (101 tests):**
-
-| Class | Tests | What it covers |
-|---|---|---|
-| `TestCleanPrice` | 10 | Greek price format normalisation (scraper pre-processed: dots as thousands separator) |
-| `TestExtractRamStorage` | 8 | RAM/storage pattern variants (`8/128GB`, `8GB/256`, `16 GB`, `0.5TB`) |
-| `TestLoaderHelpers` | 12 | `_val` / `_int` / `_float` coercions — None, N/A, edge cases |
-| `TestNotificationsDedup` | 6 | Dedup file read/write/reset cycle |
-| `TestWatchlistAtomicWrite` | 7 | `os.replace()` roundtrip, corrupted-file safety |
-| `TestNALinkGuard` | 6 | Invalid link detection (N/A, empty, whitespace) |
-| `tests/test_smoke.py` | 6 | Every stage script compiles/imports; observer failures never abort, fatal ones always do |
-| *(and others)* | — | loader, bot commands, digests, lock, dedup |
+**Test coverage:** run `pytest tests/ -v` for the current count and full breakdown by class —
+listing an exact number here just goes stale as tests are added. Broad areas covered:
+Greek price format normalisation, RAM/storage pattern extraction, DB loader coercions
+(`_val`/`_int`/`_float`), notification dedup, watchlist atomic writes, N/A link guards,
+the README auto-stats rewrite, and `tests/test_smoke.py`'s stage compile/import +
+observer-contract checks.
 
 All tests are pure unit tests — no database, no Chrome, no network. Safe to run in CI.
 
@@ -600,16 +551,14 @@ Edit the Windows Task Scheduler trigger time, or update the `cron:` schedule in 
 | Item | Why | Effort |
 |---|---|---|
 | **Run `analytics.sql` against live DB** | Creates `vw_near_atl`, `vw_price_trend_direction`, `vw_daily_market_index` — required for new dashboard features | 2 min |
-| **Add `.github/workflows/ci.yml`** | Automates lint + test + CVE scan on every push; catches regressions before they hit production | 1 hour |
 | **Integration test against a test DB** | Unit tests cover parsing logic; no test currently catches schema drift or SQL errors | Half day |
 
 ### Medium priority
 
 | Item | Why | Effort |
 |---|---|---|
-| **`ruff` linting config** (`ruff.toml`) | Enforces consistent style across all scripts; zero-config option available | 30 min |
 | **Streamlit auth** | Dashboard is currently unauthenticated if served externally | 1 hour |
-| **Partition `price_snapshots` by month** | At 19k rows/day the table reaches 100M rows in ~14 years; partitioning keeps vacuums fast | Half day |
+| **Partition `price_snapshots` by month** | At the current daily growth rate (see README) the table reaches 100M rows within roughly a decade; partitioning keeps vacuums fast | Half day |
 | **Retry logic in Stage 1 launcher** | If one scraper fails, the others still succeed; re-running the failed scraper alone would avoid a full re-scrape | Half day |
 
 ### Low priority / future

@@ -5,8 +5,8 @@ Checks scraper outputs for failures and anomalies.
 
 import os
 import logging
-from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from typing import Optional
+from datetime import datetime
 
 from agents.base import BaseAgent
 

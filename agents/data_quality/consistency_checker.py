@@ -4,7 +4,7 @@ Checks for logical inconsistencies in the data.
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
 from agents.base import BaseAgent
 
 logger = logging.getLogger(__name__)

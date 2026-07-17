@@ -13,8 +13,8 @@ Provides LLM-enhanced features:
 Uses nim_client.py with dynamic model routing.
 """
 
+import asyncio
 import logging
-from typing import Optional
 
 from nim_client import NIMClient, TaskType
 from nim_routing import route_by_complexity
@@ -191,8 +191,6 @@ Be concise, practical, and data-driven. Use € prices."""
 
 
 # Synchronous wrappers for bot integration
-import asyncio
-
 def _run_async(coro):
     """Run async coroutine in sync context."""
     try:

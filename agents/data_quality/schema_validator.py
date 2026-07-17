@@ -5,7 +5,7 @@ Validates that data conforms to expected schema.
 
 import logging
 import re
-from typing import Dict, List, Optional, Any, Union
+from typing import List, Optional
 from agents.base import BaseAgent
 
 logger = logging.getLogger(__name__)

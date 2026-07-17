@@ -3,7 +3,7 @@ Data Quality Agent that orchestrates data quality subagents.
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
 from agents.base import BaseAgent
 
 from .brand_normalizer import BrandNormalizer

@@ -4,7 +4,7 @@ Detects outliers in numerical data using statistical methods.
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
 import numpy as np
 
 from agents.base import BaseAgent

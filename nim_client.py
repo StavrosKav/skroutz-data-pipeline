@@ -10,15 +10,14 @@ Requirements:
 """
 
 import os
-import json
 import logging
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 from dataclasses import dataclass
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception_type
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 

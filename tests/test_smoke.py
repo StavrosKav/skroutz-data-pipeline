@@ -9,7 +9,6 @@ pipeline, a failing core stage always does.
 
 import os
 import py_compile
-import subprocess
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
