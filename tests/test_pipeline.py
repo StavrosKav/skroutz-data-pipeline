@@ -22,13 +22,10 @@ No network or DB connections required — all tests are pure-unit.
 
 import json
 import os
-import sys
 import tempfile
 import time
 import unittest
 from unittest.mock import MagicMock, patch
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import importlib as _imp
 from Data_Phone import extract_ram_storage

@@ -448,9 +448,11 @@ The actual, current workflow lives at `.github/workflows/ci.yml` — read that f
 source of truth; this section is a summary, not a copy, so it can't drift out of sync again.
 
 **What CI checks:**
-- **Ruff** (`ruff.toml` at repo root) — linting and code style (replaces flake8 + isort + pyupgrade).
-  Per-file-ignores exist for the intentional `sys.path.insert()`-before-import convention
-  (see `CLAUDE.md`'s "All scripts resolve BASE ..." rule) — not an oversight.
+- **Ruff** (`[tool.ruff]` in `pyproject.toml`) — linting and code style (replaces flake8 + isort + pyupgrade).
+  Per-file-ignores exist for `run_data_quality_agent.py`/`run_scraper_health_monitor.py`'s
+  intentional `sys.path.insert()`-before-import convention (see `CLAUDE.md`'s "All scripts
+  resolve BASE ..." rule) — not an oversight. Tests don't need it: pytest's `pythonpath = ["."]`
+  (also in `pyproject.toml`) puts the project root on `sys.path` before collection.
 - **pytest** — the full suite in `tests/` (see the Testing section above for current count)
 - **pip-audit** — CVE scan of all pinned dependencies in `requirements.txt`
 - **TruffleHog** — scans for secrets. On `push` it diffs `before`/`after` (needs
