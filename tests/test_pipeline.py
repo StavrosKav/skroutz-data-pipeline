@@ -441,7 +441,8 @@ class TestCmdFind(unittest.TestCase):
         import telegram_bot as tb
         with patch("telegram_bot.get_engine", side_effect=Exception("connection refused")):
             result = tb._cmd_find("galaxy s25")
-        self.assertIn("❌", result)
+        self.assertIn("Backend unavailable", result)
+        self.assertNotIn("connection refused", result)
 
     def test_no_results_message(self):
         from unittest.mock import patch, MagicMock
@@ -497,7 +498,8 @@ class TestCmdHistory(unittest.TestCase):
         import telegram_bot as tb
         with patch("telegram_bot.get_engine", side_effect=Exception("timeout")):
             result = tb._cmd_history("iphone 16")
-        self.assertIn("❌", result)
+        self.assertIn("Backend unavailable", result)
+        self.assertNotIn("timeout", result)
 
     def test_no_product_found(self):
         from unittest.mock import patch, MagicMock

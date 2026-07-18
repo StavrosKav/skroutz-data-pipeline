@@ -75,6 +75,13 @@ def _e(text) -> str:
     return html.escape(str(text))
 
 
+def _db_unavailable(e: Exception) -> str:
+    """Log the real DB exception server-side; return a chat-safe message that
+    doesn't leak connection strings/query text to the user."""
+    logger.warning(f"DB error: {e}")
+    return "🔌 Backend unavailable right now — please try again in a bit."
+
+
 def _post(method: str, payload: dict) -> dict:
     data = json.dumps(payload).encode("utf-8")
     req  = urllib.request.Request(
@@ -251,7 +258,7 @@ def _cmd_drops(args: str = "") -> str:
                 "ORDER BY ABS(drop_eur) DESC LIMIT 10"
             ), params).fetchall()
     except Exception as e:
-        return f"❌ DB error: {_e(str(e))}"
+        return _db_unavailable(e)
 
     if not rows:
         return f"No price drops recorded today for {label}."
@@ -303,7 +310,7 @@ def _cmd_watchlist() -> str:
         lines.append("\n<i>/remove &lt;number&gt; to delete  ·  send a URL to add</i>")
         return "\n".join(lines)
     except Exception as e:
-        return f"❌ DB error: {_e(str(e))}"
+        return _db_unavailable(e)
 
 
 def _cmd_add(args: str) -> str:
@@ -362,7 +369,7 @@ def _cmd_find(args: str) -> str:
                 LIMIT 5
             """), {"q": f"%{q}%"}).fetchall()
     except Exception as e:
-        return f"❌ DB error: {_e(str(e))}"
+        return _db_unavailable(e)
 
     if not rows:
         return f"No products found matching <b>{_e(q)}</b>."
@@ -423,7 +430,7 @@ def _cmd_history(args: str) -> str:
             """), {"pid": pid}).fetchall()
 
     except Exception as e:
-        return f"❌ DB error: {_e(str(e))}"
+        return _db_unavailable(e)
 
     if not history:
         return f"No price history found for <b>{_e(label)}</b>."
@@ -498,7 +505,7 @@ def _cmd_best(args: str) -> str:
                 LIMIT 8
             """), params).fetchall()
     except Exception as e:
-        return f"❌ DB error: {_e(str(e))}"
+        return _db_unavailable(e)
 
     if not rows:
         return "No data found. Run the pipeline at least a few times to build price history."
@@ -534,7 +541,7 @@ def _cmd_stats() -> str:
             today_d  = conn.execute(text("SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE")).scalar()
             last_run = conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
     except Exception as e:
-        return f"❌ DB error: {_e(str(e))}"
+        return _db_unavailable(e)
 
     return (
         f"📊 <b>Database stats</b>\n\n"
@@ -560,7 +567,7 @@ def _cmd_restock() -> str:
                 LIMIT 10
             """)).fetchall()
     except Exception as e:
-        return f"❌ DB error: {_e(str(e))}"
+        return _db_unavailable(e)
 
     if not rows:
         return "No restocked products in the last 14 days."
