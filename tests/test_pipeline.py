@@ -388,42 +388,35 @@ class TestLoadCategory(unittest.TestCase):
         _csvs.load_category(conn, "phone", path)
         conn.execute.assert_not_called()
 
-    def test_executes_five_times_for_valid_row(self):
+    def test_executes_two_times_for_valid_row(self):
         url  = "https://www.skroutz.gr/s/1/test.html"
         path = self._csv(
             f"link,price_eur,product,brand,model\n{url},299.00,Samsung Galaxy X,Samsung,Galaxy X\n"
         )
-        fake_row            = MagicMock()
-        fake_row.skroutz_link = url
-        fake_row.id           = 42
+        fake_row               = MagicMock()
+        fake_row.skroutz_link  = url
+        fake_row.id            = 42
+        fake_row.is_new        = True
 
-        pre_r = MagicMock()
-        pre_r.scalar.return_value = 0
-        post_r = MagicMock()
-        post_r.scalar.return_value = 1
         conn = MagicMock()
-        # calls: pre_count, upsert products, post_count, fetch id_map, insert snapshots
-        conn.execute.side_effect = [pre_r, MagicMock(), post_r, [fake_row], MagicMock()]
+        # calls: upsert products (RETURNING id/skroutz_link/is_new), insert snapshots
+        conn.execute.side_effect = [[fake_row], MagicMock()]
 
         _csvs.load_category(conn, "phone", path)
-        self.assertEqual(conn.execute.call_count, 5)
+        self.assertEqual(conn.execute.call_count, 2)
 
     def test_snapshot_not_inserted_when_id_missing(self):
-        # If the id_map query returns no rows, snapshot_rows is empty → no 5th call
+        # If the upsert RETURNING set is empty, snapshot_rows is empty → no 2nd call
         url  = "https://www.skroutz.gr/s/2/other.html"
         path = self._csv(
             f"link,price_eur,product,brand,model\n{url},199.00,Xiaomi X,Xiaomi,X\n"
         )
-        pre_r = MagicMock()
-        pre_r.scalar.return_value = 0
-        post_r = MagicMock()
-        post_r.scalar.return_value = 0
         conn = MagicMock()
-        conn.execute.side_effect = [pre_r, MagicMock(), post_r, []]  # empty id_map
+        conn.execute.side_effect = [[]]  # empty RETURNING set → empty id_map
 
         _csvs.load_category(conn, "phone", path)
-        # 4 calls: pre_count, upsert, post_count, id_map — no snapshot insert
-        self.assertEqual(conn.execute.call_count, 4)
+        # 1 call: upsert only — no snapshot insert
+        self.assertEqual(conn.execute.call_count, 1)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
