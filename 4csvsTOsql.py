@@ -21,6 +21,7 @@ import pandas as pd
 import datetime
 import logging
 import os
+import sys
 from sqlalchemy import text
 from dotenv import load_dotenv
 
@@ -75,10 +76,10 @@ def load_category(conn, category, file_path):
     """
     Load one category's cleaned CSV into the database.
 
-    Uses three batch operations instead of per-row queries:
-      1. Batch upsert all products (one executemany call).
-      2. Batch fetch all product IDs by link.
-      3. Batch insert all price snapshots (one executemany call).
+    Uses two batch operations instead of per-row queries:
+      1. Batch upsert all products via unnest(), returning ids + new-row flags
+         in the same round-trip.
+      2. Batch insert all price snapshots (one executemany call).
 
     Parameters
     ----------
@@ -133,45 +134,42 @@ def load_category(conn, category, file_path):
         logger.warning(f"{category:12s}: no valid rows in {file_path}")
         return
 
-    links = [r["skroutz_link"] for r in products_rows]
-
-    # Pre-count to correctly measure new_products on re-runs
-    pre_count = conn.execute(
-        text("SELECT COUNT(*) FROM products WHERE first_seen = :today AND skroutz_link = ANY(:links)"),
-        {"today": today, "links": links}
-    ).scalar() or 0
-
-    # Batch upsert products — one executemany call for the whole category
-    conn.execute(text("""
+    # Batch upsert products via unnest() — one round-trip for the whole category.
+    # xmax = 0 on a returned row means it came from the INSERT branch, not the
+    # ON CONFLICT UPDATE branch, so new_products falls out of the same statement
+    # instead of a pair of COUNT(*) queries taken before/after the upsert.
+    result = conn.execute(text("""
         INSERT INTO products (
             category, skroutz_link, product_name, brand, model, specs,
             ram_gb, storage_gb, num_cameras, camera_type,
             display_inches, battery_info, display_info, color,
             first_seen, last_seen
-        ) VALUES (
-            :category, :skroutz_link, :product_name, :brand, :model, :specs,
-            :ram_gb, :storage_gb, :num_cameras, :camera_type,
-            :display_inches, :battery_info, :display_info, :color,
-            :first_seen, :last_seen
+        )
+        SELECT * FROM unnest(
+            :category::text[], :skroutz_link::text[], :product_name::text[],
+            :brand::text[], :model::text[], :specs::text[],
+            :ram_gb::int[], :storage_gb::int[], :num_cameras::int[], :camera_type::text[],
+            :display_inches::float8[], :battery_info::text[], :display_info::text[], :color::text[],
+            :first_seen::date[], :last_seen::date[]
+        ) AS t(
+            category, skroutz_link, product_name, brand, model, specs,
+            ram_gb, storage_gb, num_cameras, camera_type,
+            display_inches, battery_info, display_info, color,
+            first_seen, last_seen
         )
         ON CONFLICT (skroutz_link) DO UPDATE SET last_seen = EXCLUDED.last_seen
-    """), products_rows)
+        RETURNING id, skroutz_link, (xmax = 0) AS is_new
+    """), {
+        col: [r[col] for r in products_rows]
+        for col in products_rows[0].keys()
+    })
 
-    # New products = those whose first_seen was just set to today (post - pre)
-    post_count = conn.execute(
-        text("SELECT COUNT(*) FROM products WHERE first_seen = :today AND skroutz_link = ANY(:links)"),
-        {"today": today, "links": links}
-    ).scalar() or 0
-    new_products = post_count - pre_count
-
-    # Fetch all product IDs in one query
-    id_map = {
-        r.skroutz_link: r.id
-        for r in conn.execute(
-            text("SELECT id, skroutz_link FROM products WHERE skroutz_link = ANY(:links)"),
-            {"links": links}
-        )
-    }
+    new_products = 0
+    id_map = {}
+    for row in result:
+        id_map[row.skroutz_link] = row.id
+        if row.is_new:
+            new_products += 1
 
     # Build and batch-insert all snapshots — one executemany call
     snapshot_rows = [
@@ -216,7 +214,20 @@ if __name__ == "__main__":
         ("smartwatch", os.path.join(base, "Smartwatches_skroutz_clean", f"clean_{today}.csv")),
         ("tablet",     os.path.join(base, "Tablets_skroutz_clean",      f"clean_{today}.csv")),
     ]
-    with get_engine().begin() as conn:   # atomic: all categories commit together or all roll back
-        for category, file_path in CATEGORY_FILES:
-            load_category(conn, category, file_path)
+    engine = get_engine()
+    loaded, failed = [], []
+    for category, file_path in CATEGORY_FILES:
+        try:
+            with engine.begin() as conn:   # own transaction: one category's failure can't roll back the others
+                load_category(conn, category, file_path)
+            loaded.append(category)
+        except Exception:
+            logger.exception(f"{category:12s}: FAILED — transaction rolled back")
+            failed.append(category)
+
+    if loaded:
+        logger.info(f"Loaded: {', '.join(loaded)}")
+    if failed:
+        logger.error(f"Failed: {', '.join(failed)}")
+        sys.exit(1)
     logger.info("Done.")
