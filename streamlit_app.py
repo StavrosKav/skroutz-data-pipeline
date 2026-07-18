@@ -154,16 +154,27 @@ with st.sidebar:
 
 # ── Top-level stats (header) ───────────────────────────────────────────────────
 
+@st.cache_data(ttl=3600)
+def _header_stats() -> dict:
+    sql = """
+        SELECT
+            (SELECT COUNT(*) FROM products)          AS total_products,
+            (SELECT COUNT(*) FROM price_snapshots)    AS total_snapshots,
+            (SELECT MAX(date) FROM price_snapshots)   AS last_updated,
+            (SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE)     AS total_drops,
+            (SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE - 1) AS drops_yesterday
+    """
+    with get_engine().connect() as conn:
+        return dict(conn.execute(text(sql)).mappings().one())
+
+
 def _header():
-    total_products  = _scalar("SELECT COUNT(*) FROM products")
-    total_snapshots = _scalar("SELECT COUNT(*) FROM price_snapshots")
-    last_updated    = _scalar("SELECT MAX(date) FROM price_snapshots")
-    total_drops     = _scalar(
-        "SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE"
-    )
-    drops_yesterday = _scalar(
-        "SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE - 1"
-    )
+    stats           = _header_stats()
+    total_products  = stats["total_products"]
+    total_snapshots = stats["total_snapshots"]
+    last_updated    = stats["last_updated"]
+    total_drops     = stats["total_drops"]
+    drops_yesterday = stats["drops_yesterday"]
 
     drops_today = total_drops or 0
     drops_delta = drops_today - (drops_yesterday or 0)
