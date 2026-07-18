@@ -23,6 +23,7 @@ import streamlit as st
 from dotenv import load_dotenv
 from sqlalchemy import text
 
+import queries
 from db import get_engine
 
 load_dotenv()
@@ -122,6 +123,13 @@ def _scalar(sql: str) -> object:
         return conn.execute(text(sql)).scalar()
 
 
+@st.cache_data(ttl=3600)
+def _query(func_name: str, **kwargs) -> pd.DataFrame:
+    """Run a shared queries.py function and return a DataFrame, cached for 1 hour."""
+    with get_engine().connect() as conn:
+        return getattr(queries, func_name)(conn, **kwargs)
+
+
 def _fmt_eur(v) -> str:
     if v is None or (isinstance(v, float) and v != v):
         return "—"
@@ -184,7 +192,7 @@ def tab_overview():
         new_this_week  = _scalar("SELECT COUNT(*) FROM products WHERE first_seen >= CURRENT_DATE - 7")
         snaps_today    = _scalar("SELECT COUNT(*) FROM price_snapshots WHERE date = CURRENT_DATE")
         biggest_drop   = _scalar("SELECT MAX(ABS(drop_eur)) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE")
-        near_atl_count = _scalar("SELECT COUNT(*) FROM vw_near_atl WHERE pct_above_atl <= 10")
+        near_atl_count = len(_query("near_atl", category=None, max_pct=10))
         mc1, mc2, mc3, mc4 = st.columns(4)
         mc1.metric("New arrivals this week",  f"{new_this_week or 0:,}")
         mc2.metric("Snapshots today",         f"{snaps_today or 0:,}")
@@ -195,17 +203,9 @@ def tab_overview():
 
     st.markdown("### Category snapshot")
     with st.spinner("Loading category stats…"):
-        cat_df = _q("""
-            SELECT p.category,
-                   COUNT(DISTINCT p.id)       AS products,
-                   ROUND(AVG(s.price_eur), 0) AS avg_price,
-                   ROUND(MIN(s.price_eur), 0) AS min_price,
-                   ROUND(MAX(s.price_eur), 0) AS max_price
-            FROM products p
-            JOIN price_snapshots s ON s.product_id = p.id
-            WHERE s.date = (SELECT MAX(date) FROM price_snapshots)
-            GROUP BY p.category ORDER BY p.category
-        """)
+        cat_df = _query("category_snapshot").rename(columns={"product_count": "products"})
+        for col in ("avg_price", "min_price", "max_price"):
+            cat_df[col] = cat_df[col].round(0)
 
     if not cat_df.empty:
         cols = st.columns(4)
@@ -269,21 +269,7 @@ def tab_overview():
     else:
         lookback = st.slider("Days back", 30, 180, 90, step=30, key="ov_days")
         with st.spinner("Loading trend data…"):
-            trend_df = _q("""
-                WITH ranked AS (
-                    SELECT brand,
-                           ROW_NUMBER() OVER (ORDER BY product_count DESC) AS rn
-                    FROM vw_brand_summary
-                    WHERE category = :cat AND brand IS NOT NULL
-                )
-                SELECT bt.brand, bt.date, bt.avg_price
-                FROM vw_brand_price_trend bt
-                JOIN ranked r ON r.brand = bt.brand
-                WHERE bt.category = :cat
-                  AND bt.date >= CURRENT_DATE - :days
-                  AND r.rn <= 6
-                ORDER BY bt.brand, bt.date
-            """, cat=cat_filter, days=lookback)
+            trend_df = _query("brand_trend", category=cat_filter, top_n=6, days=lookback)
 
         if trend_df.empty:
             st.info("No trend data yet — run the pipeline first.")
@@ -317,30 +303,27 @@ def tab_drops():
         cat_sel = st.multiselect("Category", CATEGORIES,
                                  format_func=lambda c: CAT_LABEL[c], key="dr_cat")
 
-    cat_clause = ""
-    params: dict = {"days": days_back}
-    if cat_sel:
-        placeholders = ", ".join(f":cat{i}" for i in range(len(cat_sel)))
-        cat_clause = "AND category IN (" + placeholders + ") "
-        for i, c in enumerate(cat_sel):
-            params[f"cat{i}"] = c
-
     with st.spinner("Loading drops…"):
-        drops_df = _q(
-            """SELECT brand, model, category,
-                   ROUND(prev_price, 2)      AS "Was €",
-                   ROUND(new_price,  2)      AS "Now €",
-                   ABS(ROUND(drop_eur, 2))   AS "Saved €",
-                   ABS(ROUND(drop_pct, 1))   AS "Drop %",
-                   drop_date, skroutz_link
-            FROM vw_biggest_drops
-            WHERE drop_date >= CURRENT_DATE - :days
-            """
-            + cat_clause
-            + """ORDER BY "Saved €" DESC
-            LIMIT 100""",
-            **params,
+        raw_df = _query(
+            "biggest_drops",
+            days_back=days_back,
+            categories=tuple(cat_sel) if cat_sel else None,
+            limit=100,
         )
+        if raw_df.empty:
+            drops_df = raw_df
+        else:
+            drops_df = pd.DataFrame({
+                "brand":        raw_df["brand"],
+                "model":        raw_df["model"],
+                "category":     raw_df["category"],
+                "Was €":        raw_df["prev_price"].round(2),
+                "Now €":        raw_df["new_price"].round(2),
+                "Saved €":      raw_df["drop_eur"].abs().round(2),
+                "Drop %":       raw_df["drop_pct"].abs().round(1),
+                "drop_date":    raw_df["drop_date"],
+                "skroutz_link": raw_df["skroutz_link"],
+            })
 
     if drops_df.empty:
         st.info("No price drops in the selected range.")
@@ -418,17 +401,18 @@ def tab_drops():
     st.divider()
     st.subheader("Hot deals (drop + review surge)")
     with st.spinner("Loading hot deals…"):
-        hot_df = _q("""
-            SELECT brand, model, category,
-                   ROUND(price_prev,    2) AS "Was €",
-                   ROUND(price_latest,  2) AS "Now €",
-                   ROUND(price_chg_pct, 1) AS "Δ%",
-                   new_reviews             AS "New reviews",
-                   ROUND(hot_score,     1) AS "Score",
-                   skroutz_link
-            FROM vw_hot_deals
-            LIMIT 20
-        """)
+        raw_df = _query("hot_deals", limit=20)
+        hot_df = pd.DataFrame({
+            "brand":        raw_df["brand"],
+            "model":        raw_df["model"],
+            "category":     raw_df["category"],
+            "Was €":        raw_df["price_prev"].round(2),
+            "Now €":        raw_df["price_latest"].round(2),
+            "Δ%":           raw_df["price_chg_pct"].round(1),
+            "New reviews":  raw_df["new_reviews"],
+            "Score":        raw_df["hot_score"].round(1),
+            "skroutz_link": raw_df["skroutz_link"],
+        })
     if hot_df.empty:
         st.info("No hot deals data yet.")
     else:
@@ -657,14 +641,10 @@ def tab_analytics():
     # --- Brand discount frequency ---
     try:
         with st.spinner("Loading discount frequency…"):
-            disc_df = _q("""
-                SELECT brand, discount_days, tracked_days,
-                       ROUND(discount_freq_pct, 1) AS "On-sale %"
-                FROM vw_brand_discount_freq
-                WHERE category = :cat AND brand IS NOT NULL
-                ORDER BY discount_freq_pct DESC NULLS LAST
-                LIMIT 12
-            """, cat=cat_a)
+            raw_df = _query("brand_discount_freq", category=cat_a, limit=12)
+            disc_df = raw_df[["brand", "discount_days", "tracked_days", "discount_freq_pct"]] \
+                .rename(columns={"discount_freq_pct": "On-sale %"})
+            disc_df["On-sale %"] = disc_df["On-sale %"].round(1)
         if not disc_df.empty:
             st.markdown("**Discount frequency** — how often each brand has a price drop (last 90 days)")
             median_val = float(disc_df["On-sale %"].median())
@@ -699,14 +679,9 @@ def tab_analytics():
     st.divider()
     st.subheader("Disappeared products (last 30 days)")
     with st.spinner("Loading disappeared products…"):
-        dis_df = _q("""
-            SELECT category, brand, model,
-                   last_seen, days_since_last_seen AS "Days gone",
-                   skroutz_link
-            FROM vw_disappeared
-            WHERE days_since_last_seen <= 30
-            ORDER BY last_seen DESC LIMIT 50
-        """)
+        raw_df = _query("disappeared", days=30, limit=50)
+        dis_df = raw_df[["category", "brand", "model", "last_seen", "days_since_last_seen", "skroutz_link"]] \
+            .rename(columns={"days_since_last_seen": "Days gone"})
     if dis_df.empty:
         st.success("No disappeared products in the last 30 days.")
     else:
@@ -725,12 +700,7 @@ def tab_analytics():
     st.subheader("Category price index (last 90 days)")
     try:
         with st.spinner("Loading market index…"):
-            idx_df = _q("""
-                SELECT category, date, avg_price AS "Avg €"
-                FROM vw_daily_market_index
-                WHERE date >= CURRENT_DATE - 90
-                ORDER BY category, date
-            """)
+            idx_df = _query("market_index", days=90).rename(columns={"avg_price": "Avg €"})
         if not idx_df.empty:
             idx_df["Category"] = idx_df["category"].map(
                 lambda c: CAT_LABEL.get(c, c)
@@ -793,19 +763,17 @@ def tab_analytics():
     st.caption("Products currently within 10% of their historical price floor (min. 10 snapshots).")
     try:
         with st.spinner("Loading near-ATL products…"):
-            atl_df = _q("""
-                SELECT brand, model, category,
-                       ROUND(current_price, 2) AS "Price €",
-                       ROUND(all_time_low,  2) AS "ATL €",
-                       ROUND(pct_above_atl, 1) AS "% Above ATL",
-                       snapshot_count          AS "Snapshots",
-                       skroutz_link
-                FROM vw_near_atl
-                WHERE category = :cat
-                  AND pct_above_atl <= 10
-                ORDER BY pct_above_atl ASC
-                LIMIT 30
-            """, cat=cat_a)
+            raw_df = _query("near_atl", category=cat_a, max_pct=10, limit=30)
+            atl_df = pd.DataFrame({
+                "brand":        raw_df["brand"],
+                "model":        raw_df["model"],
+                "category":     raw_df["category"],
+                "Price €":      raw_df["current_price"].round(2),
+                "ATL €":        raw_df["all_time_low"].round(2),
+                "% Above ATL":  raw_df["pct_above_atl"].round(1),
+                "Snapshots":    raw_df["snapshot_count"],
+                "skroutz_link": raw_df["skroutz_link"],
+            })
         if not atl_df.empty:
             if len(atl_df) > 2:
                 fig_sc = px.scatter(

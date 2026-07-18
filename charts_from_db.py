@@ -18,9 +18,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
-from sqlalchemy import text
 from dotenv import load_dotenv
 
+import queries
 from db import get_engine
 
 load_dotenv()
@@ -60,24 +60,7 @@ PALETTE = [
 
 
 def fetch_brand_trend(conn, category):
-    query = text("""
-        WITH top_brands AS (
-            SELECT brand
-            FROM vw_brand_summary
-            WHERE category = :cat AND brand IS NOT NULL
-            ORDER BY product_count DESC
-            LIMIT :n
-        )
-        SELECT bt.brand, bt.date, bt.avg_price
-        FROM vw_brand_price_trend bt
-        JOIN top_brands tb ON tb.brand = bt.brand
-        WHERE bt.category = :cat
-          AND bt.date >= CURRENT_DATE - :days
-        ORDER BY bt.brand, bt.date
-    """)
-    return pd.read_sql(query, conn, params={
-        "cat": category, "n": TOP_N_BRANDS, "days": LOOKBACK_DAYS
-    })
+    return queries.brand_trend(conn, category, top_n=TOP_N_BRANDS, days=LOOKBACK_DAYS)
 
 
 def plot_brand_trend(df, category, output_path):
