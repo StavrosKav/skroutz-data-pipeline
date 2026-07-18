@@ -20,6 +20,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import text
 
+import pandas as pd
+
+import queries
 from db import get_engine
 
 load_dotenv()
@@ -30,11 +33,12 @@ OUT_DIR    = BASE / "dashboard"
 OUT_DIR.mkdir(exist_ok=True)
 
 
-def _coerce_drops(rows):
-    out = [dict(r._mapping) for r in rows]
+def _coerce_drops(df):
+    out = df.to_dict("records")
     for d in out:
         for k in ("prev_price", "new_price", "drop_eur", "drop_pct"):
-            d[k] = float(d[k]) if d[k] is not None else None
+            d[k] = round(float(d[k]), 2) if pd.notna(d[k]) else None
+        d["drop_date"] = str(d["drop_date"])
     return out
 
 
@@ -46,54 +50,22 @@ def fetch_data(conn):
     last_updated    = conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
 
     # Per-category stats (latest day)
-    cat_rows = conn.execute(text("""
-        SELECT p.category,
-               COUNT(DISTINCT p.id)       AS product_count,
-               ROUND(AVG(s.price_eur), 2) AS avg_price,
-               ROUND(MIN(s.price_eur), 2) AS min_price,
-               ROUND(MAX(s.price_eur), 2) AS max_price
-        FROM products p
-        JOIN price_snapshots s ON s.product_id = p.id
-        WHERE s.date = (SELECT MAX(date) FROM price_snapshots)
-        GROUP BY p.category ORDER BY p.category
-    """)).fetchall()
+    cat_rows = queries.category_snapshot(conn).itertuples()
     by_category = {
         r.category: {
             "count":     r.product_count,
-            "avg_price": float(r.avg_price or 0),
-            "min_price": float(r.min_price or 0),
-            "max_price": float(r.max_price or 0),
+            "avg_price": round(float(r.avg_price), 2) if pd.notna(r.avg_price) else 0.0,
+            "min_price": round(float(r.min_price), 2) if pd.notna(r.min_price) else 0.0,
+            "max_price": round(float(r.max_price), 2) if pd.notna(r.max_price) else 0.0,
         }
         for r in cat_rows
     }
 
     # Today's drops
-    drops = _coerce_drops(conn.execute(text("""
-        SELECT brand, model, category,
-               ROUND(prev_price, 2) AS prev_price,
-               ROUND(new_price,  2) AS new_price,
-               ROUND(drop_eur,   2) AS drop_eur,
-               ROUND(drop_pct,   2) AS drop_pct,
-               drop_date::text      AS drop_date,
-               skroutz_link
-        FROM vw_biggest_drops
-        WHERE drop_date = CURRENT_DATE
-        ORDER BY drop_eur ASC LIMIT 25
-    """)).fetchall())
+    drops = _coerce_drops(queries.biggest_drops(conn, days_back=0, limit=25))
 
     # This week's drops
-    weekly_drops = _coerce_drops(conn.execute(text("""
-        SELECT brand, model, category,
-               ROUND(prev_price, 2) AS prev_price,
-               ROUND(new_price,  2) AS new_price,
-               ROUND(drop_eur,   2) AS drop_eur,
-               ROUND(drop_pct,   2) AS drop_pct,
-               drop_date::text      AS drop_date,
-               skroutz_link
-        FROM vw_biggest_drops
-        WHERE drop_date >= CURRENT_DATE - 7
-        ORDER BY drop_eur ASC LIMIT 30
-    """)).fetchall())
+    weekly_drops = _coerce_drops(queries.biggest_drops(conn, days_back=7, limit=30))
 
     # Brand summary — top 10 per category with median
     brand_rows = conn.execute(text("""
@@ -212,21 +184,14 @@ def fetch_data(conn):
         })
 
     # Disappeared (last 30 days)
-    dis_rows = conn.execute(text("""
-        SELECT category, brand, model, product_name,
-               last_seen::text    AS last_seen,
-               days_since_last_seen, skroutz_link
-        FROM vw_disappeared
-        WHERE days_since_last_seen <= 30
-        ORDER BY last_seen DESC LIMIT 50
-    """)).fetchall()
+    dis_rows = queries.disappeared(conn, days=30, limit=50).itertuples()
     disappeared = []
     for r in dis_rows:
         disappeared.append({
             "category":  r.category or "",
             "brand":     r.brand or "",
             "model":     r.model or r.product_name or "",
-            "last_seen": r.last_seen,
+            "last_seen": str(r.last_seen),
             "days_gone": r.days_since_last_seen,
             "url":       r.skroutz_link or "",
         })
@@ -260,66 +225,39 @@ def fetch_data(conn):
     watchlist = _load_watchlist(conn)
 
     # Hot deals — price drop + review surge between the two most recent scrapes
-    hot_rows = conn.execute(text("""
-        SELECT category, brand, model, product_name,
-               ROUND(price_prev,    2) AS price_prev,
-               ROUND(price_latest,  2) AS price_latest,
-               price_chg_pct, new_reviews, hot_score, skroutz_link,
-               prev_date::text   AS prev_date,
-               latest_date::text AS latest_date
-        FROM vw_hot_deals
-        LIMIT 20
-    """)).fetchall()
+    hot_rows = queries.hot_deals(conn, limit=20).itertuples()
     hot_deals = []
     for r in hot_rows:
         hot_deals.append({
             "category":   r.category or "",
             "brand":      r.brand or "",
             "model":      r.model or r.product_name or "",
-            "price_prev": float(r.price_prev)    if r.price_prev    else None,
-            "price_now":  float(r.price_latest)  if r.price_latest  else None,
-            "chg_pct":    float(r.price_chg_pct) if r.price_chg_pct else 0.0,
-            "new_rev":    int(r.new_reviews or 0),
-            "score":      float(r.hot_score) if r.hot_score else 0.0,
+            "price_prev": round(float(r.price_prev), 2)   if pd.notna(r.price_prev)   and r.price_prev   else None,
+            "price_now":  round(float(r.price_latest), 2) if pd.notna(r.price_latest) and r.price_latest else None,
+            "chg_pct":    float(r.price_chg_pct) if pd.notna(r.price_chg_pct) and r.price_chg_pct else 0.0,
+            "new_rev":    int(r.new_reviews) if pd.notna(r.new_reviews) else 0,
+            "score":      float(r.hot_score) if pd.notna(r.hot_score) and r.hot_score else 0.0,
             "url":        r.skroutz_link or "",
             "from_date":  r.prev_date    or "",
             "to_date":    r.latest_date  or "",
         })
 
     # Brand avg-price trend for comparison charts (top 8 brands/category, last 90 days)
-    trend_rows = conn.execute(text("""
-        WITH ranked AS (
-            SELECT category, brand,
-                   ROW_NUMBER() OVER (PARTITION BY category ORDER BY product_count DESC) AS rn
-            FROM vw_brand_summary
-            WHERE brand IS NOT NULL
-        )
-        SELECT bt.category, bt.brand, bt.date::text AS date,
-               ROUND(bt.avg_price, 2) AS avg_price
-        FROM vw_brand_price_trend bt
-        JOIN ranked r ON r.category = bt.category AND r.brand = bt.brand
-        WHERE r.rn <= 8
-          AND bt.date >= CURRENT_DATE - 90
-        ORDER BY bt.category, bt.brand, bt.date
-    """)).fetchall()
     brand_trend = {}
-    for r in trend_rows:
-        cat = r.category
-        if cat not in brand_trend:
-            brand_trend[cat] = {}
-        if r.brand not in brand_trend[cat]:
-            brand_trend[cat][r.brand] = []
-        brand_trend[cat][r.brand].append({"date": r.date, "price": float(r.avg_price)})
+    for cat in by_category:
+        trend_df = queries.brand_trend(conn, cat, top_n=8, days=90)
+        if trend_df.empty:
+            continue
+        brand_trend[cat] = {}
+        for r in trend_df.itertuples():
+            if r.brand not in brand_trend[cat]:
+                brand_trend[cat][r.brand] = []
+            brand_trend[cat][r.brand].append({"date": str(r.date), "price": round(float(r.avg_price), 2)})
 
     # Brand discount frequency — gracefully absent until analytics.sql v2 is applied
     try:
         conn.execute(text("SAVEPOINT sp_disc"))
-        disc_rows = conn.execute(text("""
-            SELECT category, brand, discount_days, tracked_days, discount_freq_pct
-            FROM vw_brand_discount_freq
-            WHERE brand IS NOT NULL
-            ORDER BY category, discount_freq_pct DESC NULLS LAST
-        """)).fetchall()
+        disc_rows = queries.brand_discount_freq(conn).itertuples()
         discount_data = {}
         for r in disc_rows:
             cat = r.category
@@ -328,8 +266,8 @@ def fetch_data(conn):
             if len(discount_data[cat]) < 12:
                 discount_data[cat].append({
                     "brand":     r.brand,
-                    "disc_days": int(r.discount_days or 0),
-                    "freq_pct":  float(r.discount_freq_pct or 0),
+                    "disc_days": int(r.discount_days) if pd.notna(r.discount_days) else 0,
+                    "freq_pct":  float(r.discount_freq_pct) if pd.notna(r.discount_freq_pct) else 0.0,
                 })
         conn.execute(text("RELEASE SAVEPOINT sp_disc"))
     except Exception:
@@ -338,18 +276,13 @@ def fetch_data(conn):
 
     try:
         conn.execute(text("SAVEPOINT sp_market"))
-        idx_rows = conn.execute(text("""
-            SELECT category, date::text AS date, avg_price
-            FROM vw_daily_market_index
-            WHERE date >= CURRENT_DATE - 90
-            ORDER BY category, date
-        """)).fetchall()
+        idx_rows = queries.market_index(conn, days=90).itertuples()
         market_index: dict = {}
         for r in idx_rows:
             cat = r.category
             if cat not in market_index:
                 market_index[cat] = []
-            market_index[cat].append({"date": r.date, "avg": float(r.avg_price)})
+            market_index[cat].append({"date": str(r.date), "avg": float(r.avg_price)})
         conn.execute(text("RELEASE SAVEPOINT sp_market"))
     except Exception:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_market"))
