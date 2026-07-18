@@ -9,6 +9,9 @@
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
+[![Live Dashboard](https://img.shields.io/badge/Live_Dashboard-view-e63946?style=flat-square)](https://stavroskav.github.io/skroutz-data-pipeline/)
+
+**🔴 Live dashboard: [stavroskav.github.io/skroutz-data-pipeline](https://stavroskav.github.io/skroutz-data-pipeline/)** — regenerated and published automatically after every daily run.
 
 A production ETL pipeline tracking every phone, laptop, tablet, and smartwatch on [Skroutz.gr](https://www.skroutz.gr) — Greece's largest e-commerce aggregator. Launched June 2025 and running as a fully unattended daily job: **459,000+ price snapshots of 21,500+ products** in PostgreSQL, served through email/Telegram alerting, an interactive bot, and two dashboards — with zero manual intervention between runs.
 

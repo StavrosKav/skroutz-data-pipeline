@@ -779,6 +779,56 @@ def update_readme_stats():
     )
 
 
+def publish_artifacts():
+    """
+    Commit today's refreshed artifacts (charts, dashboard, README stats) and
+    push to origin so the GitHub Pages dashboard updates daily without a
+    manual push. Non-fatal — pipeline result is unaffected if this fails.
+    Only whitelisted artifact paths are staged; if the index already holds
+    unrelated staged changes (work in progress), skip entirely rather than
+    sweep them into an automated commit.
+    """
+    logger.info("=== Publish artifacts started ===")
+    t = datetime.datetime.now()
+
+    def _git(*args, timeout=120):
+        return subprocess.run(
+            ["git", "-C", BASE, *args],
+            capture_output=True, text=True, timeout=timeout,
+        )
+
+    if _git("diff", "--cached", "--quiet").returncode != 0:
+        logger.warning("Publish artifacts: index already has staged changes — skipping auto-commit.")
+        return
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if branch != "main":
+        logger.warning(f"Publish artifacts: on branch '{branch}', not main — skipping auto-commit.")
+        return
+    add = _git("add", "--", "charts", "dashboard/dashboard_latest.html", "README.md")
+    if add.returncode != 0:
+        logger.warning(f"Publish artifacts: git add failed — {add.stderr.strip()}")
+        return
+    if _git("diff", "--cached", "--quiet").returncode == 0:
+        logger.info("Publish artifacts: no artifact changes to commit.")
+        return
+    msg = f"chore: refresh charts, dashboard and README stats from {datetime.date.today()} run"
+    commit = _git("commit", "-m", msg)
+    if commit.returncode != 0:
+        logger.warning(f"Publish artifacts: git commit failed — {commit.stderr.strip()}")
+        return
+    push = _git("push", "origin", "main", timeout=300)
+    elapsed = (datetime.datetime.now() - t).total_seconds()
+    if push.returncode != 0:
+        logger.warning(f"Publish artifacts: git push failed after {elapsed:.0f}s — {push.stderr.strip()}")
+        _notif.tg_send(
+            "⚠️ <b>Artifact push failed</b>\n"
+            "Committed locally but not pushed — the public GitHub Pages dashboard is stale.\n"
+            f"<code>{html.escape(push.stderr.strip()[:300])}</code>"
+        )
+        return
+    logger.info(f"=== Publish artifacts complete in {elapsed:.0f}s — pushed to origin/main ===")
+
+
 def send_success_summary(elapsed):
     """Email + Telegram daily summary after a successful pipeline run."""
     if not GMAIL_APP_PASSWORD and not _notif._TOKEN:
@@ -919,6 +969,7 @@ if __name__ == "__main__":
             (send_disappeared_alert,  "Disappeared alert"),
             (run_dashboard,           "Dashboard"),
             (update_readme_stats,     "README stats"),
+            (publish_artifacts,       "Publish artifacts"),
         ]:
             try:
                 _fn()

@@ -23,6 +23,7 @@ Post-pipeline (non-fatal, each runs independently after Load SQL):
   - `send_disappeared_alert()`  → Gmail: products not seen in 1–2 days
   - `run_dashboard()`           → dashboard/dashboard_latest.html
   - `update_readme_stats()`     → rewrites README.md's STATS:BADGES/STATS:TABLE blocks from live DB counts
+  - `publish_artifacts()`       → git commit + push of charts/, dashboard/dashboard_latest.html, README.md → updates the GitHub Pages dashboard (https://stavroskav.github.io/skroutz-data-pipeline/); skips if index has unrelated staged changes or branch ≠ main
   - `send_success_summary(elapsed)` → Gmail: daily OK summary (snapshots, new products, drop count)
 
 Automation: Windows Task Scheduler at 08:00 via `run_pipeline.bat`.
