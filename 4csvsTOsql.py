@@ -146,11 +146,11 @@ def load_category(conn, category, file_path):
             first_seen, last_seen
         )
         SELECT * FROM unnest(
-            :category::text[], :skroutz_link::text[], :product_name::text[],
-            :brand::text[], :model::text[], :specs::text[],
-            :ram_gb::int[], :storage_gb::int[], :num_cameras::int[], :camera_type::text[],
-            :display_inches::float8[], :battery_info::text[], :display_info::text[], :color::text[],
-            :first_seen::date[], :last_seen::date[]
+            CAST(:category AS text[]), CAST(:skroutz_link AS text[]), CAST(:product_name AS text[]),
+            CAST(:brand AS text[]), CAST(:model AS text[]), CAST(:specs AS text[]),
+            CAST(:ram_gb AS int[]), CAST(:storage_gb AS int[]), CAST(:num_cameras AS int[]), CAST(:camera_type AS text[]),
+            CAST(:display_inches AS float8[]), CAST(:battery_info AS text[]), CAST(:display_info AS text[]), CAST(:color AS text[]),
+            CAST(:first_seen AS date[]), CAST(:last_seen AS date[])
         ) AS t(
             category, skroutz_link, product_name, brand, model, specs,
             ram_gb, storage_gb, num_cameras, camera_type,
