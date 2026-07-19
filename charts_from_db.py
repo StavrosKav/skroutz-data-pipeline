@@ -12,6 +12,7 @@ Run:    python charts_from_db.py
 import matplotlib
 matplotlib.use("Agg")
 
+import datetime
 import logging
 import os
 import pandas as pd
@@ -110,7 +111,7 @@ def plot_brand_trend(df, category, output_path):
     y_data_max = df["avg_price"].max()
     y_pad = max((y_data_max - y_data_min) * 0.18, y_data_max * 0.04)
     ax.set_ylim(max(0, y_data_min - y_pad), y_data_max + y_pad)
-    ax.set_xlim(date_min - pd.Timedelta(days=1), date_max + pd.Timedelta(days=1))
+    ax.set_xlim(date_min - datetime.timedelta(days=1), date_max + datetime.timedelta(days=1))
 
     # ── X-axis ticks ──────────────────────────────────────────────────────────
     if span_days <= 14:
