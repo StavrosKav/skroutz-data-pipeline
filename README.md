@@ -1,8 +1,8 @@
 # Skroutz Price Tracker
 
 <!-- STATS:BADGES:START -->
-![Products](https://img.shields.io/badge/Products-21%2C630-blue?style=flat-square)
-![Snapshots](https://img.shields.io/badge/Snapshots-480k-green?style=flat-square)
+![Products](https://img.shields.io/badge/Products-21%2C689-blue?style=flat-square)
+![Snapshots](https://img.shields.io/badge/Snapshots-487k-green?style=flat-square)
 <!-- STATS:BADGES:END -->
 ![Categories](https://img.shields.io/badge/Categories-4-orange?style=flat-square)
 ![Daily rows](https://img.shields.io/badge/Daily_rows-~7k-purple?style=flat-square)
@@ -87,13 +87,13 @@ erDiagram
 <!-- STATS:TABLE:START -->
 | Category | Products | Snapshots | Avg Price | Range | Brands |
 |---|---|---|---|---|---|
-| Laptop | 7,855 | 158,788 | €1,604 | €52–€10,760 | 46 |
-| Phone | 5,708 | 100,629 | €335 | €9–€3,839 | 129 |
-| Smartwatch | 6,290 | 187,523 | €90 | €5–€3,399 | — |
-| Tablet | 1,777 | 33,028 | €538 | €33–€6,091 | 98 |
-| **Total** | **21,630** | **479,968** | | | |
+| Laptop | 7,884 | 161,358 | €1,605 | €52–€10,760 | 46 |
+| Phone | 5,721 | 101,784 | €335 | €9–€3,839 | 129 |
+| Smartwatch | 6,301 | 190,174 | €90 | €5–€3,399 | — |
+| Tablet | 1,783 | 33,480 | €538 | €33–€6,091 | 98 |
+| **Total** | **21,689** | **486,796** | | | |
 
-Updated daily via Task Scheduler · last pipeline run: 2026-07-21
+Updated daily via Task Scheduler · last pipeline run: 2026-07-22
 <!-- STATS:TABLE:END -->
 
 ---
