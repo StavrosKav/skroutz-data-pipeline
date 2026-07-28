@@ -128,7 +128,7 @@ start them manually or as separate Task Scheduler / Windows Service entries.
 - Run lock: `pipeline.lock` (blocks concurrent pipeline runs; auto-removed on exit, reclaimed if older than 2h)
 
 ## Docker Notes
-CRITICAL: Scrapers CANNOT run in Docker — Skroutz bot-detection blocks headless Chrome.
+CRITICAL: Scrapers CANNOT run in Docker — headless Chrome is refused by the site, so the scraper drives a real Chrome window.
 Docker workflow: run scrapers on Windows first, then `docker compose up --build` for stages 2+3.
 The SKIP_SCRAPE=1 env var is set automatically in docker-compose.yml.
 
@@ -147,4 +147,4 @@ The SKIP_SCRAPE=1 env var is set automatically in docker-compose.yml.
 - NEVER add backwards-compatibility shims — change the code directly
 - NEVER add features or abstractions beyond what the task asks for
 - NEVER commit anything in Phones_skroutz/, Laptops_skroutz/, Tablets_skroutz/, Smartwatches_skroutz/
-- NEVER run scrapers inside Docker — Skroutz bot-detection blocks headless Chrome; Docker only runs Stage 2 + 3 via SKIP_SCRAPE=1
+- NEVER run scrapers inside Docker — headless Chrome is refused by the site, so the scraper drives a real Chrome window; Docker only runs Stage 2 + 3 via SKIP_SCRAPE=1

@@ -1,5 +1,6 @@
 # Skroutz Price Tracker
 
+[![CI](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml)
 <!-- STATS:BADGES:START -->
 ![Products](https://img.shields.io/badge/Products-21%2C923-blue?style=flat-square)
 ![Snapshots](https://img.shields.io/badge/Snapshots-521k-green?style=flat-square)
@@ -13,9 +14,26 @@
 
 **🔴 Live dashboard: [stavroskav.github.io/skroutz-data-pipeline](https://stavroskav.github.io/skroutz-data-pipeline/)** — regenerated and published automatically after every daily run.
 
-A production ETL pipeline tracking every phone, laptop, tablet, and smartwatch on [Skroutz.gr](https://www.skroutz.gr) — Greece's largest e-commerce aggregator. Launched June 2025 and running as a fully unattended daily job: **459,000+ price snapshots of 21,500+ products** in PostgreSQL, served through email/Telegram alerting, an interactive bot, and two dashboards — with zero manual intervention between runs.
+A production ETL pipeline tracking every phone, laptop, tablet, and smartwatch on [Skroutz.gr](https://www.skroutz.gr) — Greece's largest e-commerce aggregator. Launched June 2025 and running as a fully unattended daily job: over half a million price snapshots of 21,000+ products in PostgreSQL (live counts in the badges above), served through email/Telegram alerting, an interactive bot, and two dashboards — with zero manual intervention between runs.
 
-**📊 Read the data story: [What 460,000 snapshots reveal about Greek electronics pricing →](docs/INSIGHTS.md)** — catalog churn, brand discount culture, and how many "sale" prices are actually a new low.
+**📊 Read the data story: [What half a million snapshots reveal about Greek electronics pricing →](docs/INSIGHTS.md)** — catalog churn, brand discount culture, and how many "sale" prices are actually a new low.
+
+### Key Findings
+
+- **An electronics listing barely lives a year — unless it's a smartwatch.** Of the phones tracked in June 2025, only 6.6% were still listed in July 2026 (laptops: 11.2%, tablets: 23.9%); smartwatches were the outlier at 51.7% survival.
+- **Discounting is brand culture.** Nothing cuts prices ≥3% on 6.9% of product-days — nearly 4× Apple's 1.6%, the lowest of the ten biggest brands in the catalog.
+- **Not every "sale" is a real deal.** Of 141 products cut by ≥10% during summer sales week, only 27% landed at a genuine new low — the rest were still priced above a level reachable in the previous seven weeks.
+
+**[Full analysis with SQL and method notes →](docs/INSIGHTS.md)**
+
+---
+
+## Scope & Compliance
+
+- The scraper requests only the four public category listing pages — `/c/40/` (phones), `/c/25/` (laptops), `/c/1105/` (tablets), `/c/1705/` (smartwatches) — which [skroutz.gr/robots.txt](https://www.skroutz.gr/robots.txt) does not disallow for `User-agent: *`.
+- It never touches the paths robots.txt explicitly disallows for all crawlers, including `/api/`, `/users/`, `/cart/`, and `/checkout/`.
+- No login, no authentication bypass, no personal data — only publicly visible listing pages.
+- One pass per day, with ~1.2–3s pauses between page loads (see `scraper_core.py`).
 
 ---
 
@@ -96,6 +114,8 @@ erDiagram
 Updated daily via Task Scheduler · last pipeline run: 2026-07-28
 <!-- STATS:TABLE:END -->
 
+**Coverage:** 70 distinct scrape days in total — a two-week baseline in June 2025 (15 days, including one day in July 2025), then continuous unattended daily operation since 2026-05-25 (55 days and counting).
+
 ---
 
 ## Price Trend Charts
@@ -118,9 +138,9 @@ Daily price history for the top 6 most-reviewed products per category, generated
 
 ## Sample Insights
 
-Live samples from the analytics views — the full analysis with charts and methodology is in **[docs/INSIGHTS.md](docs/INSIGHTS.md)**.
+Example output — snapshot from 2026-06-08 → [current values on the live dashboard](https://stavroskav.github.io/skroutz-data-pipeline/). Full analysis with charts and methodology is in **[docs/INSIGHTS.md](docs/INSIGHTS.md)**.
 
-### Biggest Price Drops — Last 30 Days
+### Biggest Price Drops — Example snapshot from 2026-06-08
 
 | Brand | Model | Category | Was € | Now € | Saved € | Drop % |
 |---|---|---|---|---|---|---|
@@ -142,7 +162,7 @@ Live samples from the analytics views — the full analysis with charts and meth
 
 These products are within 3% of their lowest ever recorded price.
 
-### Most Price-Volatile Products (30 days)
+### Most Price-Volatile Products — Example snapshot from 2026-06-08
 
 | Brand | Model | Category | Volatility (CV%) |
 |---|---|---|---|
@@ -280,4 +300,4 @@ psql -U postgres -d SkroutzPR -f analytics.sql
 
 ---
 
-> This project is for personal learning and portfolio purposes. No scraped data is stored in this repository — all CSVs are excluded via `.gitignore`. The scraper accesses only publicly visible listing pages and makes no attempt to bypass authentication or access private data.
+> This project is for personal learning and portfolio purposes. No raw scraped datasets are committed — all CSVs are gitignored. The published dashboard contains aggregated statistics plus a bounded sample of current listings, each linked back to its Skroutz product page. The scraper accesses only publicly visible listing pages and makes no attempt to bypass authentication or access private data.

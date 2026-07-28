@@ -19,7 +19,7 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 from dataclasses import dataclass
 import pandas as pd
 import time
-import undetected_chromedriver as uc   # bypasses bot-detection on skroutz
+import undetected_chromedriver as uc   # real (non-headless) Chrome session; headless is refused by the site
 import re
 import datetime
 import os
@@ -250,7 +250,7 @@ def _goto_next_page(driver, attempts=3):
             continue
         try:
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", next_btn)
-            time.sleep(1.2)   # brief pause before clicking to mimic human behaviour
+            time.sleep(1.2)   # pause between page clicks — keeps request rate near human browsing speed
             next_btn.click()
             return True
         except WebDriverException as e:
@@ -302,7 +302,7 @@ def scrape(cfg: ScraperConfig):
         handlers=[logging.StreamHandler()],
     )
 
-    # --headless is intentionally omitted because it triggers bot-detection on skroutz
+    # --headless is intentionally omitted — headless Chrome is refused by the site
     options = uc.ChromeOptions()
     options.add_argument("--disable-gpu")
 
