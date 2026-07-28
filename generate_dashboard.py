@@ -361,6 +361,9 @@ def encode_chart(name):
 HTML_TEMPLATE_PATH = BASE / "templates" / "dashboard.html"
 HTML_TEMPLATE = HTML_TEMPLATE_PATH.read_text(encoding="utf-8")
 
+CHARTJS_PATH = BASE / "assets" / "chart.umd.min.js"
+CHARTJS_INLINE = CHARTJS_PATH.read_text(encoding="utf-8")
+
 
 def main():
     print("Generating dashboard…")
@@ -382,6 +385,7 @@ def main():
     history = data.pop("history")
 
     html = (HTML_TEMPLATE
+        .replace("__CHARTJS_INLINE__",   CHARTJS_INLINE)
         .replace("__GENERATED__",        data["generated"])
         .replace("__TOTAL_PRODUCTS__",   f"{data['total_products']:,}")
         .replace("__TOTAL_SNAPSHOTS__",  f"{data['total_snapshots']:,}")

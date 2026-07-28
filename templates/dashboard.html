@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>__CHARTJS_INLINE__</script>
 <style>
 :root {
   --bg:        #0f1117;
@@ -355,7 +355,7 @@ tr:hover td { background: #ffffff08; }
   </div>
   <div class="section">
     <div class="section-title">&#128202; Category Price Index &mdash; Last 90 Days</div>
-    <div style="max-height:280px;position:relative"><canvas id="market-index-chart"></canvas></div>
+    <div id="market-index-wrap" style="max-height:280px;position:relative"><canvas id="market-index-chart"></canvas></div>
   </div>
 </div>
 
@@ -557,7 +557,7 @@ tr:hover td { background: #ffffff08; }
   <div class="section">
     <div class="section-title">&#11088; Price vs Rating</div>
     <div class="scatter-legend" id="scatter-legend"></div>
-    <div style="max-height:400px;position:relative"><canvas id="price-rating-chart"></canvas></div>
+    <div id="price-rating-wrap" style="max-height:400px;position:relative"><canvas id="price-rating-chart"></canvas></div>
   </div>
 
 </div>
@@ -588,6 +588,15 @@ tr:hover td { background: #ffffff08; }
 const DATA    = __DATA_JSON__;
 const HISTORY = __HISTORY_JSON__;
 const CHARTS  = __CHARTS_JSON__;
+
+// ── Chart.js availability guard ─────────────────────────────────────────────────
+const CHART_AVAILABLE = typeof Chart !== 'undefined';
+
+function chartFallbackNote(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:16px;text-align:center">Chart unavailable.</p>';
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const PALETTE   = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899','#14b8a6','#a855f7'];
@@ -915,6 +924,7 @@ function setBrandMetric(btn) {
 }
 
 function buildBrandCharts() {
+  if (!CHART_AVAILABLE) { chartFallbackNote('brand-charts'); return; }
   const el = document.getElementById('brand-charts');
   brandInst.forEach(c => c.destroy());
   brandInst = [];
@@ -987,7 +997,7 @@ function showHistory(id) {
     return;
   }
   document.getElementById('no-history').style.display    = 'none';
-  document.getElementById('history-chart').style.display = 'block';
+  document.getElementById('history-chart').style.display = CHART_AVAILABLE ? 'block' : 'none';
 
   const prices  = pts.map(p => p.price);
   const minP    = Math.min(...prices);
@@ -1010,6 +1020,11 @@ function showHistory(id) {
     <div class="hs-val ${s.cls||''}">${s.v}</div>
     <div class="hs-lbl">${s.l}</div>
   </div>`).join('');
+
+  if (!CHART_AVAILABLE) {
+    document.getElementById('modal').classList.add('open');
+    return;
+  }
 
   if (histInst) histInst.destroy();
   const histCanvas = document.getElementById('history-chart');
@@ -1083,6 +1098,7 @@ function buildHotDeals() {
 // ── Market Share donuts ────────────────────────────────────────────────────────
 let donutInst = [];
 function buildMarketShare() {
+  if (!CHART_AVAILABLE) { chartFallbackNote('donut-charts'); return; }
   const el = document.getElementById('donut-charts');
   donutInst.forEach(c => c.destroy());
   donutInst = [];
@@ -1167,6 +1183,7 @@ function toggleCompareBrand(btn) {
 }
 
 function renderCompareCharts() {
+  if (!CHART_AVAILABLE) { chartFallbackNote('compare-charts'); return; }
   const trend = DATA.brand_trend || {};
   const el    = document.getElementById('compare-charts');
   compareInst.forEach(c => c.destroy());
@@ -1266,6 +1283,7 @@ function buildNearATL() {
 }
 
 function buildDiscountFreqCharts() {
+  if (!CHART_AVAILABLE) { chartFallbackNote('discount-freq-charts'); return; }
   const el = document.getElementById('discount-freq-charts');
   discountFreqInst.forEach(c => c.destroy());
   discountFreqInst = [];
@@ -1307,6 +1325,7 @@ function buildDiscountFreqCharts() {
 }
 
 function buildPriceTierDist() {
+  if (!CHART_AVAILABLE) { chartFallbackNote('tier-dist-charts'); return; }
   const el = document.getElementById('tier-dist-charts');
   tierDistInst.forEach(c => c.destroy());
   tierDistInst = [];
@@ -1350,6 +1369,7 @@ function buildPriceTierDist() {
 }
 
 function buildPriceVsRating() {
+  if (!CHART_AVAILABLE) { chartFallbackNote('price-rating-wrap'); return; }
   if (priceRatingInst) { priceRatingInst.destroy(); priceRatingInst = null; }
   const catColors = { phone:'#3b82f6', laptop:'#8b5cf6', smartwatch:'#10b981', tablet:'#f59e0b' };
   const cats = ['phone','laptop','smartwatch','tablet'];
@@ -1390,6 +1410,7 @@ function buildPriceVsRating() {
 
 let marketIndexInst = null;
 function buildMarketIndex() {
+  if (!CHART_AVAILABLE) { chartFallbackNote('market-index-wrap'); return; }
   if (marketIndexInst) { marketIndexInst.destroy(); marketIndexInst = null; }
   const idx = DATA.market_index || {};
   if (!Object.keys(idx).length) return;
@@ -1465,18 +1486,23 @@ function exportCSV() {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
+function safeCall(fn, name) {
+  try { fn(); } catch (e) { console.error(`Chart build failed: ${name}`, e); }
+}
+
 buildStats();
-buildTrendCharts();
-buildMarketIndex();
 buildDropsTable();
 buildHotDeals();
 filterProducts();
 buildNewGone();
-buildBrandCharts();
-buildMarketShare();
-buildBrandComparison();
-buildIntelligence();
 updateTabBadges();
+
+safeCall(buildTrendCharts,     'buildTrendCharts');
+safeCall(buildMarketIndex,     'buildMarketIndex');
+safeCall(buildBrandCharts,     'buildBrandCharts');
+safeCall(buildMarketShare,     'buildMarketShare');
+safeCall(buildBrandComparison, 'buildBrandComparison');
+safeCall(buildIntelligence,    'buildIntelligence');
 (function restoreTab() {
   const hash = location.hash.slice(1);
   if (hash) { const btn = document.querySelector(`.tab-btn[data-tab="${hash}"]`); if (btn) showTab(btn); }
