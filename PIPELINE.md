@@ -166,7 +166,7 @@ retry logic, and CSV writing live in **`scraper_core.py`** (one parameterized
 use the historical `skroutz_laptos_` prefix; `Data_Laptops.py` falls back to it
 automatically when the new name is absent.
 
-Each scraper uses **`undetected-chromedriver`** to bypass skroutz bot-detection. `version_main` is auto-detected from the installed Chrome binary; falls back to `None` (auto-select) on failure.
+Each scraper uses **`undetected-chromedriver`** — headless Chrome is refused by the site, so the scraper drives a real Chrome window, which also means it cannot run in Docker or CI. `version_main` is auto-detected from the installed Chrome binary; falls back to `None` (auto-select) on failure.
 
 **Resilience (in `scraper_core.py`):**
 - Bounded retries (3 attempts, backoff) around page load, card-wait (with refresh), and next-page click. A category's total failure is still fatal to the run.
@@ -176,7 +176,7 @@ Each scraper uses **`undetected-chromedriver`** to bypass skroutz bot-detection.
 
 Subprocess timeout: **2 hours** per scraper. On timeout the process is killed and the handle reaped.
 
-> **Docker/CI constraint:** Scrapers CANNOT run in Docker or CI — Skroutz bot-detection blocks headless Chrome.  
+> **Docker/CI constraint:** Scrapers CANNOT run in Docker or CI — headless Chrome is refused by the site, so the scraper drives a real Chrome window instead.  
 > Set `SKIP_SCRAPE=1` to bypass Stage 1 (done automatically in `docker-compose.yml` and GitHub Actions).
 
 ---
@@ -468,7 +468,7 @@ source of truth; this section is a summary, not a copy, so it can't drift out of
 
 ## Docker  (Clean + Load only)
 
-Scrapers require a real Chrome browser with human-like behavior — they cannot run in Docker.  
+Scrapers require a real, non-headless Chrome window — headless Chrome is refused by the site — so they cannot run in Docker.  
 Docker is used only for **Stage 2 (Clean) + Stage 3 (Load SQL)** when raw CSVs already exist.
 
 ```
@@ -580,7 +580,6 @@ All tests are pure unit tests — no database, no Chrome, no network. Safe to ru
 | Atomic file writes | `os.replace()` for `watchlist.json` and `dashboard_latest.html` |
 | Dependency CVEs | `pip-audit` in CI on every push |
 | Secret scanning | TruffleHog in CI on every push |
-| Bot-detection evasion | `undetected-chromedriver` (no headless flag — skroutz detects it) |
 | Log rotation | 30-day auto-cleanup prevents unbounded log growth |
 
 ---
