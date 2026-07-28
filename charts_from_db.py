@@ -2,8 +2,8 @@
 charts_from_db.py  —  Brand price-trend charts for the Skroutz dashboard.
 
 One dark-themed PNG per category: top-N brands' smoothed daily average price
-over the last LOOKBACK_DAYS days.  Direct end-labels (no legend box), shaded
-±1-std band per brand, and a Δ% tag so you know the trend at a glance.
+over the last LOOKBACK_DAYS days.  Legend box, shaded ±1-std band per brand,
+and a Δ% tag so you know the trend at a glance.
 
 Output: charts/price_trend_<category>.png
 Run:    python charts_from_db.py
