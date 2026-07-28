@@ -41,8 +41,6 @@ TOP_N_BRANDS  = 6
 LOOKBACK_DAYS = 180
 SMOOTH        = 7        # rolling-average window (days)
 
-_CAT_LABEL = {"phone": "Phones", "laptop": "Laptops", "smartwatch": "Smartwatches", "tablet": "Tablets"}
-
 # ── Dark palette matching the dashboard ───────────────────────────────────────
 BG      = "#0f1117"
 SURFACE = "#1a1d27"
@@ -66,7 +64,6 @@ def fetch_brand_trend(conn, category):
 
 def plot_brand_trend(df, category, output_path):
     brands = sorted(df["brand"].unique())
-    cat_label = _CAT_LABEL.get(category, category.capitalize() + "s")
 
     date_min  = df["date"].min()
     date_max  = df["date"].max()
@@ -109,15 +106,19 @@ def plot_brand_trend(df, category, output_path):
     # ── Y-axis: frame tightly around data ─────────────────────────────────────
     y_data_min = df["avg_price"].min()
     y_data_max = df["avg_price"].max()
-    y_pad = max((y_data_max - y_data_min) * 0.18, y_data_max * 0.04)
-    ax.set_ylim(max(0, y_data_min - y_pad), y_data_max + y_pad)
+    if y_data_max / max(y_data_min, 1) > 8:
+        ax.set_yscale("log")
+        ax.set_ylim(max(y_data_min * 0.85, 1), y_data_max * 1.15)
+    else:
+        y_pad = max((y_data_max - y_data_min) * 0.18, y_data_max * 0.04)
+        ax.set_ylim(max(0, y_data_min - y_pad), y_data_max + y_pad)
     ax.set_xlim(date_min - datetime.timedelta(days=1), date_max + datetime.timedelta(days=1))
 
     # ── X-axis ticks ──────────────────────────────────────────────────────────
     if span_days <= 14:
         ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-    elif span_days <= 60:
+    elif span_days <= 120:
         ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=0))
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
     else:
@@ -142,11 +143,12 @@ def plot_brand_trend(df, category, output_path):
     for lbl in ax.get_xticklabels() + ax.get_yticklabels():
         lbl.set_color(MUTED)
 
-    # ── Legend (dark-styled, inside chart) ────────────────────────────────────
+    # ── Legend (dark-styled, outside chart) ───────────────────────────────────
     leg = ax.legend(
-        loc="best",
+        loc="upper left",
+        bbox_to_anchor=(1.01, 1.0),
+        frameon=False,
         fontsize=8.5,
-        framealpha=0.88,
         facecolor=BG,
         edgecolor=BORDER,
         handlelength=1.4,
@@ -161,11 +163,11 @@ def plot_brand_trend(df, category, output_path):
     start_str = date_min.strftime("%b %d, %Y") if hasattr(date_min, "strftime") else str(date_min)[:10]
     end_str   = date_max.strftime("%b %d, %Y") if hasattr(date_max, "strftime") else str(date_max)[:10]
     ax.set_title(
-        f"Brand Price Trends — {cat_label}",
+        "Brand Price Trends",
         fontsize=13, fontweight="bold", color=TEXT,
-        loc="left", pad=10,
+        loc="left", pad=30,
     )
-    ax.text(0, 1.01,
+    ax.text(0, 1.012,
             f"Avg daily price  ·  {start_str} → {end_str}  ·  7-day smoothed",
             transform=ax.transAxes,
             fontsize=8, color=MUTED, va="bottom")
