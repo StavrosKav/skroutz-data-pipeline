@@ -14,6 +14,7 @@ import os
 import sys
 import json
 import base64
+import logging
 import datetime
 from pathlib import Path
 
@@ -26,6 +27,13 @@ import queries
 from db import get_engine
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 BASE       = Path(__file__).parent
 CHARTS_DIR = BASE / "charts"
@@ -120,8 +128,9 @@ def fetch_data(conn):
         floor_map = {r.product_id: float(r.all_time_low)
                      for r in floor_rows if r.all_time_low}
         conn.execute(text("RELEASE SAVEPOINT sp_floor"))
-    except Exception:
+    except Exception as e:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_floor"))
+        logger.warning(f"vw_price_floor query failed, near-ATL data will be empty: {e}")
         floor_map = {}
 
     try:
@@ -131,8 +140,9 @@ def fetch_data(conn):
         )).fetchall()
         trend_map = {r.product_id: r.trend for r in trend_rows}
         conn.execute(text("RELEASE SAVEPOINT sp_trend"))
-    except Exception:
+    except Exception as e:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_trend"))
+        logger.warning(f"vw_price_trend_direction query failed, trend arrows will be empty: {e}")
         trend_map = {}
 
     products = []
@@ -257,7 +267,7 @@ def fetch_data(conn):
                 brand_trend[cat][r.brand] = []
             brand_trend[cat][r.brand].append({"date": str(r.date), "price": round(float(r.avg_price), 2)})
 
-    # Brand discount frequency — gracefully absent until analytics.sql v2 is applied
+    # Brand discount frequency — degrades gracefully if vw_brand_discount_freq is unavailable
     try:
         conn.execute(text("SAVEPOINT sp_disc"))
         disc_rows = queries.brand_discount_freq(conn).itertuples()
@@ -273,8 +283,9 @@ def fetch_data(conn):
                     "freq_pct":  float(r.discount_freq_pct) if pd.notna(r.discount_freq_pct) else 0.0,
                 })
         conn.execute(text("RELEASE SAVEPOINT sp_disc"))
-    except Exception:
+    except Exception as e:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_disc"))
+        logger.warning(f"vw_brand_discount_freq query failed, discount-frequency section will be empty: {e}")
         discount_data = {}
 
     try:
@@ -287,8 +298,9 @@ def fetch_data(conn):
                 market_index[cat] = []
             market_index[cat].append({"date": str(r.date), "avg": float(r.avg_price)})
         conn.execute(text("RELEASE SAVEPOINT sp_market"))
-    except Exception:
+    except Exception as e:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_market"))
+        logger.warning(f"vw_daily_market_index query failed, category price index chart will be empty: {e}")
         market_index = {}
 
     return {
