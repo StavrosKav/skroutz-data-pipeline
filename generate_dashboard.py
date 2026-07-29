@@ -48,6 +48,9 @@ def fetch_data(conn):
     total_products  = conn.execute(text("SELECT COUNT(*) FROM products")).scalar()
     total_snapshots = conn.execute(text("SELECT COUNT(*) FROM price_snapshots")).scalar()
     last_updated    = conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
+    window_start    = conn.execute(text(
+        "SELECT MIN(date) FROM price_snapshots WHERE date >= CURRENT_DATE - 90"
+    )).scalar()
 
     # Per-category stats (latest day)
     cat_rows = queries.category_snapshot(conn).itertuples()
@@ -293,6 +296,7 @@ def fetch_data(conn):
         "total_products":  total_products,
         "total_snapshots": total_snapshots,
         "last_updated":    str(last_updated) if last_updated else str(today),
+        "window_start":    str(window_start) if window_start else str(today),
         "by_category":     by_category,
         "drops":           drops,
         "weekly_drops":    weekly_drops,
@@ -384,11 +388,15 @@ def main():
 
     history = data.pop("history")
 
+    window_start_date  = datetime.date.fromisoformat(data["window_start"])
+    window_start_label = f"Since {window_start_date.day} {window_start_date.strftime('%b %Y')}"
+
     html = (HTML_TEMPLATE
-        .replace("__CHARTJS_INLINE__",   CHARTJS_INLINE)
-        .replace("__GENERATED__",        data["generated"])
-        .replace("__TOTAL_PRODUCTS__",   f"{data['total_products']:,}")
-        .replace("__TOTAL_SNAPSHOTS__",  f"{data['total_snapshots']:,}")
+        .replace("__CHARTJS_INLINE__",     CHARTJS_INLINE)
+        .replace("__GENERATED__",          data["generated"])
+        .replace("__TOTAL_PRODUCTS__",     f"{data['total_products']:,}")
+        .replace("__TOTAL_SNAPSHOTS__",    f"{data['total_snapshots']:,}")
+        .replace("__WINDOW_START_LABEL__", window_start_label)
         .replace("__DATA_JSON__",        json.dumps(data,        ensure_ascii=False, separators=(",", ":")))
         .replace("__HISTORY_JSON__",     json.dumps(history,     ensure_ascii=False, separators=(",", ":")))
         .replace("__CHARTS_JSON__",      json.dumps(charts_json, ensure_ascii=False, separators=(",", ":")))

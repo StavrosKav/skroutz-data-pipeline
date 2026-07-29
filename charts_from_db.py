@@ -127,6 +127,10 @@ def plot_brand_trend(df, category, output_path):
 
     fig.autofmt_xdate(rotation=25, ha="right")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"€{x:,.0f}"))
+    if ax.get_yscale() == "log":
+        ax.yaxis.set_major_locator(
+            mticker.LogLocator(base=10.0, subs=(1.0, 2.0, 5.0), numticks=12))
+        ax.yaxis.set_minor_formatter(mticker.NullFormatter())
 
     # ── Grid & spines ─────────────────────────────────────────────────────────
     ax.yaxis.grid(color=BORDER, linewidth=0.6, alpha=0.8, zorder=0)
