@@ -1259,7 +1259,7 @@ function buildNearATL() {
   if (el && near.length) el.textContent = near.length;
   const tb = document.getElementById('atl-body');
   if (!near.length) {
-    tb.innerHTML = '<tr><td colspan="7" class="no-data">No products near ATL right now — run analytics.sql v2 to enable.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="7" class="no-data">No products currently within 10% of their all-time low.</td></tr>';
     return;
   }
   tb.innerHTML = near.map(p => {
@@ -1289,7 +1289,7 @@ function buildDiscountFreqCharts() {
   discountFreqInst = [];
   const data = DATA.discount_data || {};
   if (!Object.keys(data).length) {
-    el.innerHTML = '<p class="no-data" style="padding:20px">No discount data yet — run analytics.sql v2 to enable brand discount tracking.</p>';
+    el.innerHTML = '<p class="no-data" style="padding:20px">Brand discount data is temporarily unavailable.</p>';
     return;
   }
   el.innerHTML = Object.entries(data)
