@@ -354,7 +354,7 @@ tr:hover td { background: #ffffff08; }
     <div class="charts-grid" id="trend-charts"></div>
   </div>
   <div class="section">
-    <div class="section-title">&#128202; Category Price Index &mdash; Last 90 Days</div>
+    <div class="section-title">&#128202; Category Price Index &mdash; __WINDOW_START_LABEL__</div>
     <div id="market-index-wrap" style="max-height:280px;position:relative"><canvas id="market-index-chart"></canvas></div>
   </div>
 </div>
@@ -545,7 +545,7 @@ tr:hover td { background: #ffffff08; }
   </div>
 
   <div class="section">
-    <div class="section-title">&#127380; Brand Discount Frequency &mdash; Last 90 Days</div>
+    <div class="section-title">&#127380; Brand Discount Frequency &mdash; __WINDOW_START_LABEL__</div>
     <div class="intel-grid" id="discount-freq-charts"></div>
   </div>
 
@@ -1289,7 +1289,7 @@ function buildDiscountFreqCharts() {
   discountFreqInst = [];
   const data = DATA.discount_data || {};
   if (!Object.keys(data).length) {
-    el.innerHTML = '<p class="no-data" style="padding:20px">No discount data yet — run analytics.sql v2 and accumulate 90 days of data.</p>';
+    el.innerHTML = '<p class="no-data" style="padding:20px">No discount data yet — run analytics.sql v2 to enable brand discount tracking.</p>';
     return;
   }
   el.innerHTML = Object.entries(data)
