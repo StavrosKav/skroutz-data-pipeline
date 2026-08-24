@@ -218,18 +218,25 @@ def nim_chat_sync(*args, **kwargs) -> str:
     return _run_async(nim_chat(*args, **kwargs))
 
 
+_CAT_ALIASES = {
+    "phone": "phone", "phones": "phone",
+    "laptop": "laptop", "laptops": "laptop",
+    "smartwatch": "smartwatch", "smartwatches": "smartwatch", "watches": "smartwatch",
+    "tablet": "tablet", "tablets": "tablet",
+}
+
+
 # Bot command handlers (to be integrated into telegram_bot.py)
 def cmd_analyze(args: str) -> str:
     """Usage: /analyze <category>"""
-    cat = args.strip().lower()
-    if cat not in ["phone", "laptop", "smartwatch", "tablet", "phones", "laptops", "smartwatches", "tablets"]:
+    resolved = _CAT_ALIASES.get(args.strip().lower())
+    if not resolved:
         return "Usage: /analyze <phones|laptops|smartwatches|tablets>"
-    return nim_analyze_category_sync(cat.rstrip('s'))
+    return nim_analyze_category_sync(resolved)
 
 
 def cmd_summarize() -> str:
     """Usage: /summarize — AI daily summary"""
-    # Would need to gather stats from DB
     from db import get_engine
     from sqlalchemy import text
     try:
@@ -244,7 +251,8 @@ def cmd_summarize() -> str:
                 "WHERE drop_date = CURRENT_DATE ORDER BY ABS(drop_eur) DESC LIMIT 3"
             )).fetchall()
     except Exception as e:
-        return f"❌ DB error: {e}"
+        logger.warning(f"DB error: {e}")
+        return "🔌 Backend unavailable right now — please try again in a bit."
 
     drop_lines = [f"  {d.brand} {d.model}: {float(d.drop_pct):.1f}%" for d in drops]
     stats = {

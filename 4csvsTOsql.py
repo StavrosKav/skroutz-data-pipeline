@@ -89,8 +89,7 @@ def load_category(conn, category, file_path):
     """
     today = datetime.date.today().isoformat()
     if not os.path.exists(file_path):
-        logger.warning(f"SKIP (not found): {file_path}")
-        return
+        raise FileNotFoundError(f"cleaned CSV not found: {file_path}")
 
     df = pd.read_csv(file_path)
     df.columns = [c.lower() for c in df.columns]   # normalise headers to lowercase
@@ -131,8 +130,7 @@ def load_category(conn, category, file_path):
         })
 
     if not products_rows:
-        logger.warning(f"{category:12s}: no valid rows in {file_path}")
-        return
+        raise ValueError(f"{category}: no valid rows in {file_path}")
 
     # Batch upsert products via unnest() — one round-trip for the whole category.
     # xmax = 0 on a returned row means it came from the INSERT branch, not the
