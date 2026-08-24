@@ -144,8 +144,8 @@ def run_clean(cfg: CleanerConfig):
     data['date_added'] = today
 
     if data.empty:
-        print(f"No rows in {file_path} — exiting.")
-        sys.exit(0)
+        print(f"No rows in {file_path} — aborting.")
+        sys.exit(1)
 
     data['Price_EUR'] = data['Price_EUR'].apply(clean_price)
 

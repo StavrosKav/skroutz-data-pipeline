@@ -74,18 +74,32 @@ def run_all_scrapers():
         logging.info(f"Waiting {LAUNCH_DELAY}s before launching next scraper...")
         time.sleep(LAUNCH_DELAY)
 
-    # Wait for all scrapers to finish and report their exit status
-    TIMEOUT = 7200  # 2-hour hard ceiling per scraper
+    # One wall-clock ceiling for the whole stage. Sequential wait(7200) per
+    # process used to stack (2026-08-24: phones killed at 2h, tablets kept
+    # wrapping until 3h51m, then the stage failed).
+    return _reap_processes(procs, timeout=7200)
+
+
+def _reap_processes(procs, timeout):
+    """Wait for (name, Popen, log_file) tuples until `timeout` seconds from now.
+
+    Remaining time is shared across processes — later scrapers do not get a
+    fresh full timeout. Closes each log_file. Returns True if any failed.
+    """
+    deadline = time.monotonic() + timeout
     any_failed = False
     for name, proc, log_file in procs:
         try:
+            remaining = deadline - time.monotonic()
             try:
-                ret = proc.wait(timeout=TIMEOUT)
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(proc.args, timeout)
+                ret = proc.wait(timeout=remaining)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()  # reap the process handle
-                log_file.write(f"\n[TIMEOUT] {name} killed after {TIMEOUT}s\n")
-                logging.error(f"{name} timed out after {TIMEOUT//3600}h — killed.")
+                log_file.write(f"\n[TIMEOUT] {name} killed after {timeout}s wall-clock\n")
+                logging.error(f"{name} timed out after {timeout}s wall-clock — killed.")
                 any_failed = True
                 continue
         finally:

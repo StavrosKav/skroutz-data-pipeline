@@ -50,6 +50,14 @@ DRIFT_THRESHOLDS = {
     "Price_EUR": (0.80, PRICE_SELECTOR),
 }
 
+# Healthy catalogs are ~9–52 pages. When Skroutz leaves "next" clickable on the
+# last page the loop wraps and re-scrapes forever (2026-08-24: tablets 1,443
+# pages / phones 592, 3h51m, then the 2h kill). Stop on repeated pages; abort
+# if a real catalog somehow exceeds this ceiling.
+MAX_PAGES = 200
+MAX_STALE_PAGES = 2
+CHROME_START_ATTEMPTS = 3
+
 
 @dataclass(frozen=True)
 class ScraperConfig:
@@ -261,6 +269,46 @@ def _goto_next_page(driver, attempts=3):
     return False
 
 
+def _start_chrome(options):
+    """Launch Chrome, retrying the undetected-chromedriver patcher race.
+
+    Four scrapers share one patched chromedriver.exe. A sibling still renaming
+    that file raises FileExistsError (WinError 183) and used to abort the
+    whole scrape (2026-08-24 second attempt).
+    """
+    last_err = None
+    for attempt in range(1, CHROME_START_ATTEMPTS + 1):
+        try:
+            return uc.Chrome(options=options, version_main=_chrome_major() or None)
+        except (FileExistsError, PermissionError) as e:
+            last_err = e
+            logger.warning(
+                f"chromedriver patch race (attempt {attempt}/{CHROME_START_ATTEMPTS}): "
+                f"{e} — retrying in {2 * attempt}s"
+            )
+            time.sleep(2 * attempt)
+    raise last_err
+
+
+def _collect_new_rows(page_rows, seen_links):
+    """Keep unseen rows from one listing page. Returns (kept, new_unique_count).
+
+    Duplicate links (pagination wraparound) are dropped. N/A links are kept so
+    the markup-drift guard still sees them, but they do not count as progress.
+    """
+    kept = []
+    new_count = 0
+    for row in page_rows:
+        link = row.get("Link") or "N/A"
+        if link != "N/A" and link in seen_links:
+            continue
+        kept.append(row)
+        if link != "N/A":
+            seen_links.add(link)
+            new_count += 1
+    return kept, new_count
+
+
 def _check_markup_drift(df, category):
     """
     Detect systemic selector breakage: if a guarded field is below its valid-rate
@@ -306,25 +354,56 @@ def scrape(cfg: ScraperConfig):
     options = uc.ChromeOptions()
     options.add_argument("--disable-gpu")
 
-    driver = uc.Chrome(options=options, version_main=_chrome_major() or None)
+    driver = _start_chrome(options)
     try:
         _load_page(driver, cfg.url)
 
         products = []
+        seen_links: set[str] = set()
+        stale_pages = 0
         page = 1
 
-        # Paginate through all listing pages until the "next" button disappears
         while True:
+            if page > MAX_PAGES:
+                logger.error(
+                    f"[{cfg.category}] hit MAX_PAGES={MAX_PAGES} — pagination runaway, aborting"
+                )
+                sys.exit(1)
+
             logger.info(f"Σελίδα {page}…")
+            url_before = driver.current_url
             cards = _wait_for_cards(driver)
-            for card in cards:
-                products.append(parse_card(card, extract_memory_info=cfg.extract_memory_info))
+            page_rows = [
+                parse_card(card, extract_memory_info=cfg.extract_memory_info)
+                for card in cards
+            ]
+            kept, new_on_page = _collect_new_rows(page_rows, seen_links)
+            products.extend(kept)
+
+            if new_on_page == 0:
+                stale_pages += 1
+                logger.warning(
+                    f"[{cfg.category}] page {page} added 0 new products "
+                    f"({stale_pages} consecutive)"
+                )
+                if stale_pages >= MAX_STALE_PAGES:
+                    logger.info("No new products on consecutive pages — done.")
+                    break
+            else:
+                stale_pages = 0
 
             if not _goto_next_page(driver):
                 logger.info("Τέλος σελίδων.")
                 break
-            page += 1
             time.sleep(3)   # wait for the next page to load
+            # Only treat a static URL as "last page" when the click also
+            # produced no new products. Some listing UIs keep the same URL
+            # while the card list updates — stopping on URL alone would
+            # truncate a healthy scrape to page 1.
+            if driver.current_url == url_before and new_on_page == 0:
+                logger.info("URL did not change after next click — last page.")
+                break
+            page += 1
 
         df = pd.DataFrame(products).drop_duplicates(subset="Link", keep="first")
         _check_markup_drift(df, cfg.category)

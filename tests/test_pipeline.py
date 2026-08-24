@@ -22,6 +22,7 @@ No network or DB connections required — all tests are pure-unit.
 
 import json
 import os
+import subprocess
 import tempfile
 import time
 import unittest
@@ -371,21 +372,24 @@ class TestLoadCategory(unittest.TestCase):
             f.write(content)
         return path
 
-    def test_skip_missing_file(self):
+    def test_missing_file_raises(self):
         conn = MagicMock()
-        _csvs.load_category(conn, "phone", os.path.join(self.tmp.name, "nope.csv"))
+        with self.assertRaises(FileNotFoundError):
+            _csvs.load_category(conn, "phone", os.path.join(self.tmp.name, "nope.csv"))
         conn.execute.assert_not_called()
 
-    def test_skip_all_na_links(self):
+    def test_all_na_links_raises(self):
         path = self._csv("link,price_eur,product,brand,model\nN/A,299,Test,Samsung,X\n")
         conn = MagicMock()
-        _csvs.load_category(conn, "phone", path)
+        with self.assertRaises(ValueError):
+            _csvs.load_category(conn, "phone", path)
         conn.execute.assert_not_called()
 
-    def test_skip_empty_csv(self):
+    def test_empty_csv_raises(self):
         path = self._csv("link,price_eur,product,brand,model\n")
         conn = MagicMock()
-        _csvs.load_category(conn, "phone", path)
+        with self.assertRaises(ValueError):
+            _csvs.load_category(conn, "phone", path)
         conn.execute.assert_not_called()
 
     def test_executes_two_times_for_valid_row(self):
@@ -842,6 +846,30 @@ class TestCmdAddRemove(unittest.TestCase):
         self.assertEqual(self.tb._wl_read(), [])
 
 
+class TestCmdAnalyze(unittest.TestCase):
+
+    def test_smartwatches_does_not_strip_to_smartwatche(self):
+        import telegram_nim as tn
+        with patch.object(tn, "nim_analyze_category_sync", return_value="ok") as call:
+            self.assertEqual(tn.cmd_analyze("smartwatches"), "ok")
+        call.assert_called_once_with("smartwatch")
+
+    def test_phones_and_tablet_aliases(self):
+        import telegram_nim as tn
+        with patch.object(tn, "nim_analyze_category_sync", return_value="ok") as call:
+            tn.cmd_analyze("phones")
+            tn.cmd_analyze("tablet")
+        self.assertEqual(call.call_args_list[0].args, ("phone",))
+        self.assertEqual(call.call_args_list[1].args, ("tablet",))
+
+    def test_unknown_category_returns_usage(self):
+        import telegram_nim as tn
+        with patch.object(tn, "nim_analyze_category_sync") as call:
+            result = tn.cmd_analyze("cameras")
+        self.assertIn("Usage", result)
+        call.assert_not_called()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 14. update_readme_stats
 # ─────────────────────────────────────────────────────────────────────────────
@@ -966,6 +994,31 @@ class TestCleanReviews(unittest.TestCase):
         self.assertTrue(result.isna().all())
 
 
+class TestRunCleanEmpty(unittest.TestCase):
+
+    def test_empty_raw_csv_exits_nonzero(self):
+        import pandas as pd
+        from clean_common import CleanerConfig, run_clean
+        with tempfile.TemporaryDirectory() as tmp:
+            raw_dir = os.path.join(tmp, "Phones_skroutz")
+            os.makedirs(raw_dir)
+            today = __import__("datetime").date.today().isoformat()
+            pd.DataFrame(columns=["Product", "Price_EUR"]).to_csv(
+                os.path.join(raw_dir, f"skroutz_phones_{today}.csv"), index=False
+            )
+            cfg = CleanerConfig(
+                category="phones",
+                raw_folder="Phones_skroutz",
+                raw_prefixes=("skroutz_phones",),
+                clean_folder="Phones_skroutz_clean",
+                final_columns=("Product", "Price_EUR"),
+            )
+            with patch("clean_common.BASE", tmp):
+                with self.assertRaises(SystemExit) as ctx:
+                    run_clean(cfg)
+            self.assertEqual(ctx.exception.code, 1)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # parse_card against real skroutz markup (tests/fixtures/listing_card_phone.html)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1041,6 +1094,237 @@ class TestParseCardFixture(unittest.TestCase):
 
     def test_specs(self):
         self.assertIn("Κάμερα 50MP", self.row["Specs"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pagination wraparound + chromedriver patcher race + scrape-stage timeout
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _listing_row(i):
+    return {
+        "Product": f"P{i}",
+        "Specs": "s",
+        "Price_EUR": "10.00",
+        "Installments_per_month": "N/A",
+        "Installments_in_total": "N/A",
+        "Rating": "N/A",
+        "Reviews": "N/A",
+        "Link": f"https://www.skroutz.gr/s/{i}/x.html",
+    }
+
+
+class TestCollectNewRows(unittest.TestCase):
+
+    def test_first_page_all_new(self):
+        from scraper_core import _collect_new_rows
+        seen = set()
+        kept, n = _collect_new_rows([_listing_row(1), _listing_row(2)], seen)
+        self.assertEqual(n, 2)
+        self.assertEqual(len(kept), 2)
+        self.assertEqual(seen, {
+            "https://www.skroutz.gr/s/1/x.html",
+            "https://www.skroutz.gr/s/2/x.html",
+        })
+
+    def test_wraparound_page_is_all_duplicates(self):
+        from scraper_core import _collect_new_rows
+        seen = {"https://www.skroutz.gr/s/1/x.html", "https://www.skroutz.gr/s/2/x.html"}
+        kept, n = _collect_new_rows([_listing_row(1), _listing_row(2)], seen)
+        self.assertEqual(n, 0)
+        self.assertEqual(kept, [])
+
+    def test_na_links_kept_but_not_counted_as_progress(self):
+        from scraper_core import _collect_new_rows
+        seen = set()
+        na = _listing_row(1)
+        na["Link"] = "N/A"
+        kept, n = _collect_new_rows([na, _listing_row(2)], seen)
+        self.assertEqual(n, 1)
+        self.assertEqual(len(kept), 2)
+
+
+class TestStartChrome(unittest.TestCase):
+
+    def test_retries_file_exists_then_succeeds(self):
+        import scraper_core
+        driver = MagicMock()
+        with patch.object(scraper_core.uc, "Chrome",
+                          side_effect=[FileExistsError("race"), driver]) as chrome, \
+             patch.object(scraper_core, "_chrome_major", return_value=140), \
+             patch("scraper_core.time.sleep"):
+            self.assertIs(scraper_core._start_chrome(MagicMock()), driver)
+        self.assertEqual(chrome.call_count, 2)
+
+    def test_exhausted_retries_raise(self):
+        import scraper_core
+        with patch.object(scraper_core.uc, "Chrome",
+                          side_effect=FileExistsError("race")), \
+             patch.object(scraper_core, "_chrome_major", return_value=140), \
+             patch("scraper_core.time.sleep"):
+            with self.assertRaises(FileExistsError):
+                scraper_core._start_chrome(MagicMock())
+
+
+class TestScrapePaginationGuard(unittest.TestCase):
+    """scrape() must stop when listing pages wrap, not run until the 2h kill."""
+
+    def _run(self, pages, goto_next=True, max_pages=None):
+        import scraper_core
+        driver = MagicMock()
+        driver.current_url = "https://www.skroutz.gr/c/40/x.html?page=1"
+        call = {"n": 0}
+
+        def wait_cards(_driver):
+            i = min(call["n"], len(pages) - 1)
+            return pages[i]
+
+        def parse_card(card, extract_memory_info=False):
+            return card
+
+        def goto(_driver):
+            call["n"] += 1
+            driver.current_url = f"https://www.skroutz.gr/c/40/x.html?page={call['n'] + 1}"
+            return goto_next
+
+        cfg = scraper_core.ScraperConfig(
+            category="phones", url="https://example.test",
+            folder="out", file_prefix="skroutz_phones",
+        )
+        extra = {}
+        if max_pages is not None:
+            extra["MAX_PAGES"] = max_pages
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(scraper_core, "HERE", tmp), \
+             patch.object(scraper_core, "_start_chrome", return_value=driver), \
+             patch.object(scraper_core, "_load_page"), \
+             patch.object(scraper_core, "_wait_for_cards", side_effect=wait_cards), \
+             patch.object(scraper_core, "parse_card", side_effect=parse_card), \
+             patch.object(scraper_core, "_goto_next_page", side_effect=goto), \
+             patch.object(scraper_core, "MAX_PAGES", extra.get("MAX_PAGES", scraper_core.MAX_PAGES)), \
+             patch("scraper_core.time.sleep"):
+            if max_pages is not None:
+                with self.assertRaises(SystemExit) as ctx:
+                    scraper_core.scrape(cfg)
+                self.assertEqual(ctx.exception.code, 1)
+                return None
+            scraper_core.scrape(cfg)
+            out = os.path.join(tmp, "out", f"skroutz_phones_{__import__('datetime').date.today().isoformat()}.csv")
+            self.assertTrue(os.path.exists(out))
+            import pandas as pd
+            return pd.read_csv(out)
+
+    def test_stops_on_wrapped_duplicate_pages(self):
+        pages = [
+            [_listing_row(1), _listing_row(2)],
+            [_listing_row(3)],
+            [_listing_row(1), _listing_row(2)],
+            [_listing_row(3)],
+            [_listing_row(1)],  # must not be reached
+        ]
+        df = self._run(pages)
+        self.assertEqual(sorted(df["Link"].tolist()), [
+            "https://www.skroutz.gr/s/1/x.html",
+            "https://www.skroutz.gr/s/2/x.html",
+            "https://www.skroutz.gr/s/3/x.html",
+        ])
+
+    def test_max_pages_aborts_without_writing(self):
+        pages = [[_listing_row(i)] for i in range(1, 8)]
+        self._run(pages, max_pages=3)
+
+    def test_same_url_with_new_products_keeps_going(self):
+        import scraper_core
+        driver = MagicMock()
+        driver.current_url = "https://www.skroutz.gr/c/40/x.html"
+        call = {"n": 0}
+        pages = [[_listing_row(i)] for i in range(1, 5)]
+
+        def wait_cards(_driver):
+            i = min(call["n"], len(pages) - 1)
+            return pages[i]
+
+        def goto(_driver):
+            call["n"] += 1
+            return call["n"] < len(pages)
+
+        cfg = scraper_core.ScraperConfig(
+            category="phones", url="https://example.test",
+            folder="out", file_prefix="skroutz_phones",
+        )
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(scraper_core, "HERE", tmp), \
+             patch.object(scraper_core, "_start_chrome", return_value=driver), \
+             patch.object(scraper_core, "_load_page"), \
+             patch.object(scraper_core, "_wait_for_cards", side_effect=wait_cards), \
+             patch.object(scraper_core, "parse_card", side_effect=lambda card, extract_memory_info=False: card), \
+             patch.object(scraper_core, "_goto_next_page", side_effect=goto), \
+             patch("scraper_core.time.sleep"):
+            scraper_core.scrape(cfg)
+            import pandas as pd
+            out = os.path.join(tmp, "out", f"skroutz_phones_{__import__('datetime').date.today().isoformat()}.csv")
+            df = pd.read_csv(out)
+        self.assertEqual(len(df), 4)
+
+
+class TestReapProcesses(unittest.TestCase):
+
+    class _Proc:
+        def __init__(self, wait_s, returncode=0):
+            self.wait_s = wait_s
+            self.returncode = returncode
+            self.args = ["python", "x.py"]
+            self.killed = False
+
+        def wait(self, timeout=None):
+            if timeout is not None and self.wait_s > timeout:
+                raise subprocess.TimeoutExpired(self.args, timeout)
+            return self.returncode
+
+        def kill(self):
+            self.killed = True
+
+    class _Log:
+        def __init__(self):
+            self.lines = []
+            self.closed = False
+
+        def write(self, s):
+            self.lines.append(s)
+
+        def close(self):
+            self.closed = True
+
+    def test_later_process_does_not_get_a_fresh_timeout(self):
+        # Sequential wait(timeout) used to stack: first scraper ate the full
+        # budget, the next one still got another full budget.
+        import importlib
+        mod = importlib.import_module("1scriptToGet4")
+        slow = self._Proc(wait_s=5)
+        later = self._Proc(wait_s=5)
+        logs = [self._Log(), self._Log()]
+        ticks = iter([0.0, 0.0, 5.0])  # deadline=1; later remaining=0
+        with patch.object(mod.time, "monotonic", side_effect=lambda: next(ticks)), \
+             patch.object(mod, "logging", MagicMock()):
+            failed = mod._reap_processes(
+                [("slow", slow, logs[0]), ("later", later, logs[1])],
+                timeout=1,
+            )
+        self.assertTrue(failed)
+        self.assertTrue(slow.killed)
+        self.assertTrue(later.killed)
+        self.assertTrue(logs[0].closed)
+        self.assertTrue(logs[1].closed)
+
+    def test_success_when_all_finish_in_time(self):
+        import importlib
+        mod = importlib.import_module("1scriptToGet4")
+        a, b = self._Proc(0), self._Proc(0)
+        logs = [self._Log(), self._Log()]
+        with patch.object(mod, "logging", MagicMock()):
+            self.assertFalse(mod._reap_processes(
+                [("a", a, logs[0]), ("b", b, logs[1])], timeout=10,
+            ))
+        self.assertFalse(a.killed)
 
 
 if __name__ == "__main__":
