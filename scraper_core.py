@@ -70,6 +70,7 @@ class ScraperConfig:
     folder: str
     file_prefix: str
     extract_memory_info: bool = False
+    min_products: int = MIN_PRODUCTS
 
 
 CONFIGS = {
@@ -79,24 +80,28 @@ CONFIGS = {
         folder="Phones_skroutz",
         file_prefix="skroutz_phones",
         extract_memory_info=True,
+        min_products=400,
     ),
     "laptops": ScraperConfig(
         category="laptops",
         url="https://www.skroutz.gr/c/25/laptop.html",
         folder="Laptops_skroutz",
         file_prefix="skroutz_laptops",
+        min_products=800,
     ),
     "tablets": ScraperConfig(
         category="tablets",
         url="https://www.skroutz.gr/c/1105/tablet.html",
         folder="Tablets_skroutz",
         file_prefix="skroutz_tablets",
+        min_products=150,
     ),
     "smartwatches": ScraperConfig(
         category="smartwatches",
         url="https://www.skroutz.gr/c/1705/Smartwatches.html",
         folder="Smartwatches_skroutz",
         file_prefix="skroutz_Smartwatches",
+        min_products=800,
     ),
 }
 
@@ -438,10 +443,10 @@ def scrape(cfg: ScraperConfig):
             page += 1
 
         df = pd.DataFrame(products).drop_duplicates(subset="Link", keep="first")
-        if len(df) < MIN_PRODUCTS:
+        if len(df) < cfg.min_products:
             logger.error(
                 f"[{cfg.category}] only {len(df)} unique products "
-                f"(min {MIN_PRODUCTS}) — refusing to write a partial scrape"
+                f"(min {cfg.min_products}) — refusing to write a partial scrape"
             )
             sys.exit(1)
         _check_markup_drift(df, cfg.category)

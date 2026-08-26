@@ -610,7 +610,14 @@ def _cmd_help() -> str:
         "/history &lt;name&gt;     — full price timeline for a product\n"
         "/best [category]     — products closest to all-time low\n"
         "/restock             — products that came back after a stock gap\n\n"
-        "<i>Tip: send any skroutz.gr URL and I'll guide you through adding it.</i>\n"
+        + (
+            "<b>AI</b>\n"
+            "/chat &lt;question&gt;    — ask about prices and deals\n"
+            "/analyze [category]  — market brief for a category\n"
+            "/summarize           — daily summary with insights\n\n"
+            if _NIM_AVAILABLE else ""
+        )
+        + "<i>Tip: send any skroutz.gr URL and I'll guide you through adding it.</i>\n"
         "<i>Categories: phones · laptops · smartwatches · tablets</i>"
     )
 
