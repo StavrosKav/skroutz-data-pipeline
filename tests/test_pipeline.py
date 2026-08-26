@@ -1168,7 +1168,7 @@ class TestStartChrome(unittest.TestCase):
 class TestScrapePaginationGuard(unittest.TestCase):
     """scrape() must stop when listing pages wrap, not run until the 2h kill."""
 
-    def _run(self, pages, goto_next=True, max_pages=None):
+    def _run(self, pages, goto_next=True, max_pages=None, min_products=None, expect_exit=False):
         import scraper_core
         driver = MagicMock()
         driver.current_url = "https://www.skroutz.gr/c/40/x.html?page=1"
@@ -1190,9 +1190,8 @@ class TestScrapePaginationGuard(unittest.TestCase):
             category="phones", url="https://example.test",
             folder="out", file_prefix="skroutz_phones",
         )
-        extra = {}
-        if max_pages is not None:
-            extra["MAX_PAGES"] = max_pages
+        min_val = scraper_core.MIN_PRODUCTS if min_products is None else min_products
+        max_val = scraper_core.MAX_PAGES if max_pages is None else max_pages
         with tempfile.TemporaryDirectory() as tmp, \
              patch.object(scraper_core, "HERE", tmp), \
              patch.object(scraper_core, "_start_chrome", return_value=driver), \
@@ -1200,69 +1199,47 @@ class TestScrapePaginationGuard(unittest.TestCase):
              patch.object(scraper_core, "_wait_for_cards", side_effect=wait_cards), \
              patch.object(scraper_core, "parse_card", side_effect=parse_card), \
              patch.object(scraper_core, "_goto_next_page", side_effect=goto), \
-             patch.object(scraper_core, "MAX_PAGES", extra.get("MAX_PAGES", scraper_core.MAX_PAGES)), \
+             patch.object(scraper_core, "_wait_for_page_advance", return_value=True), \
+             patch.object(scraper_core, "MAX_PAGES", max_val), \
+             patch.object(scraper_core, "MIN_PRODUCTS", min_val), \
              patch("scraper_core.time.sleep"):
-            if max_pages is not None:
+            out = os.path.join(tmp, "out", f"skroutz_phones_{__import__('datetime').date.today().isoformat()}.csv")
+            if max_pages is not None or expect_exit:
                 with self.assertRaises(SystemExit) as ctx:
                     scraper_core.scrape(cfg)
                 self.assertEqual(ctx.exception.code, 1)
+                self.assertFalse(os.path.exists(out))
                 return None
             scraper_core.scrape(cfg)
-            out = os.path.join(tmp, "out", f"skroutz_phones_{__import__('datetime').date.today().isoformat()}.csv")
             self.assertTrue(os.path.exists(out))
             import pandas as pd
             return pd.read_csv(out)
 
     def test_stops_on_wrapped_duplicate_pages(self):
-        pages = [
-            [_listing_row(1), _listing_row(2)],
-            [_listing_row(3)],
-            [_listing_row(1), _listing_row(2)],
-            [_listing_row(3)],
-            [_listing_row(1)],  # must not be reached
-        ]
+        def page(start, n=50):
+            return [_listing_row(i) for i in range(start, start + n)]
+        unique = [page(1), page(51), page(101), page(151), page(201)]
+        pages = unique + unique[:2] + unique[:2]
         df = self._run(pages)
-        self.assertEqual(sorted(df["Link"].tolist()), [
-            "https://www.skroutz.gr/s/1/x.html",
-            "https://www.skroutz.gr/s/2/x.html",
-            "https://www.skroutz.gr/s/3/x.html",
-        ])
+        self.assertEqual(len(df), 250)
 
     def test_max_pages_aborts_without_writing(self):
         pages = [[_listing_row(i)] for i in range(1, 8)]
         self._run(pages, max_pages=3)
 
-    def test_same_url_with_new_products_keeps_going(self):
-        import scraper_core
-        driver = MagicMock()
-        driver.current_url = "https://www.skroutz.gr/c/40/x.html"
-        call = {"n": 0}
-        pages = [[_listing_row(i)] for i in range(1, 5)]
-
-        def wait_cards(_driver):
-            i = min(call["n"], len(pages) - 1)
-            return pages[i]
-
-        def goto(_driver):
-            call["n"] += 1
-            return call["n"] < len(pages)
-
-        cfg = scraper_core.ScraperConfig(
-            category="phones", url="https://example.test",
-            folder="out", file_prefix="skroutz_phones",
+    def test_thin_scrape_aborts_without_writing(self):
+        # 2026-08-25: ~54 unique products then Next did not advance.
+        pages = (
+            [[_listing_row(i)] for i in range(1, 55)]
+            + [[_listing_row(1)], [_listing_row(2)], [_listing_row(3)]]
         )
-        with tempfile.TemporaryDirectory() as tmp, \
-             patch.object(scraper_core, "HERE", tmp), \
-             patch.object(scraper_core, "_start_chrome", return_value=driver), \
-             patch.object(scraper_core, "_load_page"), \
-             patch.object(scraper_core, "_wait_for_cards", side_effect=wait_cards), \
-             patch.object(scraper_core, "parse_card", side_effect=lambda card, extract_memory_info=False: card), \
-             patch.object(scraper_core, "_goto_next_page", side_effect=goto), \
-             patch("scraper_core.time.sleep"):
-            scraper_core.scrape(cfg)
-            import pandas as pd
-            out = os.path.join(tmp, "out", f"skroutz_phones_{__import__('datetime').date.today().isoformat()}.csv")
-            df = pd.read_csv(out)
+        self._run(pages, expect_exit=True)
+
+    def test_same_url_with_new_products_keeps_going(self):
+        pages = [[_listing_row(i)] for i in range(1, 5)]
+        df = self._run(pages, min_products=1, goto_next=True)
+        # goto_next True forever would wrap after page 4 into duplicates and
+        # stop via stale; 4 unique products still written because min=1.
         self.assertEqual(len(df), 4)
 
 

@@ -50,12 +50,16 @@ DRIFT_THRESHOLDS = {
     "Price_EUR": (0.80, PRICE_SELECTOR),
 }
 
-# Healthy catalogs are ~9–52 pages. When Skroutz leaves "next" clickable on the
-# last page the loop wraps and re-scrapes forever (2026-08-24: tablets 1,443
-# pages / phones 592, 3h51m, then the 2h kill). Stop on repeated pages; abort
-# if a real catalog somehow exceeds this ceiling.
+# Healthy catalogs are ~9–52 pages / ~450–2,500 unique products. When Skroutz
+# leaves "next" clickable the loop used to wrap forever (2026-08-24: tablets
+# 1,443 pages). Stop on repeated pages; abort if a catalog exceeds this ceiling
+# or is thinner than one listing page (~50) — the 2026-08-25 URL-unchanged
+# stop wrote 54-row CSVs and loaded as "success".
 MAX_PAGES = 200
 MAX_STALE_PAGES = 2
+MIN_PRODUCTS = 200
+PAGE_ADVANCE_SETTLE = 3
+PAGE_ADVANCE_EXTRA = 12
 CHROME_START_ATTEMPTS = 3
 
 
@@ -269,6 +273,38 @@ def _goto_next_page(driver, attempts=3):
     return False
 
 
+def _card_links(driver):
+    """Canonical listing URLs currently on the page — used to detect a real page change."""
+    links = []
+    for card in driver.find_elements(By.CSS_SELECTOR, CARD_SELECTOR):
+        try:
+            href = card.find_element(By.CSS_SELECTOR, NAME_LINK_SELECTOR).get_attribute("href") or ""
+            href = href.split("?")[0]
+            if href and not href.startswith("http"):
+                href = "https://www.skroutz.gr" + href
+            if href:
+                links.append(href)
+        except Exception:
+            continue
+    return links
+
+
+def _wait_for_page_advance(driver, seen_links):
+    """After a next-click, wait until an unseen product link appears.
+
+    Returns True if the listing advanced. A False return is not end-of-catalog
+    by itself — the scrape loop still counts a stale page.
+    """
+    time.sleep(PAGE_ADVANCE_SETTLE)
+    deadline = time.monotonic() + PAGE_ADVANCE_EXTRA
+    while True:
+        if any(link not in seen_links for link in _card_links(driver)):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(1)
+
+
 def _start_chrome(options):
     """Launch Chrome, retrying the undetected-chromedriver patcher race.
 
@@ -371,7 +407,6 @@ def scrape(cfg: ScraperConfig):
                 sys.exit(1)
 
             logger.info(f"Σελίδα {page}…")
-            url_before = driver.current_url
             cards = _wait_for_cards(driver)
             page_rows = [
                 parse_card(card, extract_memory_info=cfg.extract_memory_info)
@@ -395,17 +430,20 @@ def scrape(cfg: ScraperConfig):
             if not _goto_next_page(driver):
                 logger.info("Τέλος σελίδων.")
                 break
-            time.sleep(3)   # wait for the next page to load
-            # Only treat a static URL as "last page" when the click also
-            # produced no new products. Some listing UIs keep the same URL
-            # while the card list updates — stopping on URL alone would
-            # truncate a healthy scrape to page 1.
-            if driver.current_url == url_before and new_on_page == 0:
-                logger.info("URL did not change after next click — last page.")
-                break
+            if not _wait_for_page_advance(driver, seen_links):
+                logger.warning(
+                    f"[{cfg.category}] listing did not advance after next click — "
+                    "will re-read and count as stale if still duplicates"
+                )
             page += 1
 
         df = pd.DataFrame(products).drop_duplicates(subset="Link", keep="first")
+        if len(df) < MIN_PRODUCTS:
+            logger.error(
+                f"[{cfg.category}] only {len(df)} unique products "
+                f"(min {MIN_PRODUCTS}) — refusing to write a partial scrape"
+            )
+            sys.exit(1)
         _check_markup_drift(df, cfg.category)
 
         # Save raw data; date-stamp prevents overwrites and enables historical comparison
