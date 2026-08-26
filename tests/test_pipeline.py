@@ -1186,12 +1186,13 @@ class TestScrapePaginationGuard(unittest.TestCase):
             driver.current_url = f"https://www.skroutz.gr/c/40/x.html?page={call['n'] + 1}"
             return goto_next
 
+        min_val = scraper_core.MIN_PRODUCTS if min_products is None else min_products
+        max_val = scraper_core.MAX_PAGES if max_pages is None else max_pages
         cfg = scraper_core.ScraperConfig(
             category="phones", url="https://example.test",
             folder="out", file_prefix="skroutz_phones",
+            min_products=min_val,
         )
-        min_val = scraper_core.MIN_PRODUCTS if min_products is None else min_products
-        max_val = scraper_core.MAX_PAGES if max_pages is None else max_pages
         with tempfile.TemporaryDirectory() as tmp, \
              patch.object(scraper_core, "HERE", tmp), \
              patch.object(scraper_core, "_start_chrome", return_value=driver), \
@@ -1226,6 +1227,13 @@ class TestScrapePaginationGuard(unittest.TestCase):
     def test_max_pages_aborts_without_writing(self):
         pages = [[_listing_row(i)] for i in range(1, 8)]
         self._run(pages, max_pages=3)
+
+    def test_category_floors_catch_a_single_listing_page(self):
+        from scraper_core import CONFIGS
+        for name, cfg in CONFIGS.items():
+            with self.subTest(category=name):
+                self.assertGreaterEqual(cfg.min_products, 100)
+                self.assertLess(cfg.min_products, 2000)
 
     def test_thin_scrape_aborts_without_writing(self):
         # 2026-08-25: ~54 unique products then Next did not advance.
