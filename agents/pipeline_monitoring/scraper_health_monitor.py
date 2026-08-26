@@ -26,7 +26,7 @@ class ScraperHealthMonitor(BaseAgent):
             "categories", ["phones", "laptops", "smartwatches", "tablets"]
         )
         self.min_files = self.config.get("min_files", 1)
-        self.min_rows = self.config.get("min_rows", 10)
+        self.min_rows = self.config.get("min_rows", 200)
         self.max_age_hours = self.config.get("max_age_hours", 25)
 
     def process(self, input_data: dict) -> dict:

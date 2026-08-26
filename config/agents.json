@@ -1,7 +1,7 @@
 {
   "scraper_health_monitor": {
     "max_age_hours": 25,
-    "min_rows": 10,
+    "min_rows": 200,
     "categories": [
       "phones",
       "laptops",
