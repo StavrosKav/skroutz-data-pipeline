@@ -935,6 +935,7 @@ def run_stage(label, script, fatal=True):
 
 
 if __name__ == "__main__":
+    os.environ.setdefault("PIPELINE_DATE", datetime.date.today().isoformat())
     if not _acquire_lock():
         logger.warning("Another pipeline instance is already running — exiting.")
         _notif.tg_send(

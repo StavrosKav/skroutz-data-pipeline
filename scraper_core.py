@@ -249,31 +249,67 @@ def _wait_for_cards(driver, attempts=3):
             driver.refresh()
 
 
+def _run_date() -> str:
+    return os.environ.get("PIPELINE_DATE") or datetime.date.today().isoformat()
+
+
+def _dismiss_overlays(driver):
+    """Cookie banners intercept Next clicks (08:00 thin scrapes: page 1 forever)."""
+    for sel in (
+        "#onetrust-accept-btn-handler",
+        "#didomi-notice-agree-button",
+        "button[data-testid='cookie-accept']",
+    ):
+        els = driver.find_elements(By.CSS_SELECTOR, sel)
+        if not isinstance(els, list):
+            continue
+        for el in els:
+            try:
+                el.click()
+                time.sleep(0.4)
+                return
+            except WebDriverException:
+                continue
+
+
+def _absolute_href(href: str) -> str:
+    href = (href or "").strip()
+    if not href or href.startswith("javascript:"):
+        return ""
+    if href.startswith("http"):
+        return href
+    return "https://www.skroutz.gr" + href
+
+
 def _goto_next_page(driver, attempts=3):
-    """Click through to the next listing page. Returns False on the last page."""
+    """Advance via the Next link href. Click is intercepted by overlays; GET is not."""
     for attempt in range(1, attempts + 1):
         try:
             next_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, NEXT_SELECTOR))
+                EC.presence_of_element_located((By.CSS_SELECTOR, NEXT_SELECTOR))
             )
         except TimeoutException:
-            # Absent from the DOM entirely → genuinely the last page.
             if not driver.find_elements(By.CSS_SELECTOR, NEXT_SELECTOR):
                 return False
             if attempt == attempts:
-                logger.warning("Next button present but never clickable — treating as last page.")
+                logger.warning("Next button present but never in the DOM — treating as last page.")
                 return False
-            logger.warning(f"Next button not clickable (attempt {attempt}/{attempts}) — retrying")
+            logger.warning(f"Next button missing (attempt {attempt}/{attempts}) — retrying")
             continue
+        href = _absolute_href(next_btn.get_attribute("href"))
         try:
+            if href:
+                time.sleep(1.2)
+                _load_page(driver, href)
+                return True
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", next_btn)
-            time.sleep(1.2)   # pause between page clicks — keeps request rate near human browsing speed
-            next_btn.click()
+            time.sleep(1.2)
+            driver.execute_script("arguments[0].click();", next_btn)
             return True
         except WebDriverException as e:
             if attempt == attempts:
                 raise
-            logger.warning(f"Next-page click failed (attempt {attempt}/{attempts}): {e.__class__.__name__} — retrying")
+            logger.warning(f"Next-page advance failed (attempt {attempt}/{attempts}): {e.__class__.__name__} — retrying")
             time.sleep(3)
     return False
 
@@ -398,6 +434,7 @@ def scrape(cfg: ScraperConfig):
     driver = _start_chrome(options)
     try:
         _load_page(driver, cfg.url)
+        _dismiss_overlays(driver)
 
         products = []
         seen_links: set[str] = set()
@@ -454,7 +491,7 @@ def scrape(cfg: ScraperConfig):
         # Save raw data; date-stamp prevents overwrites and enables historical comparison
         output_folder = os.path.join(HERE, cfg.folder)
         os.makedirs(output_folder, exist_ok=True)
-        today = datetime.date.today().isoformat()
+        today = _run_date()
         full_path = os.path.join(output_folder, f"{cfg.file_prefix}_{today}.csv")
         tmp_path = full_path + ".tmp"
         df.to_csv(tmp_path, index=False, encoding="utf-8-sig")   # utf-8-sig for Excel compatibility with Greek text
