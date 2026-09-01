@@ -1235,6 +1235,25 @@ class TestScrapePaginationGuard(unittest.TestCase):
                 self.assertGreaterEqual(cfg.min_products, 100)
                 self.assertLess(cfg.min_products, 2000)
 
+    def test_goto_next_follows_href_instead_of_click(self):
+        import scraper_core
+        driver = MagicMock()
+        btn = MagicMock()
+        btn.get_attribute.return_value = "/c/40/x.html?page=2"
+        with patch("scraper_core.WebDriverWait") as wait, \
+             patch.object(scraper_core, "_load_page") as load, \
+             patch("scraper_core.time.sleep"):
+            wait.return_value.until.return_value = btn
+            self.assertTrue(scraper_core._goto_next_page(driver))
+        load.assert_called_once()
+        self.assertIn("page=2", load.call_args[0][1])
+        btn.click.assert_not_called()
+
+    def test_run_date_honours_pipeline_date_env(self):
+        import scraper_core
+        with patch.dict(os.environ, {"PIPELINE_DATE": "2026-08-31"}):
+            self.assertEqual(scraper_core._run_date(), "2026-08-31")
+
     def test_thin_scrape_aborts_without_writing(self):
         # 2026-08-25: ~54 unique products then Next did not advance.
         pages = (

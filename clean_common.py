@@ -128,8 +128,12 @@ def atomic_to_csv(df, path):
     os.replace(tmp, path)   # atomic: never leave a half-written CSV
 
 
+def _run_date() -> str:
+    return os.environ.get("PIPELINE_DATE") or datetime.date.today().isoformat()
+
+
 def run_clean(cfg: CleanerConfig):
-    today = datetime.date.today().isoformat()
+    today = _run_date()
 
     file_path = os.path.join(BASE, cfg.raw_folder, f"{cfg.raw_prefixes[0]}_{today}.csv")
     for prefix in cfg.raw_prefixes:

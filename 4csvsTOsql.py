@@ -87,7 +87,7 @@ def load_category(conn, category, file_path):
     category  : label string ('phone', 'laptop', 'smartwatch', 'tablet')
     file_path : path to today's cleaned CSV for this category
     """
-    today = datetime.date.today().isoformat()
+    today = os.environ.get("PIPELINE_DATE") or datetime.date.today().isoformat()
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"cleaned CSV not found: {file_path}")
 
@@ -204,7 +204,7 @@ def load_category(conn, category, file_path):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    today = datetime.date.today().isoformat()
+    today = os.environ.get("PIPELINE_DATE") or datetime.date.today().isoformat()
     base  = os.path.join(BASE, 'Clean')
     CATEGORY_FILES = [
         ("phone",      os.path.join(base, "Phones_skroutz_clean",       f"clean_{today}.csv")),
