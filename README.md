@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml)
 <!-- STATS:BADGES:START -->
-![Products](https://img.shields.io/badge/Products-24%2C532-blue?style=flat-square)
-![Snapshots](https://img.shields.io/badge/Snapshots-849k-green?style=flat-square)
+![Products](https://img.shields.io/badge/Products-24%2C606-blue?style=flat-square)
+![Snapshots](https://img.shields.io/badge/Snapshots-855k-green?style=flat-square)
 <!-- STATS:BADGES:END -->
 ![Categories](https://img.shields.io/badge/Categories-4-orange?style=flat-square)
 ![Daily rows](https://img.shields.io/badge/Daily_rows-~7k-purple?style=flat-square)
@@ -105,13 +105,13 @@ erDiagram
 <!-- STATS:TABLE:START -->
 | Category | Products | Snapshots | Avg Price | Range | Brands |
 |---|---|---|---|---|---|
-| Laptop | 9,407 | 296,914 | €1,671 | €52–€11,863 | 47 |
-| Phone | 6,331 | 162,420 | €336 | €9–€3,839 | 136 |
-| Smartwatch | 6,838 | 330,870 | €91 | €4–€3,399 | — |
-| Tablet | 1,956 | 58,335 | €556 | €31–€6,184 | 100 |
-| **Total** | **24,532** | **848,539** | | | |
+| Laptop | 9,454 | 299,293 | €1,672 | €52–€11,863 | 47 |
+| Phone | 6,347 | 163,543 | €336 | €9–€3,839 | 136 |
+| Smartwatch | 6,847 | 333,457 | €91 | €4–€3,399 | — |
+| Tablet | 1,958 | 58,769 | €556 | €31–€6,628 | 100 |
+| **Total** | **24,606** | **855,062** | | | |
 
-Updated daily via Task Scheduler · last pipeline run: 2026-10-02
+Updated daily via Task Scheduler · last pipeline run: 2026-10-03
 <!-- STATS:TABLE:END -->
 
 **Coverage:** Two-week baseline in June 2025, then unattended daily runs from 2026-05-25 (live product and snapshot counts are in the table above).
