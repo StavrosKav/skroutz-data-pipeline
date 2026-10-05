@@ -19,6 +19,10 @@ param()
 
 $ErrorActionPreference = "Stop"
 
+# Run scraper Chrome windows off-screen so the scheduled run never covers the desktop
+# (inherited by run_pipeline.py and its scraper subprocesses; see scraper_core.py).
+$env:SKROUTZ_OFFSCREEN = '1'
+
 $Project = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Python  = Join-Path $Project ".venv\Scripts\python.exe"
 $Script  = Join-Path $Project "run_pipeline.py"

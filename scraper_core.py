@@ -16,6 +16,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
+try:
+    from selenium.common.exceptions import NoSuchDriverException
+except ImportError:  # selenium < 4.10
+    NoSuchDriverException = WebDriverException
 from dataclasses import dataclass
 import pandas as pd
 import time
@@ -26,6 +30,11 @@ import os
 import sys
 import logging
 import subprocess
+import tempfile
+try:
+    import msvcrt
+except ImportError:  # non-Windows (tests on CI)
+    msvcrt = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -61,6 +70,19 @@ MIN_PRODUCTS = 200
 PAGE_ADVANCE_SETTLE = 3
 PAGE_ADVANCE_EXTRA = 12
 CHROME_START_ATTEMPTS = 3
+# Cross-process lock so the 4 parallel scrapers patch chromedriver.exe and
+# launch Chrome one at a time (2026-10-04: sibling repatch deleted the exe
+# mid-start -> NoSuchDriverException). Timeout prevents deadlock.
+CHROME_START_LOCK = os.path.join(tempfile.gettempdir(), "skroutz_chrome_start.lock")
+CHROME_START_LOCK_TIMEOUT = 180
+# Keep Chrome working when its window is unfocused/occluded/behind other apps.
+BACKGROUND_CHROME_ARGS = (
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling",
+)
+_CURRENT_CATEGORY = "unknown"  # set by scrape(); used for debug artifact names
 
 
 @dataclass(frozen=True)
@@ -235,6 +257,41 @@ def _load_page(driver, url, attempts=3, backoff=10):
             time.sleep(backoff * attempt)
 
 
+def _save_debug_artifacts(driver, category=None):
+    """Screenshot + page HTML into logs/ so a 'no cards' failure shows what loaded."""
+    try:
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        base = os.path.join(HERE, "logs", f"nocards_{category or _CURRENT_CATEGORY}_{stamp}")
+        os.makedirs(os.path.dirname(base), exist_ok=True)
+        try:
+            driver.save_screenshot(base + ".png")
+        except Exception as e:
+            logger.warning(f"debug screenshot failed: {e}")
+        with open(base + ".html", "w", encoding="utf-8") as f:
+            f.write(f"<!-- url: {getattr(driver, 'current_url', '?')} -->\n")
+            f.write(driver.page_source or "")
+        logger.error(f"No product cards - saved {base}.png/.html")
+    except Exception as e:
+        logger.warning(f"could not save debug artifacts: {e}")
+
+
+def _lazy_load_nudge(driver):
+    """Cheap last try: scroll to trigger lazy-loaded listings, then re-check."""
+    try:
+        driver.execute_script(
+            "window.scrollTo(0, document.body.scrollHeight);"
+            "window.dispatchEvent(new Event('scroll'));"
+        )
+        time.sleep(2)
+        driver.execute_script("window.scrollTo(0, 0);")
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, CARD_SELECTOR))
+        )
+        return driver.find_elements(By.CSS_SELECTOR, CARD_SELECTOR)
+    except Exception:
+        return None
+
+
 def _wait_for_cards(driver, attempts=3):
     for attempt in range(1, attempts + 1):
         try:
@@ -244,6 +301,11 @@ def _wait_for_cards(driver, attempts=3):
             return driver.find_elements(By.CSS_SELECTOR, CARD_SELECTOR)
         except TimeoutException:
             if attempt == attempts:
+                cards = _lazy_load_nudge(driver)
+                if cards:
+                    logger.warning("Product cards appeared after lazy-load scroll nudge")
+                    return cards
+                _save_debug_artifacts(driver)
                 raise
             logger.warning(f"No product cards after 15s (attempt {attempt}/{attempts}) — refreshing")
             driver.refresh()
@@ -346,6 +408,47 @@ def _wait_for_page_advance(driver, seen_links):
         time.sleep(1)
 
 
+class _chrome_start_lock:
+    """Cross-process mutex (msvcrt byte lock on a file in %TEMP%), held until
+    uc.Chrome() returns. Gives up after CHROME_START_LOCK_TIMEOUT and proceeds
+    unlocked (the retry loop still covers the race), so it can never deadlock.
+    The OS releases the lock automatically if the holder process dies."""
+
+    def __enter__(self):
+        self.fh = None
+        if msvcrt is None:
+            return self
+        deadline = time.monotonic() + CHROME_START_LOCK_TIMEOUT
+        try:
+            fh = open(CHROME_START_LOCK, "a+b")
+        except OSError as e:
+            logger.warning(f"chrome start lock unavailable ({e}) - starting unlocked")
+            return self
+        while True:
+            try:
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                self.fh = fh
+                return self
+            except OSError:
+                if time.monotonic() >= deadline:
+                    logger.warning("chrome start lock timeout - starting unlocked")
+                    fh.close()
+                    return self
+                time.sleep(0.5)
+
+    def __exit__(self, *exc):
+        if self.fh is not None:
+            try:
+                self.fh.seek(0)
+                msvcrt.locking(self.fh.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+            self.fh.close()
+            self.fh = None
+        return False
+
+
 def _start_chrome(options):
     """Launch Chrome, retrying the undetected-chromedriver patcher race.
 
@@ -356,8 +459,9 @@ def _start_chrome(options):
     last_err = None
     for attempt in range(1, CHROME_START_ATTEMPTS + 1):
         try:
-            return uc.Chrome(options=options, version_main=_chrome_major() or None)
-        except (FileExistsError, PermissionError) as e:
+            with _chrome_start_lock():
+                return uc.Chrome(options=options, version_main=_chrome_major() or None)
+        except (FileExistsError, PermissionError, NoSuchDriverException, OSError) as e:
             last_err = e
             logger.warning(
                 f"chromedriver patch race (attempt {attempt}/{CHROME_START_ATTEMPTS}): "
@@ -428,8 +532,17 @@ def scrape(cfg: ScraperConfig):
     )
 
     # --headless is intentionally omitted — headless Chrome is refused by the site
+    global _CURRENT_CATEGORY
+    _CURRENT_CATEGORY = cfg.category
     options = uc.ChromeOptions()
     options.add_argument("--disable-gpu")
+    for arg in BACKGROUND_CHROME_ARGS:
+        options.add_argument(arg)
+    # Opt-in: SKROUTZ_OFFSCREEN=1 parks the window off-screen at a desktop size
+    # (normal layout, never steals the screen). Default keeps it visible.
+    if os.environ.get("SKROUTZ_OFFSCREEN") == "1":
+        options.add_argument("--window-position=-2400,0")
+        options.add_argument("--window-size=1400,1000")
 
     driver = _start_chrome(options)
     try:
