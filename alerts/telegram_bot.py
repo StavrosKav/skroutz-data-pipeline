@@ -39,13 +39,13 @@ import time
 import urllib.error
 import urllib.request
 
-from db import get_engine
+from core.db import get_engine
 from dotenv import load_dotenv
 from sqlalchemy import text
 
 # Optional NIM-powered commands (requires NIM_API_KEY in .env)
 try:
-    from telegram_nim import register_nim_commands
+    from alerts.telegram_nim import register_nim_commands
     _NIM_AVAILABLE = True
 except ImportError:
     _NIM_AVAILABLE = False

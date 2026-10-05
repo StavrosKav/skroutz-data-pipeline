@@ -29,9 +29,9 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import importlib as _imp
-from Data_Phone import extract_ram_storage
+from etl.clean_phones import extract_ram_storage
 
-_csvs  = _imp.import_module('4csvsTOsql')
+_csvs  = _imp.import_module('etl.load_postgres')
 _val   = _csvs._val
 _int   = _csvs._int
 _float = _csvs._float
@@ -43,7 +43,7 @@ _float = _csvs._float
 
 # All four cleaner entry points re-export clean_price from clean_common; every
 # case runs against each module so a broken re-export fails the suite.
-CLEANER_MODULES = ("Data_Phone", "Data_Laptops", "Data_Tablets", "Data_Smartwatches")
+CLEANER_MODULES = ("etl.clean_phones", "etl.clean_laptops", "etl.clean_tablets", "etl.clean_smartwatches")
 
 
 class TestCleanPrice(unittest.TestCase):
@@ -190,46 +190,46 @@ class TestNotificationsDedup(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        import notifications as n
+        import alerts.notifications as n
         self._orig_base = n.BASE
         n.BASE = self.tmp.name
         os.makedirs(os.path.join(self.tmp.name, "logs"), exist_ok=True)
 
     def tearDown(self):
-        import notifications as n
+        import alerts.notifications as n
         n.BASE = self._orig_base
         self.tmp.cleanup()
 
     def test_not_sent_initially(self):
-        import notifications as n
+        import alerts.notifications as n
         self.assertFalse(n._already_sent("drops"))
 
     def test_mark_then_already_sent(self):
-        import notifications as n
+        import alerts.notifications as n
         n._mark_sent("drops")
         self.assertTrue(n._already_sent("drops"))
 
     def test_different_keys_independent(self):
-        import notifications as n
+        import alerts.notifications as n
         n._mark_sent("drops")
         self.assertFalse(n._already_sent("watchlist:https://example.com"))
 
     def test_multiple_marks_accumulate(self):
-        import notifications as n
+        import alerts.notifications as n
         n._mark_sent("drops")
         n._mark_sent("disappeared")
         self.assertTrue(n._already_sent("drops"))
         self.assertTrue(n._already_sent("disappeared"))
 
     def test_mark_sent_idempotent(self):
-        import notifications as n
+        import alerts.notifications as n
         n._mark_sent("drops")
         n._mark_sent("drops")
         self.assertTrue(n._already_sent("drops"))
 
     def test_tg_drops_skipped_when_already_sent(self):
         """tg_drops returns False without sending when already marked."""
-        import notifications as n
+        import alerts.notifications as n
         n._mark_sent("drops")
         # Pass fake rows with the expected attrs — function returns False immediately
         result = n.tg_drops([object()])
@@ -238,7 +238,7 @@ class TestNotificationsDedup(unittest.TestCase):
     def test_corrupt_dedup_file_treated_as_empty(self):
         """A truncated/invalid JSON file must not make _already_sent crash or
         permanently return True/False for everything — it resets to empty."""
-        import notifications as n
+        import alerts.notifications as n
         with open(n._sent_file(), "w", encoding="utf-8") as f:
             f.write("{not valid json")
         self.assertFalse(n._already_sent("drops"))
@@ -246,7 +246,7 @@ class TestNotificationsDedup(unittest.TestCase):
     def test_mark_sent_recovers_from_corrupt_file(self):
         """_mark_sent must still succeed (and self-heal the file) even when
         the existing dedup file on disk is corrupt."""
-        import notifications as n
+        import alerts.notifications as n
         with open(n._sent_file(), "w", encoding="utf-8") as f:
             f.write("{not valid json")
         n._mark_sent("drops")
@@ -255,7 +255,7 @@ class TestNotificationsDedup(unittest.TestCase):
             json.load(f)  # must be valid JSON now
 
     def test_mark_sent_write_is_atomic_no_tmp_left_behind(self):
-        import notifications as n
+        import alerts.notifications as n
         n._mark_sent("drops")
         self.assertFalse(os.path.exists(n._sent_file() + ".tmp"))
 
@@ -268,17 +268,17 @@ class TestWatchlistAtomicWrite(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         self._orig_path = tb._WL_PATH
         tb._WL_PATH = os.path.join(self.tmp.name, "watchlist.json")
 
     def tearDown(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         tb._WL_PATH = self._orig_path
         self.tmp.cleanup()
 
     def test_roundtrip(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         items = [{"url": "https://www.skroutz.gr/s/123/test.html", "label": "Test", "threshold_eur": 299.0}]
         tb._wl_write(items)
         result = tb._wl_read()
@@ -287,27 +287,27 @@ class TestWatchlistAtomicWrite(unittest.TestCase):
         self.assertAlmostEqual(result[0]["threshold_eur"], 299.0)
 
     def test_empty_list(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         tb._wl_write([])
         self.assertEqual(tb._wl_read(), [])
 
     def test_no_tmp_file_after_write(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         tb._wl_write([{"url": "https://x.gr/s/1/a.html", "label": "X", "threshold_eur": 100.0}])
         self.assertFalse(os.path.exists(tb._WL_PATH + ".tmp"))
 
     def test_missing_file_returns_empty(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         self.assertEqual(tb._wl_read(), [])
 
     def test_unicode_roundtrip(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         items = [{"url": "https://x.gr/s/1/a.html", "label": "Κινητό Τηλέφωνο", "threshold_eur": 250.0}]
         tb._wl_write(items)
         self.assertEqual(tb._wl_read()[0]["label"], "Κινητό Τηλέφωνο")
 
     def test_url_dedup_update(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         url = "https://www.skroutz.gr/s/123/test.html"
         tb._wl_write([{"url": url, "label": "Test", "threshold_eur": 299.0}])
         result = tb._do_add(url, 250.0)
@@ -317,7 +317,7 @@ class TestWatchlistAtomicWrite(unittest.TestCase):
         self.assertAlmostEqual(items[0]["threshold_eur"], 250.0)
 
     def test_multiple_writes_are_independent(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         tb._wl_write([{"url": "https://a.gr/s/1/x.html", "label": "A", "threshold_eur": 100.0}])
         tb._wl_write([{"url": "https://b.gr/s/2/y.html", "label": "B", "threshold_eur": 200.0}])
         result = tb._wl_read()
@@ -431,38 +431,38 @@ class TestCmdFind(unittest.TestCase):
     from unittest.mock import patch, MagicMock
 
     def test_empty_args_returns_usage(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         result = tb._cmd_find("")
         self.assertIn("Usage:", result)
 
     def test_whitespace_args_returns_usage(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         result = tb._cmd_find("   ")
         self.assertIn("Usage:", result)
 
     def test_db_error_returns_error_string(self):
         from unittest.mock import patch
-        import telegram_bot as tb
-        with patch("telegram_bot.get_engine", side_effect=Exception("connection refused")):
+        import alerts.telegram_bot as tb
+        with patch("alerts.telegram_bot.get_engine", side_effect=Exception("connection refused")):
             result = tb._cmd_find("galaxy s25")
         self.assertIn("Backend unavailable", result)
         self.assertNotIn("connection refused", result)
 
     def test_no_results_message(self):
         from unittest.mock import patch, MagicMock
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         mock_engine = MagicMock()
         mock_conn = MagicMock()
         mock_engine.connect.return_value.__enter__.return_value = mock_conn
         mock_engine.connect.return_value.__exit__.return_value = False
         mock_conn.execute.return_value.fetchall.return_value = []
-        with patch("telegram_bot.get_engine", return_value=mock_engine):
+        with patch("alerts.telegram_bot.get_engine", return_value=mock_engine):
             result = tb._cmd_find("nonexistent xyz abc")
         self.assertIn("No products found", result)
 
     def test_results_contain_brand_and_price(self):
         from unittest.mock import patch, MagicMock
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         mock_engine = MagicMock()
         mock_conn = MagicMock()
         mock_engine.connect.return_value.__enter__.return_value = mock_conn
@@ -475,7 +475,7 @@ class TestCmdFind(unittest.TestCase):
         row.all_time_low = 750.0
         row.pct_above_atl = 6.5
         mock_conn.execute.return_value.fetchall.return_value = [row]
-        with patch("telegram_bot.get_engine", return_value=mock_engine):
+        with patch("alerts.telegram_bot.get_engine", return_value=mock_engine):
             result = tb._cmd_find("galaxy s25")
         self.assertIn("Samsung", result)
         self.assertIn("799€", result)
@@ -488,32 +488,32 @@ class TestCmdFind(unittest.TestCase):
 class TestCmdHistory(unittest.TestCase):
 
     def test_empty_args_returns_usage(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         result = tb._cmd_history("")
         self.assertIn("Usage:", result)
 
     def test_whitespace_args_returns_usage(self):
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         result = tb._cmd_history("   ")
         self.assertIn("Usage:", result)
 
     def test_db_error_returns_error_string(self):
         from unittest.mock import patch
-        import telegram_bot as tb
-        with patch("telegram_bot.get_engine", side_effect=Exception("timeout")):
+        import alerts.telegram_bot as tb
+        with patch("alerts.telegram_bot.get_engine", side_effect=Exception("timeout")):
             result = tb._cmd_history("iphone 16")
         self.assertIn("Backend unavailable", result)
         self.assertNotIn("timeout", result)
 
     def test_no_product_found(self):
         from unittest.mock import patch, MagicMock
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         mock_engine = MagicMock()
         mock_conn = MagicMock()
         mock_engine.connect.return_value.__enter__.return_value = mock_conn
         mock_engine.connect.return_value.__exit__.return_value = False
         mock_conn.execute.return_value.fetchone.return_value = None
-        with patch("telegram_bot.get_engine", return_value=mock_engine):
+        with patch("alerts.telegram_bot.get_engine", return_value=mock_engine):
             result = tb._cmd_history("nonexistent xyz abc")
         self.assertIn("No product found", result)
 
@@ -751,27 +751,27 @@ class TestTgSend(unittest.TestCase):
         return cm
 
     def test_no_token_returns_false_without_network(self):
-        import notifications as nf
+        import alerts.notifications as nf
         with patch.object(nf, "_TOKEN", ""), \
              patch("urllib.request.urlopen") as mock_open:
             self.assertFalse(nf.tg_send("hello"))
         mock_open.assert_not_called()
 
     def test_http_200_returns_true(self):
-        import notifications as nf
+        import alerts.notifications as nf
         with patch.object(nf, "_TOKEN", "t"), patch.object(nf, "_CHAT_ID", "c"), \
              patch("urllib.request.urlopen", return_value=self._resp_cm(200)):
             self.assertTrue(nf.tg_send("hello"))
 
     def test_http_error_status_returns_false_no_retry(self):
-        import notifications as nf
+        import alerts.notifications as nf
         with patch.object(nf, "_TOKEN", "t"), patch.object(nf, "_CHAT_ID", "c"), \
              patch("urllib.request.urlopen", return_value=self._resp_cm(500)) as mock_open:
             self.assertFalse(nf.tg_send("hello"))
         self.assertEqual(mock_open.call_count, 1)
 
     def test_transient_error_retries_once_then_succeeds(self):
-        import notifications as nf
+        import alerts.notifications as nf
         import urllib.error
         with patch.object(nf, "_TOKEN", "t"), patch.object(nf, "_CHAT_ID", "c"), \
              patch("urllib.request.urlopen",
@@ -781,7 +781,7 @@ class TestTgSend(unittest.TestCase):
         self.assertEqual(mock_open.call_count, 2)
 
     def test_both_attempts_fail_returns_false(self):
-        import notifications as nf
+        import alerts.notifications as nf
         import urllib.error
         with patch.object(nf, "_TOKEN", "t"), patch.object(nf, "_CHAT_ID", "c"), \
              patch("urllib.request.urlopen",
@@ -799,7 +799,7 @@ class TestCmdAddRemove(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        import telegram_bot as tb
+        import alerts.telegram_bot as tb
         self.tb = tb
         self._orig_path = tb._WL_PATH
         tb._WL_PATH = os.path.join(self.tmp.name, "watchlist.json")
@@ -849,13 +849,13 @@ class TestCmdAddRemove(unittest.TestCase):
 class TestCmdAnalyze(unittest.TestCase):
 
     def test_smartwatches_does_not_strip_to_smartwatche(self):
-        import telegram_nim as tn
+        import alerts.telegram_nim as tn
         with patch.object(tn, "nim_analyze_category_sync", return_value="ok") as call:
             self.assertEqual(tn.cmd_analyze("smartwatches"), "ok")
         call.assert_called_once_with("smartwatch")
 
     def test_phones_and_tablet_aliases(self):
-        import telegram_nim as tn
+        import alerts.telegram_nim as tn
         with patch.object(tn, "nim_analyze_category_sync", return_value="ok") as call:
             tn.cmd_analyze("phones")
             tn.cmd_analyze("tablet")
@@ -863,7 +863,7 @@ class TestCmdAnalyze(unittest.TestCase):
         self.assertEqual(call.call_args_list[1].args, ("tablet",))
 
     def test_unknown_category_returns_usage(self):
-        import telegram_nim as tn
+        import alerts.telegram_nim as tn
         with patch.object(tn, "nim_analyze_category_sync") as call:
             result = tn.cmd_analyze("cameras")
         self.assertIn("Usage", result)
@@ -976,7 +976,7 @@ class TestCleanReviews(unittest.TestCase):
 
     def _clean(self, values):
         import pandas as pd
-        from clean_common import clean_reviews
+        from etl.clean_common import clean_reviews
         return clean_reviews(pd.Series(values))
 
     def test_plain_counts(self):
@@ -998,7 +998,7 @@ class TestRunCleanEmpty(unittest.TestCase):
 
     def test_empty_raw_csv_exits_nonzero(self):
         import pandas as pd
-        from clean_common import CleanerConfig, run_clean
+        from etl.clean_common import CleanerConfig, run_clean
         with tempfile.TemporaryDirectory() as tmp:
             raw_dir = os.path.join(tmp, "Phones_skroutz")
             os.makedirs(raw_dir)
@@ -1013,7 +1013,7 @@ class TestRunCleanEmpty(unittest.TestCase):
                 clean_folder="Phones_skroutz_clean",
                 final_columns=("Product", "Price_EUR"),
             )
-            with patch("clean_common.BASE", tmp):
+            with patch("etl.clean_common.BASE", tmp):
                 with self.assertRaises(SystemExit) as ctx:
                     run_clean(cfg)
             self.assertEqual(ctx.exception.code, 1)
@@ -1063,7 +1063,7 @@ class TestParseCardFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import lxml.html
-        from scraper_core import parse_card
+        from scrapers.scraper_core import parse_card
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "fixtures", "listing_card_phone.html")
         with open(path, encoding="utf-8") as f:
@@ -1116,7 +1116,7 @@ def _listing_row(i):
 class TestCollectNewRows(unittest.TestCase):
 
     def test_first_page_all_new(self):
-        from scraper_core import _collect_new_rows
+        from scrapers.scraper_core import _collect_new_rows
         seen = set()
         kept, n = _collect_new_rows([_listing_row(1), _listing_row(2)], seen)
         self.assertEqual(n, 2)
@@ -1127,14 +1127,14 @@ class TestCollectNewRows(unittest.TestCase):
         })
 
     def test_wraparound_page_is_all_duplicates(self):
-        from scraper_core import _collect_new_rows
+        from scrapers.scraper_core import _collect_new_rows
         seen = {"https://www.skroutz.gr/s/1/x.html", "https://www.skroutz.gr/s/2/x.html"}
         kept, n = _collect_new_rows([_listing_row(1), _listing_row(2)], seen)
         self.assertEqual(n, 0)
         self.assertEqual(kept, [])
 
     def test_na_links_kept_but_not_counted_as_progress(self):
-        from scraper_core import _collect_new_rows
+        from scrapers.scraper_core import _collect_new_rows
         seen = set()
         na = _listing_row(1)
         na["Link"] = "N/A"
@@ -1146,21 +1146,21 @@ class TestCollectNewRows(unittest.TestCase):
 class TestStartChrome(unittest.TestCase):
 
     def test_retries_file_exists_then_succeeds(self):
-        import scraper_core
+        import scrapers.scraper_core as scraper_core
         driver = MagicMock()
         with patch.object(scraper_core.uc, "Chrome",
                           side_effect=[FileExistsError("race"), driver]) as chrome, \
              patch.object(scraper_core, "_chrome_major", return_value=140), \
-             patch("scraper_core.time.sleep"):
+             patch("scrapers.scraper_core.time.sleep"):
             self.assertIs(scraper_core._start_chrome(MagicMock()), driver)
         self.assertEqual(chrome.call_count, 2)
 
     def test_exhausted_retries_raise(self):
-        import scraper_core
+        import scrapers.scraper_core as scraper_core
         with patch.object(scraper_core.uc, "Chrome",
                           side_effect=FileExistsError("race")), \
              patch.object(scraper_core, "_chrome_major", return_value=140), \
-             patch("scraper_core.time.sleep"):
+             patch("scrapers.scraper_core.time.sleep"):
             with self.assertRaises(FileExistsError):
                 scraper_core._start_chrome(MagicMock())
 
@@ -1169,7 +1169,7 @@ class TestScrapePaginationGuard(unittest.TestCase):
     """scrape() must stop when listing pages wrap, not run until the 2h kill."""
 
     def _run(self, pages, goto_next=True, max_pages=None, min_products=None, expect_exit=False):
-        import scraper_core
+        import scrapers.scraper_core as scraper_core
         driver = MagicMock()
         driver.current_url = "https://www.skroutz.gr/c/40/x.html?page=1"
         call = {"n": 0}
@@ -1203,7 +1203,7 @@ class TestScrapePaginationGuard(unittest.TestCase):
              patch.object(scraper_core, "_wait_for_page_advance", return_value=True), \
              patch.object(scraper_core, "MAX_PAGES", max_val), \
              patch.object(scraper_core, "MIN_PRODUCTS", min_val), \
-             patch("scraper_core.time.sleep"):
+             patch("scrapers.scraper_core.time.sleep"):
             out = os.path.join(tmp, "out", f"skroutz_phones_{__import__('datetime').date.today().isoformat()}.csv")
             if max_pages is not None or expect_exit:
                 with self.assertRaises(SystemExit) as ctx:
@@ -1229,20 +1229,20 @@ class TestScrapePaginationGuard(unittest.TestCase):
         self._run(pages, max_pages=3)
 
     def test_category_floors_catch_a_single_listing_page(self):
-        from scraper_core import CONFIGS
+        from scrapers.scraper_core import CONFIGS
         for name, cfg in CONFIGS.items():
             with self.subTest(category=name):
                 self.assertGreaterEqual(cfg.min_products, 100)
                 self.assertLess(cfg.min_products, 2000)
 
     def test_goto_next_follows_href_instead_of_click(self):
-        import scraper_core
+        import scrapers.scraper_core as scraper_core
         driver = MagicMock()
         btn = MagicMock()
         btn.get_attribute.return_value = "/c/40/x.html?page=2"
-        with patch("scraper_core.WebDriverWait") as wait, \
+        with patch("scrapers.scraper_core.WebDriverWait") as wait, \
              patch.object(scraper_core, "_load_page") as load, \
-             patch("scraper_core.time.sleep"):
+             patch("scrapers.scraper_core.time.sleep"):
             wait.return_value.until.return_value = btn
             self.assertTrue(scraper_core._goto_next_page(driver))
         load.assert_called_once()
@@ -1250,7 +1250,7 @@ class TestScrapePaginationGuard(unittest.TestCase):
         btn.click.assert_not_called()
 
     def test_run_date_honours_pipeline_date_env(self):
-        import scraper_core
+        import scrapers.scraper_core as scraper_core
         with patch.dict(os.environ, {"PIPELINE_DATE": "2026-08-31"}):
             self.assertEqual(scraper_core._run_date(), "2026-08-31")
 
@@ -1302,7 +1302,7 @@ class TestReapProcesses(unittest.TestCase):
         # Sequential wait(timeout) used to stack: first scraper ate the full
         # budget, the next one still got another full budget.
         import importlib
-        mod = importlib.import_module("1scriptToGet4")
+        mod = importlib.import_module("scrapers.run_all")
         slow = self._Proc(wait_s=5)
         later = self._Proc(wait_s=5)
         logs = [self._Log(), self._Log()]
@@ -1321,7 +1321,7 @@ class TestReapProcesses(unittest.TestCase):
 
     def test_success_when_all_finish_in_time(self):
         import importlib
-        mod = importlib.import_module("1scriptToGet4")
+        mod = importlib.import_module("scrapers.run_all")
         a, b = self._Proc(0), self._Proc(0)
         logs = [self._Log(), self._Log()]
         with patch.object(mod, "logging", MagicMock()):

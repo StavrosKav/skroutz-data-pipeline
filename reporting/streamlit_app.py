@@ -23,8 +23,8 @@ import streamlit as st
 from dotenv import load_dotenv
 from sqlalchemy import text
 
-import queries
-from db import get_engine
+import reporting.queries as queries
+from core.db import get_engine
 
 load_dotenv()
 

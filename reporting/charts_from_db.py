@@ -22,8 +22,8 @@ import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
 from dotenv import load_dotenv
 
-import queries
-from db import get_engine
+import reporting.queries as queries
+from core.db import get_engine
 
 load_dotenv()
 

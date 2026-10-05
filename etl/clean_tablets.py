@@ -1,5 +1,5 @@
 """
-Data_Tablets.py — tablets cleaner entry point.
+clean_tablets.py — tablets cleaner entry point.
 
 Shared cleaning logic lives in clean_common.py; this file adds only the
 tablet RAM/storage extraction from titles like "... 10.1 (8GB/128GB) Γκρι".
@@ -10,7 +10,7 @@ Writes: Clean/Tablets_skroutz_clean/clean_<today>.csv
 
 import pandas as pd
 
-from clean_common import CleanerConfig, run_clean, parse_ram_storage, clean_price as clean_price  # re-exported for tests
+from etl.clean_common import CleanerConfig, run_clean, parse_ram_storage, clean_price as clean_price  # re-exported for tests
 
 
 def enrich(data):

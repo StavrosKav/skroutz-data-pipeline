@@ -1,5 +1,5 @@
 """
-4csvsTOsql.py
+etl.load_postgres
 -------------
 Loads today's cleaned CSVs (phones, laptops, smartwatches, tablets) into
 the PostgreSQL database SkroutzPR.
@@ -33,7 +33,7 @@ import sys
 from sqlalchemy import text
 from dotenv import load_dotenv
 
-from db import get_engine
+from core.db import get_engine
 
 load_dotenv()
 

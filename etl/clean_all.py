@@ -1,5 +1,5 @@
 """
-1scriptToGet4MANIPULATION.py
+etl.clean_all
 -----------------------------
 Stage 2 of the daily Skroutz price-tracking pipeline.
 
@@ -27,11 +27,11 @@ import logging
 
 # ── Cleaning scripts to run (order does not affect correctness) ───────────────
 HERE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
-SCRIPTS = [
-    os.path.join(HERE, "Data_Phone.py"),
-    os.path.join(HERE, "Data_Smartwatches.py"),
-    os.path.join(HERE, "Data_Tablets.py"),
-    os.path.join(HERE, "Data_Laptops.py"),
+MODULES = [
+    "etl.clean_phones",
+    "etl.clean_smartwatches",
+    "etl.clean_tablets",
+    "etl.clean_laptops",
 ]
 
 # Log directory for per-script stdout/stderr output
@@ -49,15 +49,16 @@ def run_all_cleaners():
     date_str = datetime.date.today().isoformat()
     procs = []
 
-    for script in SCRIPTS:
-        name = os.path.splitext(os.path.basename(script))[0]
+    for mod in MODULES:
+        name = mod.rsplit(".", 1)[-1]
         log_path = os.path.join(LOG_DIR, f"{name}_{date_str}.log")
         log_file = open(log_path, "a", encoding="utf-8")
         logging.info(f"Starting {name} — logging to {log_path}")
 
         # sys.executable ensures we invoke the same interpreter that launched this script
         p = subprocess.Popen(
-            [sys.executable, script],
+            [sys.executable, "-m", mod],
+            cwd=str(ROOT),
             stdout=log_file,
             stderr=log_file,
             shell=False,

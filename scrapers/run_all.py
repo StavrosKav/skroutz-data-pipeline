@@ -1,5 +1,5 @@
 """
-1scriptToGet4.py
+scrapers.run_all
 ----------------
 Stage 1 of the daily Skroutz price-tracking pipeline.
 
@@ -29,11 +29,11 @@ import time
 
 # ── Scraper scripts to run (order determines launch sequence) ─────────────────
 HERE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
-SCRIPTS = [
-    os.path.join(HERE, "skroutz_phonesWHILE.py"),
-    os.path.join(HERE, "skroutz_SmartwatchesWHILE.py"),
-    os.path.join(HERE, "skroutz_tabletsWHILE.py"),
-    os.path.join(HERE, "skroutz_laptopsWHILE.py"),
+MODULES = [
+    "scrapers.phones",
+    "scrapers.smartwatches",
+    "scrapers.tablets",
+    "scrapers.laptops",
 ]
 
 # Log directory for per-scraper stdout/stderr output
@@ -56,15 +56,16 @@ def run_all_scrapers():
     date_str = datetime.date.today().isoformat()
     procs = []
 
-    for script in SCRIPTS:
-        name = os.path.splitext(os.path.basename(script))[0]
+    for mod in MODULES:
+        name = mod.rsplit(".", 1)[-1]
         log_path = os.path.join(LOG_DIR, f"{name}_{date_str}.log")
         log_file = open(log_path, "a", encoding="utf-8")
         logging.info(f"Starting {name} — logging to {log_path}")
 
         # sys.executable ensures we invoke the same interpreter that launched this script
         p = subprocess.Popen(
-            [sys.executable, script],
+            [sys.executable, "-m", mod],
+            cwd=str(ROOT),
             stdout=log_file,
             stderr=log_file,
             shell=False,

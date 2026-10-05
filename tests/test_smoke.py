@@ -1,42 +1,41 @@
 """
 Smoke tests for pipeline wiring.
 
-Guards against the 2026-07-09 incident class: a stage script that cannot even
+Guards against the 2026-07-09 incident class: a stage module that cannot even
 be compiled or imported must fail the test suite, not the 10:00 scheduled run.
 Also pins the observer-stage contract: a failing observer never aborts the
 pipeline, a failing core stage always does.
 """
 
-import os
+import importlib
 import py_compile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import run_pipeline
-
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from core.paths import ROOT
 
 
 class TestStageScriptsCompile(unittest.TestCase):
-    """Every script wired into STAGES must at least compile."""
+    """Every module wired into STAGES must at least compile/import."""
 
-    def test_all_stage_scripts_compile(self):
+    def test_all_stage_modules_importable(self):
         self.assertTrue(run_pipeline.STAGES, "STAGES is empty")
-        for label, script, _fatal in run_pipeline.STAGES:
+        for label, mod, _fatal in run_pipeline.STAGES:
             with self.subTest(stage=label):
-                self.assertTrue(os.path.exists(script), f"missing script: {script}")
-                py_compile.compile(script, doraise=True)
+                path = ROOT / Path(*mod.split(".")).with_suffix(".py")
+                self.assertTrue(path.is_file(), f"missing module file: {path}")
+                py_compile.compile(str(path), doraise=True)
+                importlib.import_module(mod)
 
-    def test_observer_scripts_always_compile(self):
-        # SKIP_SCRAPE=1 drops the health monitor from STAGES, so check the
-        # observer scripts explicitly regardless of how STAGES was built.
-        for name in ("run_scraper_health_monitor.py", "run_data_quality_agent.py"):
-            with self.subTest(script=name):
-                py_compile.compile(os.path.join(BASE, name), doraise=True)
+    def test_observer_modules_always_compile(self):
+        for mod in ("ops.run_scraper_health", "ops.run_data_quality"):
+            with self.subTest(module=mod):
+                path = ROOT / Path(*mod.split(".")).with_suffix(".py")
+                py_compile.compile(str(path), doraise=True)
 
     def test_agents_package_imports(self):
-        # The health monitor died on an agents import chain once; keep it importable.
-        import importlib
         import agents
         importlib.reload(agents)
 
@@ -51,7 +50,7 @@ class TestObserverStageContract(unittest.TestCase):
         with patch.object(run_pipeline.subprocess, "run", self._failing_run), \
              patch.object(run_pipeline._notif, "tg_send") as tg, \
              patch.object(run_pipeline, "send_failure_alert") as alert:
-            run_pipeline.run_stage("Observer", "whatever.py", fatal=False)
+            run_pipeline.run_stage("Observer", "whatever.mod", fatal=False)
             tg.assert_called_once()
             alert.assert_not_called()
 
@@ -59,7 +58,7 @@ class TestObserverStageContract(unittest.TestCase):
         with patch.object(run_pipeline.subprocess, "run", self._failing_run), \
              patch.object(run_pipeline, "send_failure_alert") as alert:
             with self.assertRaises(SystemExit):
-                run_pipeline.run_stage("Core", "whatever.py", fatal=True)
+                run_pipeline.run_stage("Core", "whatever.mod", fatal=True)
             alert.assert_called_once()
 
     def test_stage_table_marks_observers_non_fatal(self):

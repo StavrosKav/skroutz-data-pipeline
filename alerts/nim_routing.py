@@ -3,7 +3,7 @@ NIM Model Routing Configuration
 Maps prompt content to the optimal NIM model.
 """
 
-from nim_client import TaskType
+from alerts.nim_client import TaskType
 
 
 def route_by_complexity(prompt: str) -> TaskType:

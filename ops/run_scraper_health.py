@@ -15,7 +15,6 @@ from datetime import datetime
 
 # Add the project root to the path so we can import agents
 BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
-sys.path.insert(0, BASE)
 
 from agents.pipeline_monitoring.scraper_health_monitor import create_scraper_health_monitor
 
