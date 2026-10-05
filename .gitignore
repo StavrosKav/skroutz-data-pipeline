@@ -48,7 +48,7 @@ Jupiter_PIP_install_File.ipynb
 generate_report.py
 *.pdf
 
-# Personal watchlist — use watchlist.example.json instead
+# Personal watchlist — use config/watchlist.example.json instead
 watchlist.json
 
 # Generated chart images (regenerated daily by charts_from_db.py)

@@ -38,7 +38,7 @@ flowchart LR
   E --> G["Alerts\nGmail + Telegram"]
 ```
 
-Full stage graph, failure semantics, and ops notes: **[PIPELINE.md](PIPELINE.md)**.
+Full stage graph, failure semantics, and ops notes: **[PIPELINE.md](docs/PIPELINE.md)**.
 
 ### Pipeline stages
 
@@ -175,12 +175,12 @@ skroutz-data-pipeline/
 
 1. **Python 3.12 + venv** — `pip install -r requirements.txt`
 2. **Configure** — copy `.env.example` → `.env` (DB_*, optional Gmail / Telegram)
-3. **Schema once** — `create_new_schema.sql` then `analytics.sql`
+3. **Schema once** — `sql/create_new_schema.sql` then `sql/analytics.sql`
 4. **Full pipeline** — `python run_pipeline.py` (or `run_pipeline.bat` on Windows)
 5. **Optional** — `streamlit run streamlit_app.py` · `python telegram_bot.py`
 6. **Quality** — `pytest tests/ -v` · `ruff check .`
 
-Scrapers need a real Chrome window (headless is blocked). Docker covers Clean + Load only (`SKIP_SCRAPE=1` in `docker-compose.yml`). Details: [PIPELINE.md](PIPELINE.md).
+Scrapers need a real Chrome window (headless is blocked). Docker covers Clean + Load only (`SKIP_SCRAPE=1` in `docker-compose.yml`). Details: [PIPELINE.md](docs/PIPELINE.md).
 
 ---
 
