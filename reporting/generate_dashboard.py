@@ -23,8 +23,8 @@ from sqlalchemy import text
 
 import pandas as pd
 
-import queries
-from db import get_engine
+import reporting.queries as queries
+from core.db import get_engine
 
 load_dotenv()
 

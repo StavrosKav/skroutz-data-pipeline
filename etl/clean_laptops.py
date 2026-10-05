@@ -1,5 +1,5 @@
 """
-Data_Laptops.py — laptops cleaner entry point.
+clean_laptops.py — laptops cleaner entry point.
 
 Shared cleaning logic lives in clean_common.py.
 
@@ -8,7 +8,7 @@ Reads:  Laptops_skroutz/skroutz_laptops_<today>.csv
 Writes: Clean/Laptops_skroutz_clean/clean_<today>.csv
 """
 
-from clean_common import CleanerConfig, run_clean, clean_price as clean_price  # re-exported for tests
+from etl.clean_common import CleanerConfig, run_clean, clean_price as clean_price  # re-exported for tests
 
 CONFIG = CleanerConfig(
     category="laptops",

@@ -11,11 +11,11 @@ flowchart TD
 
     subgraph Core["Core Pipeline  run_pipeline.py"]
         direction TB
-        S1["Stage 1 — SCRAPE  [fatal]\n1scriptToGet4.py\n4× Selenium in parallel\nskroutz.gr → raw CSVs"]
+        S1["Stage 1 — SCRAPE  [fatal]\nscrapers/run_all.py\n4× Selenium in parallel\nskroutz.gr → raw CSVs"]
         HM["Stage 2 — HEALTH MONITOR  [observer]\nrun_scraper_health_monitor.py\nraw CSVs: exist · fresh · enough rows"]
-        S2["Stage 3 — CLEAN  [fatal]\n1scriptToGet4MANIPULATION.py\n4× cleaners in parallel\nprice · brand · RAM · storage"]
+        S2["Stage 3 — CLEAN  [fatal]\netl/clean_all.py\n4× cleaners in parallel\nprice · brand · RAM · storage"]
         DQ["Stage 4 — DATA QUALITY  [observer]\nrun_data_quality_agent.py\nread-only report → logs/data_quality_*.json"]
-        S3["Stage 5 — LOAD SQL  [fatal]\n4csvsTOsql.py\nbatch upsert → PostgreSQL 16\n~19k rows / ~5s"]
+        S3["Stage 5 — LOAD SQL  [fatal]\netl/load_postgres.py\nbatch upsert → PostgreSQL 16\n~19k rows / ~5s"]
         S1 -->|raw CSVs| HM
         HM --> S2
         S2 -->|cleaned CSVs| DQ
@@ -58,11 +58,11 @@ skroutz-data-pipeline/
 ├── run_pipeline.py              # Master orchestrator
 ├── run_pipeline.bat             # Task Scheduler launcher (update PYTHON path)
 │
-├── 1scriptToGet4.py             # Stage 1: parallel scraper launcher (fatal)
+├── scrapers/run_all.py             # Stage 1: parallel scraper launcher (fatal)
 ├── run_scraper_health_monitor.py# Stage 2: raw-CSV health check (observer)
-├── 1scriptToGet4MANIPULATION.py # Stage 3: parallel cleaner launcher (fatal)
+├── etl/clean_all.py # Stage 3: parallel cleaner launcher (fatal)
 ├── run_data_quality_agent.py    # Stage 4: read-only quality report (observer)
-├── 4csvsTOsql.py                # Stage 5: PostgreSQL upsert (fatal)
+├── etl/load_postgres.py                # Stage 5: PostgreSQL upsert (fatal)
 │
 ├── agents/                      # Observer-stage implementations
 │   ├── base.py                  #   shared BaseAgent
@@ -136,7 +136,7 @@ Copy `.env.example` → `.env` and fill in all values before running anything.
 | `DB_PORT` | Yes | PostgreSQL port (default `5432`) |
 | `DB_NAME` | Yes | Database name (`SkroutzPR`) |
 | `DB_USER` | Yes | DB username |
-| `DB_PASSWORD` | Yes | DB password — special chars (`%`, `@`, `:`) handled by `URL.create()` in `db.py` |
+| `DB_PASSWORD` | Yes | DB password — special chars (`%`, `@`, `:`) handled by `URL.create()` in `core/db.py` |
 | `ALERT_EMAIL` | Recommended | Gmail address for both `From:` and `To:` |
 | `GMAIL_APP_PASSWORD` | Recommended | Gmail App Password (not your account password) |
 | `TELEGRAM_BOT_TOKEN` | Optional | Bot token from `@BotFather` |
@@ -150,25 +150,25 @@ Copy `.env.example` → `.env` and fill in all values before running anything.
 
 ## Stage 1 — Scrape
 
-**Script:** `1scriptToGet4.py`  
+**Script:** `scrapers/run_all.py`  
 Launches 4 scrapers **in parallel** as subprocesses. Each runs in its own process to isolate Chrome instances and prevent one stuck scraper from blocking others.
 
 | Scraper | Category | Output folder | Filename pattern |
 |---|---|---|---|
-| `skroutz_phonesWHILE.py` | phone | `Phones_skroutz/` | `skroutz_phones_YYYY-MM-DD.csv` |
-| `skroutz_laptopsWHILE.py` | laptop | `Laptops_skroutz/` | `skroutz_laptops_YYYY-MM-DD.csv` |
-| `skroutz_tabletsWHILE.py` | tablet | `Tablets_skroutz/` | `skroutz_tablets_YYYY-MM-DD.csv` |
-| `skroutz_SmartwatchesWHILE.py` | smartwatch | `Smartwatches_skroutz/` | `skroutz_Smartwatches_YYYY-MM-DD.csv` |
+| `scrapers/phones.py` | phone | `Phones_skroutz/` | `skroutz_phones_YYYY-MM-DD.csv` |
+| `scrapers/laptops.py` | laptop | `Laptops_skroutz/` | `skroutz_laptops_YYYY-MM-DD.csv` |
+| `scrapers/tablets.py` | tablet | `Tablets_skroutz/` | `skroutz_tablets_YYYY-MM-DD.csv` |
+| `scrapers/smartwatches.py` | smartwatch | `Smartwatches_skroutz/` | `skroutz_Smartwatches_YYYY-MM-DD.csv` |
 
 The four scraper files are thin entry points — the pagination loop, card parsing,
-retry logic, and CSV writing live in **`scraper_core.py`** (one parameterized
+retry logic, and CSV writing live in **`scrapers/scraper_core.py`** (one parameterized
 `scrape(config)` with per-category `CONFIGS`). Laptops files before 2026-07-17
-use the historical `skroutz_laptos_` prefix; `Data_Laptops.py` falls back to it
+use the historical `skroutz_laptos_` prefix; `etl/clean_laptops.py` falls back to it
 automatically when the new name is absent.
 
 Each scraper uses **`undetected-chromedriver`** — headless Chrome is refused by the site, so the scraper drives a real Chrome window, which also means it cannot run in Docker or CI. `version_main` is auto-detected from the installed Chrome binary; falls back to `None` (auto-select) on failure.
 
-**Resilience (in `scraper_core.py`):**
+**Resilience (in `scrapers/scraper_core.py`):**
 - Bounded retries (3 attempts, backoff) around page load, card-wait (with refresh), and next-page click. A category's total failure is still fatal to the run.
 - **Markup-drift guard:** after scraping, if <90% of rows have a valid `Product`/`Link` or <80% a numeric `Price_EUR`, the scraper logs which selector broke and exits non-zero **without writing a CSV** — a silently renamed Skroutz class can no longer load a day of NULL prices. (Specs/Rating/Installments are legitimately sparse and are not guarded.)
 - Atomic CSV writes (`.tmp` + `os.replace`) — a killed scraper never leaves a half-written file.
@@ -183,7 +183,7 @@ Subprocess timeout: **2 hours** per scraper. On timeout the process is killed an
 
 ## Stage 2 — Scraper Health Monitor  (observer)
 
-**Script:** `run_scraper_health_monitor.py` · config in `config/agents.json`
+**Script:** `ops/run_scraper_health.py` · config in `config/agents.json`
 Checks each category's raw-CSV folder after the scrape: folder exists, at least
 one `skroutz_*.csv`, newest file younger than 25h, more than 10 rows.
 
@@ -196,20 +196,20 @@ Skipped when `SKIP_SCRAPE=1`.
 
 ## Stage 3 — Clean
 
-**Script:** `1scriptToGet4MANIPULATION.py`  
+**Script:** `etl/clean_all.py`  
 Launches 4 cleaners in parallel, each reading the latest raw CSV for its category.
 
 | Cleaner | Input | Output |
 |---|---|---|
-| `Data_Phone.py` | `Phones_skroutz/*.csv` | `Clean/Phones_skroutz_clean/clean_YYYY-MM-DD.csv` |
-| `Data_Laptops.py` | `Laptops_skroutz/*.csv` | `Clean/Laptops_skroutz_clean/clean_YYYY-MM-DD.csv` |
-| `Data_Tablets.py` | `Tablets_skroutz/*.csv` | `Clean/Tablets_skroutz_clean/clean_YYYY-MM-DD.csv` |
-| `Data_Smartwatches.py` | `Smartwatches_skroutz/*.csv` | `Clean/Smartwatches_skroutz_clean/clean_YYYY-MM-DD.csv` |
+| `etl/clean_phones.py` | `Phones_skroutz/*.csv` | `Clean/Phones_skroutz_clean/clean_YYYY-MM-DD.csv` |
+| `etl/clean_laptops.py` | `Laptops_skroutz/*.csv` | `Clean/Laptops_skroutz_clean/clean_YYYY-MM-DD.csv` |
+| `etl/clean_tablets.py` | `Tablets_skroutz/*.csv` | `Clean/Tablets_skroutz_clean/clean_YYYY-MM-DD.csv` |
+| `etl/clean_smartwatches.py` | `Smartwatches_skroutz/*.csv` | `Clean/Smartwatches_skroutz_clean/clean_YYYY-MM-DD.csv` |
 
 The four cleaner files are thin entry points — shared logic (price normalisation,
 brand/model split, installment parsing, review-count recovery, standardized
-`read_csv` options and atomic writes) lives in **`clean_common.py`** via
-`run_clean(CleanerConfig)`. `Data_Phone.py` adds the phone-specific enrichment
+`read_csv` options and atomic writes) lives in **`etl/clean_common.py`** via
+`run_clean(CleanerConfig)`. `etl/clean_phones.py` adds the phone-specific enrichment
 (RAM/storage, camera, display, battery extraction).
 
 **Operations per cleaner:**
@@ -224,7 +224,7 @@ brand/model split, installment parsing, review-count recovery, standardized
 
 ## Stage 4 — Data Quality Agent  (observer, read-only)
 
-**Script:** `run_data_quality_agent.py` · schema in `config/agents.json`
+**Script:** `ops/run_data_quality.py` · schema in `config/agents.json`
 Validates the day's **raw** CSVs against the real scraper columns (`Product`,
 `Price_EUR`, `Link`, `Rating`, `Reviews`, …): schema conformance, completeness
 of critical fields, IQR-based anomaly detection on `Rating`/`Reviews`.
@@ -238,7 +238,7 @@ pipeline's source of truth. Same observer semantics as Stage 2.
 
 ## Stage 5 — Load SQL
 
-**Script:** `4csvsTOsql.py`  
+**Script:** `etl/load_postgres.py`  
 Reads all 4 cleaned CSVs and **upserts** into PostgreSQL using SQLAlchemy.
 
 - **`products`**: INSERT on first-seen URL; UPDATE `last_seen` every run
@@ -392,7 +392,7 @@ ORDER BY pct_above_atl;
 
 ## Notification Layer
 
-### Telegram  (`notifications.py`)
+### Telegram  (`alerts/notifications.py`)
 HTML-formatted messages via Bot API. Deduplicates per-day via `logs/tg_sent_YYYY-MM-DD.json`.  
 Failed sends use **exponential backoff** (5s → 10s → 20s … capped at 300s).
 
@@ -420,7 +420,7 @@ HTML email via SMTP with 30-second connection timeout. `html.escape()` applied t
 
 ---
 
-## Interactive Telegram Bot  (`telegram_bot.py`)
+## Interactive Telegram Bot  (`alerts/telegram_bot.py`)
 
 Long-polling bot — run as a **separate persistent process**, not part of the daily pipeline.  
 `watchlist.json` writes are atomic (`os.replace`) — crash-safe.
@@ -449,7 +449,7 @@ source of truth; this section is a summary, not a copy, so it can't drift out of
 
 **What CI checks:**
 - **Ruff** (`[tool.ruff]` in `pyproject.toml`) — linting and code style (replaces flake8 + isort + pyupgrade).
-  Per-file-ignores exist for `run_data_quality_agent.py`/`run_scraper_health_monitor.py`'s
+  Per-file-ignores exist for `ops/run_data_quality.py`/`ops/run_scraper_health.py`'s
   intentional `sys.path.insert()`-before-import convention (see `CLAUDE.md`'s "All scripts
   resolve BASE ..." rule) — not an oversight. Tests don't need it: pytest's `pythonpath = ["."]`
   (also in `pyproject.toml`) puts the project root on `sys.path` before collection.
@@ -473,7 +473,7 @@ Docker is used only for **Stage 2 (Clean) + Stage 3 (Load SQL)** when raw CSVs a
 
 ```
 # 1. Run scrapers on Windows first (produces raw CSVs)
-& ".venv\Scripts\python.exe" 1scriptToGet4.py
+& ".venv\Scripts\python.exe" scrapers/run_all.py
 
 # 2. Run Clean + Load in Docker
 docker compose up --build
@@ -588,23 +588,23 @@ All tests are pure unit tests — no database, no Chrome, no network. Safe to ru
 
 ### Add a new product category
 
-1. Add a `ScraperConfig` to `CONFIGS` in `scraper_core.py` and create a thin entry point `skroutz_<category>WHILE.py` (copy `skroutz_SmartwatchesWHILE.py` — it's 4 lines)
-2. Create a thin cleaner `Data_<Category>.py` with a `CleanerConfig` (copy `Data_Smartwatches.py`)
-3. Register both in `1scriptToGet4.py` and `1scriptToGet4MANIPULATION.py`
-4. Add the category string to `CATEGORIES` in `charts_from_db.py`
+1. Add a `ScraperConfig` to `CONFIGS` in `scrapers/scraper_core.py` and create a thin entry point `skroutz_<category>WHILE.py` (copy `scrapers/smartwatches.py` — it's 4 lines)
+2. Create a thin cleaner `Data_<Category>.py` with a `CleanerConfig` (copy `etl/clean_smartwatches.py`)
+3. Register both in `scrapers/run_all.py` and `etl/clean_all.py`
+4. Add the category string to `CATEGORIES` in `reporting/charts_from_db.py`
 5. Add the new output folder to `.gitignore` and `docker-compose.yml` bind mounts
 
 ### Add a new analytics view
 
 1. Write the SQL `CREATE OR REPLACE VIEW vw_<name> AS ...` in `sql/analytics.sql`
 2. Run `sql/analytics.sql` against the live DB once
-3. Reference the view in `run_pipeline.py`, `streamlit_app.py`, or `generate_dashboard.py`
+3. Reference the view in `run_pipeline.py`, `streamlit_app.py`, or `reporting/generate_dashboard.py`
 
 ### Add a new Telegram bot command
 
-1. Add a handler function in `telegram_bot.py`
+1. Add a handler function in `alerts/telegram_bot.py`
 2. Register it in the command dispatch map
-3. Add the corresponding notification function to `notifications.py` if it sends proactive messages
+3. Add the corresponding notification function to `alerts/notifications.py` if it sends proactive messages
 
 ### Change the scrape schedule
 

@@ -3,7 +3,7 @@ clean_common.py
 ---------------
 Shared cleaning engine for all four category cleaners.
 
-The four Data_*.py files are thin entry points that build a CleanerConfig
+The four etl/clean_*.py files are thin entry points that build a CleanerConfig
 (plus any category-specific enrichment, e.g. phone spec extraction) and call
 run_clean(cfg) — price normalisation, brand/model split, installment parsing,
 review-count recovery, and the standardized read/write logic all live here.
@@ -197,7 +197,7 @@ def run_clean(cfg: CleanerConfig):
     data['Rating'] = pd.to_numeric(data['Rating'], errors='coerce')
     data['Reviews'] = clean_reviews(data['Reviews'])
 
-    # Column order matches the products + price_snapshots DB schema in 4csvsTOsql.py
+    # Column order matches the products + price_snapshots DB schema in etl/load_postgres.py
     data_export = data[list(cfg.final_columns)]
 
     output_folder = os.path.join(BASE, 'Clean', cfg.clean_folder)

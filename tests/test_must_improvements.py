@@ -12,11 +12,11 @@ import unittest
 
 import pandas as pd
 
-from clean_common import parse_ram_storage
-import Data_Phone
-import Data_Tablets
+from etl.clean_common import parse_ram_storage
+import etl.clean_phones as Data_Phone
+import etl.clean_tablets as Data_Tablets
 
-loader = importlib.import_module("4csvsTOsql")
+loader = importlib.import_module("etl.load_postgres")
 
 
 class TestParseRamStorage(unittest.TestCase):

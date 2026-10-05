@@ -22,8 +22,8 @@ sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 load_dotenv(ROOT / ".env")
 
-from clean_common import parse_ram_storage  # noqa: E402
-from db import get_engine  # noqa: E402
+from etl.clean_common import parse_ram_storage  # noqa: E402
+from core.db import get_engine  # noqa: E402
 
 
 def main() -> int:

@@ -11,9 +11,9 @@
 Daily price-tracking pipeline for skroutz.gr (Greece's largest e-commerce aggregator).
 
 Pipeline stages (run sequentially by `run_pipeline.py`):
-  1. Scrape   → `1scriptToGet4.py`              raw CSVs per category
-  2. Clean    → `1scriptToGet4MANIPULATION.py`  cleaned CSVs to Clean/
-  3. Load SQL → `4csvsTOsql.py`                 upserts into PostgreSQL
+  1. Scrape   → `scrapers/run_all.py`              raw CSVs per category
+  2. Clean    → `etl/clean_all.py`  cleaned CSVs to Clean/
+  3. Load SQL → `etl/load_postgres.py`                 upserts into PostgreSQL
 
 Post-pipeline (non-fatal, each runs independently after Load SQL):
   - `refresh_matviews()`        → REFRESH MATERIALIZED VIEW CONCURRENTLY for the 10 mv_* views (analytics.sql v4); runs first, everything downstream reads them
@@ -32,27 +32,27 @@ Automation: Windows Task Scheduler at 10:00 via `run_pipeline.bat`.
 | File | Role |
 |---|---|
 | `run_pipeline.py` | Master orchestrator — do not modify lightly |
-| `db.py` | SQLAlchemy engine singleton — `get_engine()` creates once per process; uses `URL.create()` to handle special chars (%, @, :) in DB_PASSWORD |
-| `1scriptToGet4.py` | Stage 1: launches 4 scrapers in parallel (subprocess) |
-| `1scriptToGet4MANIPULATION.py` | Stage 2: launches 4 cleaners in parallel |
-| `4csvsTOsql.py` | Stage 3: upserts to PostgreSQL |
-| `scraper_core.py` | Shared scraping engine — `scrape(CONFIGS[cat])`: pagination, card parsing, bounded retries, markup-drift guard, atomic CSV writes |
-| `clean_common.py` | Shared cleaning engine — `run_clean(CleanerConfig)`: clean_price, brand/model split, installments, review-count recovery |
-| `skroutz_phonesWHILE.py` | Scraper entry point — phones → Phones_skroutz/ |
-| `skroutz_laptopsWHILE.py` | Scraper entry point — laptops → Laptops_skroutz/ |
-| `skroutz_tabletsWHILE.py` | Scraper entry point — tablets → Tablets_skroutz/ |
-| `skroutz_SmartwatchesWHILE.py` | Scraper entry point — smartwatches → Smartwatches_skroutz/ |
-| `Data_Phone.py` | Cleaner entry point — phones (adds RAM/camera/display/battery enrichment) |
-| `Data_Laptops.py` | Cleaner entry point — laptops |
-| `Data_Tablets.py` | Cleaner entry point — tablets |
-| `Data_Smartwatches.py` | Cleaner entry point — smartwatches |
-| `charts_from_db.py` | Brand price-trend charts (dark-themed PNG per category) |
-| `generate_dashboard.py` | Self-contained HTML dashboard from PostgreSQL |
+| `core/db.py` | SQLAlchemy engine singleton — `get_engine()` creates once per process; uses `URL.create()` to handle special chars (%, @, :) in DB_PASSWORD |
+| `scrapers/run_all.py` | Stage 1: launches 4 scrapers in parallel (subprocess) |
+| `etl/clean_all.py` | Stage 2: launches 4 cleaners in parallel |
+| `etl/load_postgres.py` | Stage 3: upserts to PostgreSQL |
+| `scrapers/scraper_core.py` | Shared scraping engine — `scrape(CONFIGS[cat])`: pagination, card parsing, bounded retries, markup-drift guard, atomic CSV writes |
+| `etl/clean_common.py` | Shared cleaning engine — `run_clean(CleanerConfig)`: clean_price, brand/model split, installments, review-count recovery |
+| `scrapers/phones.py` | Scraper entry point — phones → Phones_skroutz/ |
+| `scrapers/laptops.py` | Scraper entry point — laptops → Laptops_skroutz/ |
+| `scrapers/tablets.py` | Scraper entry point — tablets → Tablets_skroutz/ |
+| `scrapers/smartwatches.py` | Scraper entry point — smartwatches → Smartwatches_skroutz/ |
+| `etl/clean_phones.py` | Cleaner entry point — phones (adds RAM/camera/display/battery enrichment) |
+| `etl/clean_laptops.py` | Cleaner entry point — laptops |
+| `etl/clean_tablets.py` | Cleaner entry point — tablets |
+| `etl/clean_smartwatches.py` | Cleaner entry point — smartwatches |
+| `reporting/charts_from_db.py` | Brand price-trend charts (dark-themed PNG per category) |
+| `reporting/generate_dashboard.py` | Self-contained HTML dashboard from PostgreSQL |
 | `sql/analytics.sql` | 15 views: run once against DB to enable all analytics |
 | `watchlist.json` | Price alert targets (array of {url, label, threshold_eur}) |
 | `run_pipeline.bat` | Task Scheduler launcher — update PYTHON path inside before registering |
-| `notifications.py` | Telegram notification layer — HTML parse mode, dedup, inline buttons, retry |
-| `telegram_bot.py` | Interactive Telegram bot — long-polling; /status /drops /watchlist /add /remove /find /stats /history /best /restock /cancel; URL→price conversation flow for adding watchlist items |
+| `alerts/notifications.py` | Telegram notification layer — HTML parse mode, dedup, inline buttons, retry |
+| `alerts/telegram_bot.py` | Interactive Telegram bot — long-polling; /status /drops /watchlist /add /remove /find /stats /history /best /restock /cancel; URL→price conversation flow for adding watchlist items |
 | `streamlit_app.py` | Interactive Streamlit dashboard; live DB queries cached 1h; runs at localhost:8501 |
 | `tests/test_pipeline.py` | pytest test suite (unit tests for pipeline, DB helpers, notifications) |
 | `sql/create_new_schema.sql` | DDL for a fresh PostgreSQL install (run once on a new DB) |
@@ -61,7 +61,7 @@ Automation: Windows Task Scheduler at 10:00 via `run_pipeline.bat`.
 - Engine: PostgreSQL 16
 - Name: `SkroutzPR`
 - Connection: via `.env` → DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
-- Helper: `db.py` exports `get_engine()` — use this everywhere; never inline credentials
+- Helper: `core/db.py` exports `get_engine()` — use this everywhere; never inline credentials
 - Schema: `products` (static metadata) + `price_snapshots` (daily rows)
 - Key constraint: `price_snapshots` has UNIQUE(product_id, date) — pipeline is re-run safe
 - Analytics views (run analytics.sql once to create, 15 views — see README's Analytics Views table for the full list). 10 of the 15 are backed by MATERIALIZED VIEWs (`mv_*`, analytics.sql v4 section) refreshed daily by `refresh_matviews()` — view names/columns unchanged, consumers unaffected

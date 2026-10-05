@@ -1,5 +1,5 @@
 """
-Data_Phone.py — phones cleaner entry point.
+clean_phones.py — phones cleaner entry point.
 
 Shared cleaning logic lives in clean_common.py; this file keeps only the
 phone-specific enrichment (RAM/storage, camera, display, battery extraction).
@@ -11,7 +11,7 @@ Writes: Clean/Phones_skroutz_clean/clean_<today>.csv
 import pandas as pd
 import re
 
-from clean_common import CleanerConfig, run_clean, parse_ram_storage, clean_price as clean_price  # re-exported for tests
+from etl.clean_common import CleanerConfig, run_clean, parse_ram_storage, clean_price as clean_price  # re-exported for tests
 
 
 # ── RAM / STORAGE ─────────────────────────────────────────────────────────────

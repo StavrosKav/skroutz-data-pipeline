@@ -44,11 +44,11 @@ Full stage graph, failure semantics, and ops notes: **[PIPELINE.md](docs/PIPELIN
 
 | Stage | Script | Fatal? | What it does |
 |---|---|---|---|
-| 1 Scrape | `1scriptToGet4.py` → 4× Selenium | Yes | Parallel category scrapes → raw CSVs |
-| 2 Health monitor | `run_scraper_health_monitor.py` | No (observer) | Freshness / row-count checks on raw CSVs |
-| 3 Clean | `1scriptToGet4MANIPULATION.py` | Yes | Brand/model/specs, Greek price formats |
-| 4 Data quality | `run_data_quality_agent.py` | No (observer) | Schema / completeness / anomaly report |
-| 5 Load | `4csvsTOsql.py` | Yes | Idempotent upsert → `products` + `price_snapshots` |
+| 1 Scrape | `scrapers/run_all.py` → 4× Selenium | Yes | Parallel category scrapes → raw CSVs |
+| 2 Health monitor | `ops/run_scraper_health.py` | No (observer) | Freshness / row-count checks on raw CSVs |
+| 3 Clean | `etl/clean_all.py` | Yes | Brand/model/specs, Greek price formats |
+| 4 Data quality | `ops/run_data_quality.py` | No (observer) | Schema / completeness / anomaly report |
+| 5 Load | `etl/load_postgres.py` | Yes | Idempotent upsert → `products` + `price_snapshots` |
 | Post | charts, dashboard, digests | No | PNG charts, `dashboard/dashboard_latest.html`, alerts |
 
 Observers can fail without aborting the run or corrupting data. Any fatal-stage non-zero exit aborts immediately and fires Gmail + Telegram.
@@ -104,7 +104,7 @@ Updated daily via Task Scheduler · last pipeline run: 2026-10-05
 
 ## Price trend charts
 
-Average daily price for the 6 largest brands per category (7-day smoothed) — regenerated after every run by `charts_from_db.py`.
+Average daily price for the 6 largest brands per category (7-day smoothed) — regenerated after every run by `reporting/charts_from_db.py`.
 
 **Phones**
 ![Phone price trends](charts/price_trend_phone.png)
@@ -125,7 +125,7 @@ Live interactive report: **[dashboard_latest.html](https://stavroskav.github.io/
 ## Engineering highlights
 
 - **Observer-stage design** — charts, alerts, dashboard, and README stats are non-fatal; contract pinned by tests (`run_pipeline.py`, `tests/test_smoke.py`).
-- **Markup-drift guard** — per-field completeness thresholds before CSV write; fixture canary on real listing HTML (`scraper_core.py`, `tests/test_pipeline.py`).
+- **Markup-drift guard** — per-field completeness thresholds before CSV write; fixture canary on real listing HTML (`scrapers/scraper_core.py`, `tests/test_pipeline.py`).
 - **Alerting below the app layer** — PowerShell wrapper can Telegram-alert even if Python fails to start (`run_pipeline_wrapper.ps1`).
 - **Idempotent loads** — upserts + stale-aware lock file; safe to re-run.
 - **Materialized analytics** — 10 of 15 views refreshed `CONCURRENTLY`; pg_trgm for Telegram `/find`.
@@ -149,23 +149,21 @@ Live interactive report: **[dashboard_latest.html](https://stavroskav.github.io/
 
 ## Project layout
 
-Documented tree (files stay where they are — no moves required for this portfolio polish):
-
 ```
 skroutz-data-pipeline/
 ├── run_pipeline.py / .bat / _wrapper.ps1   # orchestrator + scheduler entry
-├── scraper_core.py + skroutz_*WHILE.py     # Stage 1 scrapers
-├── clean_common.py + Data_*.py             # Stage 3 cleaners
-├── 4csvsTOsql.py · db.py                   # Stage 5 load
-├── generate_dashboard.py                   # → dashboard/dashboard_latest.html
-├── charts_from_db.py · streamlit_app.py
-├── notifications.py · telegram_bot.py
-├── analytics.sql · create_new_schema.sql
+├── core/                                   # paths.py, db.py
+├── scrapers/                               # scraper_core, phones|laptops|tablets|smartwatches, run_all
+├── etl/                                    # clean_common, clean_*, clean_all, load_postgres
+├── reporting/                              # generate_dashboard, charts_from_db, queries, streamlit_app
+├── alerts/                                 # notifications, telegram_*, nim_*
+├── ops/                                    # run_data_quality, run_scraper_health
+├── sql/                                    # create_new_schema.sql, analytics.sql
 ├── dashboard/dashboard_latest.html         # GitHub Pages artifact (CV URL)
 ├── charts/price_trend_*.png
-├── index.html                              # Pages redirect → dashboard_latest.html
-├── tests/ · .github/workflows/ci.yml
-├── README.md · PIPELINE.md · docs/
+├── index.html                              # Pages redirect → dashboard/dashboard_latest.html
+├── config/ · agents/ · migrations/ · tests/
+├── docs/PIPELINE.md · docs/INSIGHTS.md
 └── Phones|Laptops|Tablets|Smartwatches_skroutz/ · Clean/   # gitignored CSVs
 ```
 
@@ -177,7 +175,7 @@ skroutz-data-pipeline/
 2. **Configure** — copy `.env.example` → `.env` (DB_*, optional Gmail / Telegram)
 3. **Schema once** — `sql/create_new_schema.sql` then `sql/analytics.sql`
 4. **Full pipeline** — `python run_pipeline.py` (or `run_pipeline.bat` on Windows)
-5. **Optional** — `streamlit run streamlit_app.py` · `python telegram_bot.py`
+5. **Optional** — `streamlit run reporting/streamlit_app.py` · `python -m alerts.telegram_bot`
 6. **Quality** — `pytest tests/ -v` · `ruff check .`
 
 Scrapers need a real Chrome window (headless is blocked). Docker covers Clean + Load only (`SKIP_SCRAPE=1` in `docker-compose.yml`). Details: [PIPELINE.md](docs/PIPELINE.md).

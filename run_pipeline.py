@@ -4,24 +4,24 @@ run_pipeline.py
 Master orchestration script for the daily Skroutz price-tracking pipeline.
 
 Pipeline stages (run sequentially):
-  1. Scrape   — 1scriptToGet4.py                           [fatal]
+  1. Scrape   — scrapers.run_all                           [fatal]
                 Launches Chrome, scrapes all 4 product categories from skroutz.gr,
                 saves raw CSVs to the category folders.
 
-  2. Scraper Health Monitor — run_scraper_health_monitor.py [observer]
+  2. Scraper Health Monitor — ops.run_scraper_health [observer]
                 Checks raw CSVs exist, are fresh, and have enough rows.
                 Warns via Telegram on problems; never blocks the pipeline.
 
-  3. Clean    — 1scriptToGet4MANIPULATION.py                [fatal]
+  3. Clean    — etl.clean_all                [fatal]
                 Reads raw CSVs, applies data cleaning and feature extraction
                 (price normalisation, RAM/storage parsing, brand/model/color split),
                 saves cleaned CSVs to Clean/.
 
-  4. Data Quality Agent — run_data_quality_agent.py         [observer]
+  4. Data Quality Agent — ops.run_data_quality         [observer]
                 Read-only quality report on the day's raw CSVs, written to
                 logs/data_quality_YYYY-MM-DD.json. Never modifies data.
 
-  5. Load SQL — 4csvsTOsql.py                               [fatal]
+  5. Load SQL — etl.load_postgres                               [fatal]
                 Upserts cleaned data into PostgreSQL (products + price_snapshots).
 
 Abort behaviour:
@@ -56,8 +56,8 @@ from email.message import EmailMessage
 from dotenv import load_dotenv
 from sqlalchemy import text
 
-from db import get_engine
-import notifications as _notif
+from core.db import get_engine
+import alerts.notifications as _notif
 
 load_dotenv()
 
@@ -137,9 +137,9 @@ def _release_lock() -> None:
 
 
 _ALL_STAGES = [
-    ("Scrape",   os.path.join(BASE, "1scriptToGet4.py")),
-    ("Clean",    os.path.join(BASE, "1scriptToGet4MANIPULATION.py")),
-    ("Load SQL", os.path.join(BASE, "4csvsTOsql.py")),
+    ("Scrape",   "scrapers.run_all"),
+    ("Clean",    "etl.clean_all"),
+    ("Load SQL", "etl.load_postgres"),
 ]
 
 # Set SKIP_SCRAPE=1 in environments where Chrome cannot run (e.g. Docker)
@@ -159,10 +159,10 @@ for name, path in _ALL_STAGES:
     _STAGES.append((name, path, True))
     # After Scrape, add health monitor if we didn't skip scrape
     if name == "Scrape" and not _skip_scrape:
-        _STAGES.append(("Scraper Health Monitor", os.path.join(BASE, "run_scraper_health_monitor.py"), False))
+        _STAGES.append(("Scraper Health Monitor", "ops.run_scraper_health", False))
     # After Clean, add data quality agent
     if name == "Clean":
-        _STAGES.append(("Data Quality Agent", os.path.join(BASE, "run_data_quality_agent.py"), False))
+        _STAGES.append(("Data Quality Agent", "ops.run_data_quality", False))
 STAGES = _STAGES
 
 # ── Email alerts ───────────────────────────────────────────────────────────────
@@ -359,7 +359,7 @@ def run_charts():
     """Regenerate price trend charts. Non-fatal — pipeline result is unaffected if this fails."""
     logger.info("=== Charts started ===")
     t = datetime.datetime.now()
-    result = subprocess.run([sys.executable, os.path.join(BASE, "charts_from_db.py")])
+    result = subprocess.run([sys.executable, "-m", "reporting.charts_from_db"], cwd=str(ROOT))
     elapsed = (datetime.datetime.now() - t).total_seconds()
     if result.returncode != 0:
         logger.warning(f"Charts step failed after {elapsed:.0f}s — pipeline result is unaffected.")
@@ -688,7 +688,7 @@ def run_dashboard():
     """Generate the HTML dashboard. Non-fatal — pipeline result is unaffected if this fails."""
     logger.info("=== Dashboard started ===")
     t = datetime.datetime.now()
-    result = subprocess.run([sys.executable, os.path.join(BASE, "generate_dashboard.py")])
+    result = subprocess.run([sys.executable, "-m", "reporting.generate_dashboard"], cwd=str(ROOT))
     elapsed = (datetime.datetime.now() - t).total_seconds()
     if result.returncode != 0:
         logger.warning(f"Dashboard generation failed after {elapsed:.0f}s — pipeline result is unaffected.")
@@ -1058,7 +1058,7 @@ def run_stage(label, script, fatal=True):
     """
     logger.info(f"=== {label} started ===")
     t = datetime.datetime.now()
-    result = subprocess.run([sys.executable, script])
+    result = subprocess.run([sys.executable, "-m", script], cwd=str(ROOT))
     elapsed = (datetime.datetime.now() - t).total_seconds()
     if result.returncode != 0:
         _run_log_note(label, "failed", elapsed, result.returncode)

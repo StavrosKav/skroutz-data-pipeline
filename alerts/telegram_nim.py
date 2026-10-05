@@ -13,8 +13,8 @@ Uses nim_client.py with dynamic model routing.
 import asyncio
 import logging
 
-from nim_client import NIMClient, TaskType
-from nim_routing import route_by_complexity
+from alerts.nim_client import NIMClient, TaskType
+from alerts.nim_routing import route_by_complexity
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +237,7 @@ def cmd_analyze(args: str) -> str:
 
 def cmd_summarize() -> str:
     """Usage: /summarize — AI daily summary"""
-    from db import get_engine
+    from core.db import get_engine
     from sqlalchemy import text
     try:
         engine = get_engine()

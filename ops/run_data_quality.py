@@ -15,7 +15,6 @@ import pandas as pd
 
 # Add the project root to the path so we can import agents
 BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
-sys.path.insert(0, BASE)
 
 from agents.data_quality import create_data_quality_agent
 
