@@ -10,6 +10,7 @@
 --   vw_biggest_drops          — products with the largest single-day price drops
 --   vw_brand_summary          — price stats per brand per category
 --   vw_disappeared            — products not seen for 7+ days
+--   vw_active_products        — products seen today (last_seen = CURRENT_DATE)
 --   vw_price_volatility       — 30-day coefficient of variation per product
 --   vw_brand_price_trend      — daily avg price per brand/category
 --   vw_hot_deals              — products with price drop + review surge in the last 7 days
@@ -158,6 +159,30 @@ SELECT
 FROM products
 WHERE last_seen < CURRENT_DATE - INTERVAL '7 days'
 ORDER BY last_seen DESC;
+
+
+-- ── 5b. Active catalog (seen today) ───────────────────────────────────────────
+-- Products whose last_seen equals CURRENT_DATE — the live catalog as of the
+-- latest successful scrape day. Plain view (no matview / refresh needed).
+-- See also docs/sql/active_catalog.sql for example queries.
+
+CREATE OR REPLACE VIEW vw_active_products AS
+SELECT
+    id,
+    category,
+    brand,
+    model,
+    product_name,
+    specs,
+    ram_gb,
+    storage_gb,
+    first_seen,
+    last_seen,
+    skroutz_link
+FROM products
+WHERE last_seen = CURRENT_DATE
+ORDER BY category, brand, model;
+
 
 
 -- ── 6. Price volatility (30-day coefficient of variation) ────────────────────

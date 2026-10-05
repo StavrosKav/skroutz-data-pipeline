@@ -215,7 +215,7 @@ brand/model split, installment parsing, review-count recovery, standardized
 **Operations per cleaner:**
 - Price normalisation — strips `€`, handles Greek decimal commas, price ranges
 - Brand / model / color extraction (regex + lookup tables)
-- RAM / storage parsing (`"8/128GB"` → `ram_gb=8`, `storage_gb=128`) — phones only
+- RAM / storage parsing (`"8/128GB"`, `"(8GB/128GB)"`, `"(16GB/1TB/…)"` → `ram_gb` / `storage_gb`) — phones and tablets via `clean_common.parse_ram_storage`
 - Camera count, display size, battery info extraction — phones only
 - Review counts: first digit run extracted before numeric cast, so historical malformed values (`"1\n0.0"`) are recovered instead of nulled
 - Deduplication within the daily file
