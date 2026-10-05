@@ -76,3 +76,9 @@ claude_pro_setup_guide.html
 # OS
 .DS_Store
 Thumbs.db
+
+# Tool caches / local backups
+.pytest_cache/
+.ruff_cache/
+backup-*/
+
