@@ -1,4 +1,4 @@
-"""
+﻿"""
 charts_from_db.py  —  Brand price-trend charts for the Skroutz dashboard.
 
 One dark-themed PNG per category: top-N brands' smoothed daily average price
@@ -8,6 +8,7 @@ and a Δ% tag so you know the trend at a glance.
 Output: charts/price_trend_<category>.png
 Run:    python charts_from_db.py
 """
+from core.paths import CHARTS_DIR as _CHARTS_DIR
 
 import matplotlib
 matplotlib.use("Agg")
@@ -33,7 +34,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-CHARTS_DIR    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "charts")
+CHARTS_DIR    = str(_CHARTS_DIR)
 os.makedirs(CHARTS_DIR, exist_ok=True)
 
 CATEGORIES    = ["phone", "laptop", "smartwatch", "tablet"]

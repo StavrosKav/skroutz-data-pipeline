@@ -27,6 +27,7 @@ Run separately from the pipeline (e.g. a terminal or Task Scheduler):
 Uses long-polling — no public URL or webhook needed.
 Only responds to TELEGRAM_CHAT_ID to block unauthorized access.
 """
+from core.paths import ROOT
 
 import datetime
 import html
@@ -58,7 +59,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BASE     = os.path.dirname(os.path.abspath(__file__))
+BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID",  "")
 _API     = f"https://api.telegram.org/bot{TOKEN}"

@@ -18,6 +18,7 @@ Usage:
     from notifications import tg_send, tg_pipeline_start, tg_failure
     from notifications import tg_drops, tg_watchlist, tg_disappeared, tg_success
 """
+from core.paths import ROOT
 
 import datetime
 import html
@@ -40,9 +41,7 @@ _API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
 _MAX_LEN = 4096
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-
-
+BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 # ── HTML escaping ──────────────────────────────────────────────────────────────
 
 def _e(text) -> str:

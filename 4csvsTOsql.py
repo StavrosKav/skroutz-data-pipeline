@@ -23,6 +23,7 @@ Upsert strategy:
 
 Run after the cleaning scripts have produced today's CSV files.
 """
+from core.paths import ROOT
 
 import pandas as pd
 import datetime
@@ -43,9 +44,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-
-
+BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 # ── Helper functions for safe type conversion ──────────────────────────────────
 
 def _val(row, col):

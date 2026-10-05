@@ -5,6 +5,7 @@ Scraper Health Monitor Script
 Runs the ScraperHealthMonitor agent and logs the results.
 Exits with code 0 if all scrapers are healthy, non-zero otherwise.
 """
+from core.paths import ROOT
 
 import os
 import sys
@@ -13,7 +14,7 @@ import json
 from datetime import datetime
 
 # Add the project root to the path so we can import agents
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 sys.path.insert(0, BASE)
 
 from agents.pipeline_monitoring.scraper_health_monitor import create_scraper_health_monitor

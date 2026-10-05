@@ -4,6 +4,7 @@ Data Quality Agent runner for the pipeline (observer stage, read-only).
 Checks the day's raw scraper CSVs and writes a quality report to
 logs/data_quality_YYYY-MM-DD.json. Never modifies the CSVs.
 """
+from core.paths import ROOT
 
 import os
 import sys
@@ -13,7 +14,7 @@ from datetime import datetime
 import pandas as pd
 
 # Add the project root to the path so we can import agents
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 sys.path.insert(0, BASE)
 
 from agents.data_quality import create_data_quality_agent
