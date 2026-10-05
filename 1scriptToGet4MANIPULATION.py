@@ -17,6 +17,7 @@ stdout/stderr from every subprocess is captured to a dated log file under logs/.
 
 Called by run_pipeline.py (Stage 2); can also be run standalone after Stage 1.
 """
+from core.paths import ROOT
 
 import subprocess
 import sys
@@ -25,8 +26,7 @@ import os
 import logging
 
 # ── Cleaning scripts to run (order does not affect correctness) ───────────────
-HERE = os.path.dirname(os.path.abspath(__file__))
-
+HERE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 SCRIPTS = [
     os.path.join(HERE, "Data_Phone.py"),
     os.path.join(HERE, "Data_Smartwatches.py"),

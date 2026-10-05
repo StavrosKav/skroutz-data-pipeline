@@ -12,10 +12,10 @@ URL:  http://localhost:8501
 Requires:  TELEGRAM_BOT_TOKEN / GMAIL settings in .env are optional;
            DB_* variables in .env are required (same as the rest of the pipeline).
 """
+from core.paths import ROOT, CHARTS_DIR as _CHARTS_DIR, WATCHLIST_PATH
 
 import datetime
 import json
-from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
@@ -28,9 +28,9 @@ from db import get_engine
 
 load_dotenv()
 
-BASE       = Path(__file__).parent
-CHARTS_DIR = BASE / "charts"
-WATCHLIST  = BASE / "watchlist.json"
+BASE       = ROOT
+CHARTS_DIR = _CHARTS_DIR
+WATCHLIST  = WATCHLIST_PATH
 
 st.set_page_config(
     page_title  = "Skroutz Price Tracker",

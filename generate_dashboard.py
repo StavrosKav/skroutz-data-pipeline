@@ -9,6 +9,7 @@ Auto-called by run_pipeline.py after each successful scrape.
 
 Output: dashboard/dashboard_<YYYY-MM-DD>.html  +  dashboard/dashboard_latest.html
 """
+from core.paths import ROOT, CHARTS_DIR as _CHARTS_DIR, DASHBOARD_DIR, WATCHLIST_PATH, TEMPLATES_DIR, ASSETS_DIR
 
 import os
 import sys
@@ -16,7 +17,6 @@ import json
 import base64
 import logging
 import datetime
-from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import text
@@ -35,9 +35,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BASE       = Path(__file__).parent
-CHARTS_DIR = BASE / "charts"
-OUT_DIR    = BASE / "dashboard"
+BASE       = ROOT
+CHARTS_DIR = _CHARTS_DIR
+OUT_DIR    = DASHBOARD_DIR
 OUT_DIR.mkdir(exist_ok=True)
 
 
@@ -326,7 +326,7 @@ def fetch_data(conn):
 
 
 def _load_watchlist(conn):
-    path = BASE / "watchlist.json"
+    path = WATCHLIST_PATH
     if not path.exists():
         return []
     try:
@@ -374,10 +374,10 @@ def encode_chart(name):
     return "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode()
 
 
-HTML_TEMPLATE_PATH = BASE / "templates" / "dashboard.html"
+HTML_TEMPLATE_PATH = TEMPLATES_DIR / "dashboard.html"
 HTML_TEMPLATE = HTML_TEMPLATE_PATH.read_text(encoding="utf-8")
 
-CHARTJS_PATH = BASE / "assets" / "chart.umd.min.js"
+CHARTJS_PATH = ASSETS_DIR / "chart.umd.min.js"
 CHARTJS_INLINE = CHARTJS_PATH.read_text(encoding="utf-8")
 
 

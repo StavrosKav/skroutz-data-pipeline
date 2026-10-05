@@ -11,6 +11,7 @@ Output: date-stamped raw CSV in the category folder (see CONFIGS).
 
 Dependencies: undetected-chromedriver, selenium, pandas
 """
+from core.paths import ROOT
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -36,8 +37,7 @@ try:
 except ImportError:  # non-Windows (tests on CI)
     msvcrt = None
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-
+HERE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 logger = logging.getLogger(__name__)
 
 CARD_SELECTOR = "li.cf.card"

@@ -18,6 +18,7 @@ stdout/stderr from every subprocess is captured to a dated log file under logs/.
 
 Called by run_pipeline.py (Stage 1); can also be run standalone.
 """
+from core.paths import ROOT
 
 import subprocess
 import sys
@@ -27,8 +28,7 @@ import logging
 import time
 
 # ── Scraper scripts to run (order determines launch sequence) ─────────────────
-HERE = os.path.dirname(os.path.abspath(__file__))
-
+HERE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 SCRIPTS = [
     os.path.join(HERE, "skroutz_phonesWHILE.py"),
     os.path.join(HERE, "skroutz_SmartwatchesWHILE.py"),

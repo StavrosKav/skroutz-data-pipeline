@@ -11,6 +11,7 @@ review-count recovery, and the standardized read/write logic all live here.
 Reads:  <raw_folder>/<raw_prefix>_<today>.csv   (first existing prefix wins)
 Writes: Clean/<clean_folder>/clean_<today>.csv
 """
+from core.paths import ROOT
 
 import pandas as pd
 import re
@@ -20,9 +21,7 @@ import sys
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-
-
+BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 @dataclass(frozen=True)
 class CleanerConfig:
     category: str

@@ -1,4 +1,4 @@
-"""
+﻿"""
 run_pipeline.py
 ---------------
 Master orchestration script for the daily Skroutz price-tracking pipeline.
@@ -40,6 +40,7 @@ Typical usage:
 
 For automation, configure Windows Task Scheduler to run this script daily.
 """
+from core.paths import ROOT
 
 import html
 import subprocess
@@ -61,8 +62,7 @@ import notifications as _notif
 load_dotenv()
 
 # Resolve script paths relative to this file so the pipeline works from any working directory
-BASE = os.path.dirname(os.path.abspath(__file__))
-
+BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 _log_dir  = os.path.join(BASE, "logs")
 os.makedirs(_log_dir, exist_ok=True)
 _log_file = os.path.join(_log_dir, f"pipeline_{datetime.date.today()}.log")
@@ -1044,7 +1044,7 @@ def check_snapshot_coverage():
     _run_log_note("Coverage check", "warn", detail="; ".join(lines))
     _notif.tg_send(
         "⚠️ <b>Low snapshot coverage</b>\n"
-        + "\n".join(html.escape(l) for l in lines)
+        + "\n".join(html.escape(line) for line in lines)
         + f"\nvs {COVERAGE_LOOKBACK_DAYS}-day median — possible partial scrape."
     )
 
