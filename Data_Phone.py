@@ -11,7 +11,7 @@ Writes: Clean/Phones_skroutz_clean/clean_<today>.csv
 import pandas as pd
 import re
 
-from clean_common import CleanerConfig, run_clean, clean_price as clean_price  # re-exported for tests
+from clean_common import CleanerConfig, run_clean, parse_ram_storage, clean_price as clean_price  # re-exported for tests
 
 
 # ── RAM / STORAGE ─────────────────────────────────────────────────────────────
@@ -34,6 +34,13 @@ def extract_ram_storage(row):
         ram, storage = int(match.group(1)), int(match.group(2))
         if (match.group(3) or '').upper() == 'TB':
             storage *= 1000
+        return ram, storage
+
+    # Pattern 1b: forms Pattern 1 misses — "(12GB/256GB)", "(16GB/1.0TB)",
+    # "(8GB/128GB/...)". Only reached when Pattern 1 found nothing, so every
+    # value Pattern 1 already produced is unchanged.
+    ram, storage = parse_ram_storage(text)
+    if ram is not None:
         return ram, storage
 
     # Pattern 2: Greek label "Μνήμη: RAM/Storage"

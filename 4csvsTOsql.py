@@ -9,10 +9,17 @@ Database schema (two tables):
   • price_snapshots — one row per product per day (price, rating, installments)
 
 Upsert strategy:
-  • products: INSERT … ON CONFLICT (skroutz_link) → update last_seen date only;
-              static metadata (brand, model, specs) is never overwritten.
-  • price_snapshots: INSERT … ON CONFLICT (product_id, date) → DO NOTHING;
-                     running this script twice on the same day is safe.
+  • products: INSERT … ON CONFLICT (skroutz_link) → last_seen advances
+              (GREATEST, so a back-dated reload never moves it backwards) and
+              metadata columns are *filled* only where the stored value is
+              NULL (COALESCE(existing, new)). A non-NULL value already in the
+              DB is never overwritten, so existing metadata stays stable while
+              fields a later scrape/cleaner can parse (e.g. tablet RAM/storage)
+              stop being frozen at NULL forever.
+  • price_snapshots: INSERT … ON CONFLICT (product_id, date) → UPDATE
+                     price_eur, installments_*, rating, reviews (same-day repair).
+                     Re-running on the same day is idempotent and fixes a bad
+                     earlier load without inventing a second row.
 
 Run after the cleaning scripts have produced today's CSV files.
 """
@@ -69,6 +76,21 @@ def _float(row, col):
     except (ValueError, TypeError):
         return None
 
+def _price(row):
+    """price_eur, or None when missing / not strictly positive.
+
+    Mirrors the DB CHECK (price_eur IS NULL OR price_eur > 0): a stray 0 or
+    negative price is stored as NULL instead of aborting the whole category's
+    load transaction on a constraint violation.
+    """
+    v = _float(row, "price_eur")
+    return v if v is not None and v > 0 else None
+
+def _rating(row):
+    """rating, or None when missing / outside 0–5 (mirrors the DB CHECK)."""
+    v = _float(row, "rating")
+    return v if v is not None and 0 <= v <= 5 else None
+
 
 # ── Core loader ───────────────────────────────────────────────────────────────
 
@@ -122,10 +144,10 @@ def load_category(conn, category, file_path):
         })
         snapshot_extras.append({
             "skroutz_link":           link,
-            "price_eur":              _float(row, "price_eur"),
+            "price_eur":              _price(row),
             "installments_per_month": _float(row, "installments_per_month"),
             "installments_in_total":  _float(row, "installments_in_total"),
-            "rating":                 _float(row, "rating"),
+            "rating":                 _rating(row),
             "reviews":                _int(row, "reviews"),
         })
 
@@ -155,7 +177,21 @@ def load_category(conn, category, file_path):
             display_inches, battery_info, display_info, color,
             first_seen, last_seen
         )
-        ON CONFLICT (skroutz_link) DO UPDATE SET last_seen = EXCLUDED.last_seen
+        ON CONFLICT (skroutz_link) DO UPDATE SET
+            last_seen      = GREATEST(products.last_seen, EXCLUDED.last_seen),
+            first_seen     = COALESCE(products.first_seen,     EXCLUDED.first_seen),
+            product_name   = COALESCE(products.product_name,   EXCLUDED.product_name),
+            brand          = COALESCE(products.brand,          EXCLUDED.brand),
+            model          = COALESCE(products.model,          EXCLUDED.model),
+            specs          = COALESCE(products.specs,          EXCLUDED.specs),
+            ram_gb         = COALESCE(products.ram_gb,         EXCLUDED.ram_gb),
+            storage_gb     = COALESCE(products.storage_gb,     EXCLUDED.storage_gb),
+            num_cameras    = COALESCE(products.num_cameras,    EXCLUDED.num_cameras),
+            camera_type    = COALESCE(products.camera_type,    EXCLUDED.camera_type),
+            display_inches = COALESCE(products.display_inches, EXCLUDED.display_inches),
+            battery_info   = COALESCE(products.battery_info,   EXCLUDED.battery_info),
+            display_info   = COALESCE(products.display_info,   EXCLUDED.display_info),
+            color          = COALESCE(products.color,          EXCLUDED.color)
         RETURNING id, skroutz_link, (xmax = 0) AS is_new
     """), {
         col: [r[col] for r in products_rows]
@@ -195,7 +231,12 @@ def load_category(conn, category, file_path):
                 :price_eur, :installments_per_month, :installments_in_total,
                 :rating, :reviews
             )
-            ON CONFLICT (product_id, date) DO NOTHING
+            ON CONFLICT (product_id, date) DO UPDATE SET
+                price_eur               = EXCLUDED.price_eur,
+                installments_per_month  = EXCLUDED.installments_per_month,
+                installments_in_total   = EXCLUDED.installments_in_total,
+                rating                  = EXCLUDED.rating,
+                reviews                 = EXCLUDED.reviews
         """), snapshot_rows)
 
     logger.info(f"{category:12s}: {new_products} new products | {len(snapshot_rows)} snapshots loaded")

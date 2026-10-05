@@ -8,7 +8,7 @@
 ![Categories](https://img.shields.io/badge/Categories-4-orange?style=flat-square)
 ![Daily rows](https://img.shields.io/badge/Daily_rows-~7k-purple?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-336791?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 [![Live Dashboard](https://img.shields.io/badge/Live_Dashboard-view-e63946?style=flat-square)](https://stavroskav.github.io/skroutz-data-pipeline/)
 
@@ -291,7 +291,7 @@ psql -U postgres -d SkroutzPR -f analytics.sql
 |---|---|
 | Scraping | Python · Selenium · undetected-chromedriver |
 | Data processing | pandas · numpy |
-| Database | PostgreSQL 16 · SQLAlchemy 2.x |
+| Database | PostgreSQL 17 · SQLAlchemy 2.x |
 | Analytics | 15 SQL views · window functions |
 | Dashboards | Streamlit · Chart.js · Plotly |
 | Alerts | Gmail SMTP · Telegram Bot API |

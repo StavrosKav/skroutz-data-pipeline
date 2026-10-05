@@ -105,6 +105,42 @@ def split_brand_model(data, keep_color=False, color_required=False):
     data.loc[_na_rows, cols] = None
 
 
+# ── RAM / STORAGE (shared) ────────────────────────────────────────────────────
+# Matches the memory block in a skroutz product title in all observed forms:
+#   "(8/256GB)"  "(8GB/128GB)"  "(12GB/1TB)"  "(16GB/1.0TB)"
+#   "(16GB/512GB/Snapdragon X Plus/Windows 11 Home)"   ← tablets / 2-in-1s
+# The storage unit is REQUIRED so display-size-like blocks "(6.7/128)" never
+# match. The same expression is used by the one-off SQL backfill
+# (migrations/2026-10-05_must_improvements.sql) so DB and cleaner agree.
+_RAM_STORAGE_RE = re.compile(
+    r'\(\s*(\d+)\s*(?:GB)?\s*/\s*(\d+(?:\.\d+)?)\s*(GB|TB)\s*[/)]',
+    re.IGNORECASE,
+)
+
+
+def parse_ram_storage(text):
+    """
+    Return (ram_gb, storage_gb) parsed from a product title, or (None, None).
+
+    TB storage is converted to GB (1 TB = 1000 GB, same convention as phones).
+    Sanity guard: RAM must be 1–64 GB and strictly smaller than storage —
+    anything else is treated as "not a RAM/storage block" rather than guessed.
+    """
+    if text is None:
+        return None, None
+    m = _RAM_STORAGE_RE.search(str(text))
+    if not m:
+        return None, None
+    ram = int(m.group(1))
+    storage = float(m.group(2))
+    if m.group(3).upper() == 'TB':
+        storage *= 1000
+    storage = int(round(storage))
+    if not (1 <= ram <= 64) or storage <= ram:
+        return None, None
+    return ram, storage
+
+
 # ── INSTALLMENTS ──────────────────────────────────────────────────────────────
 def parse_installments(data):
     """

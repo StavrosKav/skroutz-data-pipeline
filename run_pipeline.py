@@ -909,6 +909,146 @@ def send_success_summary(elapsed):
     logger.info(f"Success summary sent — {snaps:,} snapshots, {new_prods:,} new products, {drops} drops.")
 
 
+# ── pipeline_runs logging ──────────────────────────────────────────────────────
+# One row per run in the pipeline_runs table (DDL in create_new_schema.sql).
+# Strictly best-effort: every helper swallows its own errors, so a missing
+# table or an unreachable DB can never change the pipeline's outcome.
+_RUN_ID = None
+_RUN_FINISHED = False
+
+
+def _run_log_start():
+    global _RUN_ID
+    try:
+        with get_engine().begin() as conn:
+            _RUN_ID = conn.execute(text(
+                "INSERT INTO pipeline_runs (run_date, status, host, pid, skip_scrape) "
+                "VALUES (CAST(:d AS date), 'running', :host, :pid, :skip) RETURNING id"
+            ), {
+                "d": os.environ.get("PIPELINE_DATE") or datetime.date.today().isoformat(),
+                "host": os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME"),
+                "pid": os.getpid(),
+                "skip": _skip_scrape,
+            }).scalar()
+        logger.info(f"pipeline_runs: run #{_RUN_ID} started")
+    except Exception as e:
+        _RUN_ID = None
+        logger.warning(f"pipeline_runs: could not record run start — {e}")
+
+
+def _run_log_note(stage, status, elapsed=None, returncode=None, detail=None):
+    """Append one {stage, status, ...} object to pipeline_runs.stage_notes."""
+    if _RUN_ID is None:
+        return
+    note = {"stage": stage, "status": status,
+            "at": datetime.datetime.now().isoformat(timespec="seconds")}
+    if elapsed is not None:
+        note["elapsed_s"] = round(elapsed, 1)
+    if returncode is not None:
+        note["returncode"] = returncode
+    if detail:
+        note["detail"] = str(detail)[:500]
+    try:
+        with get_engine().begin() as conn:
+            conn.execute(text(
+                "UPDATE pipeline_runs SET stage_notes = stage_notes || CAST(:n AS jsonb) "
+                "WHERE id = :id"
+            ), {"n": json.dumps([note]), "id": _RUN_ID})
+    except Exception as e:
+        logger.warning(f"pipeline_runs: could not record stage note — {e}")
+
+
+def _run_log_finish(status, failed_stage=None, exit_code=None, error=None):
+    global _RUN_FINISHED
+    if _RUN_ID is None or _RUN_FINISHED:
+        return
+    _RUN_FINISHED = True
+    try:
+        with get_engine().begin() as conn:
+            conn.execute(text(
+                "UPDATE pipeline_runs SET "
+                "  finished_at = now(), status = :status, failed_stage = :stage, "
+                "  exit_code = :rc, error = :err, "
+                "  snapshots_loaded = (SELECT COUNT(*) FROM price_snapshots WHERE date = run_date), "
+                "  new_products     = (SELECT COUNT(*) FROM products WHERE first_seen = run_date) "
+                "WHERE id = :id"
+            ), {"status": status, "stage": failed_stage, "rc": exit_code,
+                "err": (str(error)[:1000] if error else None), "id": _RUN_ID})
+        logger.info(f"pipeline_runs: run #{_RUN_ID} finished — {status}")
+    except Exception as e:
+        logger.warning(f"pipeline_runs: could not record run end — {e}")
+
+
+# ── Snapshot coverage check ────────────────────────────────────────────────────
+# Warning-only: compares today's snapshot count (overall and per category) with
+# the median of the previous COVERAGE_LOOKBACK_DAYS loaded days. Catches partial
+# scrapes like 2026-09-26 (3,935 vs ~6,600) even when yesterday was itself low,
+# which the day-over-day check in send_success_summary() can miss. Never fails
+# the pipeline and does not touch any existing threshold.
+COVERAGE_LOOKBACK_DAYS = 7
+COVERAGE_WARN_RATIO_TOTAL = 0.80
+COVERAGE_WARN_RATIO_CATEGORY = 0.70
+
+
+def check_snapshot_coverage():
+    run_date = os.environ.get("PIPELINE_DATE") or datetime.date.today().isoformat()
+    try:
+        with get_engine().connect() as conn:
+            rows = conn.execute(text("""
+                WITH daily AS (
+                    SELECT s.date, p.category, COUNT(*) AS n
+                    FROM price_snapshots s
+                    JOIN products p ON p.id = s.product_id
+                    WHERE s.date BETWEEN CAST(:d AS date) - :lookback AND CAST(:d AS date)
+                    GROUP BY s.date, p.category
+                ),
+                totals AS (
+                    SELECT date, '__total__'::text AS category, SUM(n) AS n
+                    FROM daily GROUP BY date
+                ),
+                allrows AS (
+                    SELECT date, category::text, n FROM daily
+                    UNION ALL SELECT date, category, n FROM totals
+                )
+                SELECT category,
+                       COALESCE(MAX(n) FILTER (WHERE date = CAST(:d AS date)), 0) AS today_n,
+                       percentile_cont(0.5) WITHIN GROUP (ORDER BY n)
+                           FILTER (WHERE date < CAST(:d AS date)) AS median_n,
+                       COUNT(*) FILTER (WHERE date < CAST(:d AS date)) AS prior_days
+                FROM allrows
+                GROUP BY category
+                ORDER BY category
+            """), {"d": run_date, "lookback": COVERAGE_LOOKBACK_DAYS}).fetchall()
+    except Exception as e:
+        logger.warning(f"Coverage check: DB query failed — {e}")
+        return
+
+    low = []
+    for r in rows:
+        if not r.median_n or r.prior_days < 3:
+            continue   # not enough history to judge
+        ratio = float(r.today_n) / float(r.median_n)
+        limit = COVERAGE_WARN_RATIO_TOTAL if r.category == "__total__" else COVERAGE_WARN_RATIO_CATEGORY
+        if ratio < limit:
+            low.append((r.category, int(r.today_n), int(r.median_n), ratio))
+
+    if not low:
+        logger.info(f"Coverage check: snapshot counts within normal range vs {COVERAGE_LOOKBACK_DAYS}-day median.")
+        _run_log_note("Coverage check", "ok")
+        return
+    lines = [
+        f"{'TOTAL' if c == '__total__' else c}: {t:,} vs median {m:,} ({100 * ratio:.0f}%)"
+        for c, t, m, ratio in low
+    ]
+    logger.warning("COVERAGE LOW: " + "; ".join(lines))
+    _run_log_note("Coverage check", "warn", detail="; ".join(lines))
+    _notif.tg_send(
+        "⚠️ <b>Low snapshot coverage</b>\n"
+        + "\n".join(html.escape(l) for l in lines)
+        + f"\nvs {COVERAGE_LOOKBACK_DAYS}-day median — possible partial scrape."
+    )
+
+
 def run_stage(label, script, fatal=True):
     """
     Run a single pipeline stage as a subprocess.
@@ -921,8 +1061,10 @@ def run_stage(label, script, fatal=True):
     result = subprocess.run([sys.executable, script])
     elapsed = (datetime.datetime.now() - t).total_seconds()
     if result.returncode != 0:
+        _run_log_note(label, "failed", elapsed, result.returncode)
         if fatal:
             logger.error(f"{label} failed (exit {result.returncode}) after {elapsed:.0f}s. Aborting pipeline.")
+            _run_log_finish("failed", failed_stage=label, exit_code=result.returncode)
             send_failure_alert(label, result.returncode)
             sys.exit(result.returncode)
         logger.error(f"{label} failed (exit {result.returncode}) after {elapsed:.0f}s. Observer stage — continuing.")
@@ -931,6 +1073,7 @@ def run_stage(label, script, fatal=True):
             f"Observer stage — pipeline continues. Check logs/pipeline_{datetime.date.today()}.log"
         )
         return
+    _run_log_note(label, "ok", elapsed, 0)
     logger.info(f"=== {label} complete in {elapsed:.0f}s ===")
 
 
@@ -945,6 +1088,7 @@ if __name__ == "__main__":
         sys.exit(0)
     try:
         start = datetime.datetime.now()
+        _run_log_start()
         _cleanup_old_logs()
         _notif.tg_pipeline_start()
         try:
@@ -963,6 +1107,7 @@ if __name__ == "__main__":
         for label, script, fatal in STAGES:
             run_stage(label, script, fatal)
         for _fn, _label in [
+            (check_snapshot_coverage, "Coverage check"),
             (refresh_matviews,        "Matview refresh"),
             (run_charts,              "Charts"),
             (send_drop_digest,        "Drop digest"),
@@ -972,13 +1117,27 @@ if __name__ == "__main__":
             (update_readme_stats,     "README stats"),
             (publish_artifacts,       "Publish artifacts"),
         ]:
+            _t = time.monotonic()
             try:
                 _fn()
+                if _label != "Coverage check":   # records its own ok/warn note
+                    _run_log_note(_label, "done", time.monotonic() - _t)
             except Exception as _e:
                 logger.error(f"{_label} raised an unhandled exception: {_e}")
+                _run_log_note(_label, "error", time.monotonic() - _t, detail=_e)
                 _notif.tg_send(f"⚠️ <b>{_label} failed</b>\n<code>{_e}</code>")
         elapsed = datetime.datetime.now() - start
         send_success_summary(elapsed)
+        _run_log_finish("success")
         logger.info(f"Pipeline finished in {elapsed}")
+    except SystemExit as _exit:
+        # Fatal stages already recorded their failure; this only catches exits
+        # from anywhere else. Re-raised unchanged so the exit code is preserved.
+        _code = _exit.code if isinstance(_exit.code, int) else 1
+        _run_log_finish("success" if _code == 0 else "failed", exit_code=_code)
+        raise
+    except BaseException as _e:
+        _run_log_finish("failed", error=repr(_e))
+        raise
     finally:
         _release_lock()
