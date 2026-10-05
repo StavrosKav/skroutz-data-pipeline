@@ -50,14 +50,14 @@ Automation: Windows Task Scheduler at 10:00 via `run_pipeline.bat`.
 | `Data_Smartwatches.py` | Cleaner entry point — smartwatches |
 | `charts_from_db.py` | Brand price-trend charts (dark-themed PNG per category) |
 | `generate_dashboard.py` | Self-contained HTML dashboard from PostgreSQL |
-| `analytics.sql` | 15 views: run once against DB to enable all analytics |
+| `sql/analytics.sql` | 15 views: run once against DB to enable all analytics |
 | `watchlist.json` | Price alert targets (array of {url, label, threshold_eur}) |
 | `run_pipeline.bat` | Task Scheduler launcher — update PYTHON path inside before registering |
 | `notifications.py` | Telegram notification layer — HTML parse mode, dedup, inline buttons, retry |
 | `telegram_bot.py` | Interactive Telegram bot — long-polling; /status /drops /watchlist /add /remove /find /stats /history /best /restock /cancel; URL→price conversation flow for adding watchlist items |
 | `streamlit_app.py` | Interactive Streamlit dashboard; live DB queries cached 1h; runs at localhost:8501 |
 | `tests/test_pipeline.py` | pytest test suite (unit tests for pipeline, DB helpers, notifications) |
-| `create_new_schema.sql` | DDL for a fresh PostgreSQL install (run once on a new DB) |
+| `sql/create_new_schema.sql` | DDL for a fresh PostgreSQL install (run once on a new DB) |
 
 ## Database
 - Engine: PostgreSQL 16

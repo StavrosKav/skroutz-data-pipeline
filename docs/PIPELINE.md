@@ -254,7 +254,7 @@ Reads all 4 cleaned CSVs and **upserts** into PostgreSQL using SQLAlchemy.
 **Function:** `refresh_matviews()` in `run_pipeline.py` · runs first in the post-Load
 step list, before Charts/Dashboard/digests — everything downstream reads these views.
 
-Data changes once per day, but 10 of the 15 analytics views in `analytics.sql`
+Data changes once per day, but 10 of the 15 analytics views in `sql/analytics.sql`
 were recomputing full-table `GROUP BY`/`LAG`/`FILTER` aggregates over all of
 `price_snapshots` (~450k rows) on **every single call** — including
 `vw_biggest_drops`, hit by the HTML dashboard, Streamlit, the Telegram drop
@@ -360,7 +360,7 @@ Indexes
 
 ---
 
-## Analytics Views  (`analytics.sql` — run once against DB)
+## Analytics Views  (`sql/analytics.sql` — run once against DB)
 
 | View | Purpose |
 |---|---|
@@ -596,8 +596,8 @@ All tests are pure unit tests — no database, no Chrome, no network. Safe to ru
 
 ### Add a new analytics view
 
-1. Write the SQL `CREATE OR REPLACE VIEW vw_<name> AS ...` in `analytics.sql`
-2. Run `analytics.sql` against the live DB once
+1. Write the SQL `CREATE OR REPLACE VIEW vw_<name> AS ...` in `sql/analytics.sql`
+2. Run `sql/analytics.sql` against the live DB once
 3. Reference the view in `run_pipeline.py`, `streamlit_app.py`, or `generate_dashboard.py`
 
 ### Add a new Telegram bot command
@@ -634,7 +634,7 @@ Edit the Windows Task Scheduler trigger time, or update the `cron:` schedule in 
 
 | Item | Why | Effort |
 |---|---|---|
-| **Run `analytics.sql` against live DB** | Creates `vw_near_atl`, `vw_price_trend_direction`, `vw_daily_market_index` — required for new dashboard features | 2 min |
+| **Run `sql/analytics.sql` against live DB** | Creates `vw_near_atl`, `vw_price_trend_direction`, `vw_daily_market_index` — required for new dashboard features | 2 min |
 | **Integration test against a test DB** | Unit tests cover parsing logic; no test currently catches schema drift or SQL errors | Half day |
 
 ### Medium priority
