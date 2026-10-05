@@ -30,7 +30,7 @@ Production-style ETL pipeline that tracks every phone, laptop, tablet, and smart
 
 ```mermaid
 flowchart LR
-  A["Daily trigger\nTask Scheduler 08:00"] --> B["Scrape\n4 categories · Selenium"]
+  A["Daily trigger\nTask Scheduler 10:00"] --> B["Scrape\n4 categories · Selenium"]
   B --> C["Clean\npandas normalisation"]
   C --> D["Load\nPostgreSQL upsert"]
   D --> E["Matviews\nCONCURRENTLY"]

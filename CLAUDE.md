@@ -1,5 +1,7 @@
 # CLAUDE.md — Skroutz Price Tracker
 
+> **Canonical agent notes:** see [AGENTS.md](AGENTS.md). This file is kept as a short pointer for Claude Code; prefer AGENTS.md for the full map.
+
 ## Environment
 - Python: `.venv\Scripts\python.exe` — always use this full path
 - Project:  `C:\Users\StavrosKV\Documents\Projects\ProjectsPY`
@@ -26,7 +28,7 @@ Post-pipeline (non-fatal, each runs independently after Load SQL):
   - `publish_artifacts()`       → git commit + push of charts/, dashboard/dashboard_latest.html, README.md → updates the GitHub Pages dashboard (https://stavroskav.github.io/skroutz-data-pipeline/); skips if index has unrelated staged changes or branch ≠ main
   - `send_success_summary(elapsed)` → Gmail: daily OK summary (snapshots, new products, drop count)
 
-Automation: Windows Task Scheduler at 08:00 via `run_pipeline.bat`.
+Automation: Windows Task Scheduler at 10:00 via `run_pipeline.bat`.
 
 ## Key Files
 | File | Role |

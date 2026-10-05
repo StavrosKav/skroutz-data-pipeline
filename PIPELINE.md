@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TD
     subgraph Trigger["Trigger Layer"]
-        WTS["Windows Task Scheduler\n08:00 daily\nrun_pipeline.bat"]
+        WTS["Windows Task Scheduler\n10:00 daily\nrun_pipeline.bat"]
         GHA["GitHub Actions CI\npush / PR / nightly"]
     end
 
@@ -284,7 +284,7 @@ so their own remaining work is small.
 `refresh_matviews()` runs `REFRESH MATERIALIZED VIEW CONCURRENTLY` for each of
 the 10, one at a time in its own transaction. Every matview carries a `UNIQUE`
 index specifically so `CONCURRENTLY` works — readers never see a locked or
-momentarily-empty view during the ~08:00 refresh. **Observer semantics:** a
+momentarily-empty view during the ~10:00 refresh. **Observer semantics:** a
 failed refresh is logged and the pipeline continues; the underlying tables
 Load SQL just wrote are untouched, so a stale matview is a freshness bug, not
 data loss.
@@ -516,7 +516,7 @@ Post-pipeline steps (charts, emails, dashboard) are **non-fatal** — failure is
 
 ```
 Task Scheduler
-  └─► run_pipeline.bat  (08:00 daily)
+  └─► run_pipeline.bat  (10:00 daily)
         └─► .venv\Scripts\python.exe run_pipeline.py
 ```
 
@@ -524,7 +524,7 @@ Task Scheduler
 
 ```powershell
 $action  = New-ScheduledTaskAction -Execute "C:\Users\StavrosKV\Documents\Projects\ProjectsPY\run_pipeline.bat"
-$trigger = New-ScheduledTaskTrigger -Daily -At "08:00"
+$trigger = New-ScheduledTaskTrigger -Daily -At "10:00"
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 4)
 Register-ScheduledTask -TaskName "SkroutzPipeline" -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest
 ```
