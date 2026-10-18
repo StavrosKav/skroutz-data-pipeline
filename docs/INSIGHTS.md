@@ -1,4 +1,4 @@
-# What 460,000 price snapshots reveal about Greek electronics pricing
+# What 460,000 price snapshots (to 18 Jul 2026) reveal about Greek electronics pricing
 
 *Findings from the [Skroutz Price Tracker](../README.md) database — 459,737 price snapshots of 21,501 products (phones, laptops, tablets, smartwatches) on Skroutz.gr, collected between 10 June 2025 and 18 July 2026. Every number below comes from a SQL query against the live PostgreSQL database; the queries are included at the end. Generated 2026-07-18.*
 
