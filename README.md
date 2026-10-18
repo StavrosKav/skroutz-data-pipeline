@@ -8,17 +8,17 @@
 ![Snapshots](https://img.shields.io/badge/Snapshots-952k-green?style=flat-square)
 <!-- STATS:BADGES:END -->
 ![Categories](https://img.shields.io/badge/Categories-4-orange?style=flat-square)
-![Daily rows](https://img.shields.io/badge/Daily_rows-~7k-purple?style=flat-square)
+![Daily rows](https://img.shields.io/badge/Daily_rows-~6.5k-purple?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-336791?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 [![Live Dashboard](https://img.shields.io/badge/Live_Dashboard-view-e63946?style=flat-square)](https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html)
 
-Production-style ETL pipeline that tracks every phone, laptop, tablet, and smartwatch on [Skroutz.gr](https://www.skroutz.gr) — Greece's largest e-commerce aggregator. It scrapes ~7k listings daily, upserts into PostgreSQL, refreshes analytics views, regenerates charts + a self-contained HTML dashboard, and alerts on price drops via Gmail and Telegram — unattended since mid-2025.
+Production-style ETL pipeline that tracks every phone, laptop, tablet, and smartwatch on [Skroutz.gr](https://www.skroutz.gr) — Greece's largest e-commerce aggregator. It scrapes ~6.5k listings daily, upserts into PostgreSQL, refreshes analytics views, regenerates charts + a self-contained HTML dashboard, and alerts on price drops via Gmail and Telegram. It runs daily since 25 May 2026 (Windows Task Scheduler on my laptop), after a two week baseline in June 2025.
 
-**Data story:** [What half a million snapshots reveal about Greek electronics pricing →](docs/INSIGHTS.md)
+**Data story:** [What 460,000 snapshots (to 18 Jul 2026) reveal about Greek electronics pricing →](docs/INSIGHTS.md)
 
-### Key findings
+### Key findings (as of 18 Jul 2026)
 
 - **Most electronics listings barely last a year — smartwatches are the outlier.** Of phones tracked in June 2025, only 6.6% were still listed in July 2026 (laptops 11.2%, tablets 23.9%); smartwatches survived at 51.7%.
 - **Discounting is brand culture.** Nothing cuts prices ≥3% on 6.9% of product-days — nearly 4× Apple's 1.6%.
@@ -128,7 +128,7 @@ Live interactive report: **[dashboard_latest.html](https://stavroskav.github.io/
 - **Markup-drift guard** — per-field completeness thresholds before CSV write; fixture canary on real listing HTML (`scrapers/scraper_core.py`, `tests/test_pipeline.py`).
 - **Alerting below the app layer** — PowerShell wrapper can Telegram-alert even if Python fails to start (`run_pipeline_wrapper.ps1`).
 - **Idempotent loads** — upserts + stale-aware lock file; safe to re-run.
-- **Materialized analytics** — 10 of 15 views refreshed `CONCURRENTLY`; pg_trgm for Telegram `/find`.
+- **Materialized analytics** — 16 views, 10 of them backed by materialized views refreshed `CONCURRENTLY`; pg_trgm for Telegram `/find`.
 - **CI on every push** — ruff, pytest, pip-audit, TruffleHog (+ nightly schedule).
 
 ---
@@ -140,7 +140,7 @@ Live interactive report: **[dashboard_latest.html](https://stavroskav.github.io/
 | Scraping | Python 3.12 · Selenium · undetected-chromedriver |
 | Processing | pandas · numpy |
 | Database | PostgreSQL 17 · SQLAlchemy 2.x |
-| Analytics | 15 SQL views · window functions · materialized views |
+| Analytics | 16 SQL views · 10 materialized views · window functions |
 | Dashboards | Self-contained HTML (Chart.js) · Streamlit |
 | Alerts | Gmail SMTP · Telegram Bot API |
 | Ops | Docker (Clean+Load) · Windows Task Scheduler · GitHub Actions |
