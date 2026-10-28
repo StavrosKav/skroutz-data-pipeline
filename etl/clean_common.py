@@ -109,8 +109,7 @@ def split_brand_model(data, keep_color=False, color_required=False):
 #   "(8/256GB)"  "(8GB/128GB)"  "(12GB/1TB)"  "(16GB/1.0TB)"
 #   "(16GB/512GB/Snapdragon X Plus/Windows 11 Home)"   ← tablets / 2-in-1s
 # The storage unit is REQUIRED so display-size-like blocks "(6.7/128)" never
-# match. The same expression is used by the one-off SQL backfill
-# (migrations/2026-10-05_must_improvements.sql) so DB and cleaner agree.
+# match.
 _RAM_STORAGE_RE = re.compile(
     r'\(\s*(\d+)\s*(?:GB)?\s*/\s*(\d+(?:\.\d+)?)\s*(GB|TB)\s*[/)]',
     re.IGNORECASE,

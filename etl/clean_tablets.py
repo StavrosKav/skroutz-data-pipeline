@@ -10,6 +10,7 @@ Writes: Clean/Tablets_skroutz_clean/clean_<today>.csv
 
 import pandas as pd
 
+from core.paths import CATEGORY_FOLDERS
 from etl.clean_common import CleanerConfig, run_clean, parse_ram_storage, clean_price as clean_price  # re-exported for tests
 
 
@@ -22,7 +23,7 @@ def enrich(data):
 
 CONFIG = CleanerConfig(
     category="tablets",
-    raw_folder="Tablets_skroutz",
+    raw_folder=CATEGORY_FOLDERS["tablets"],
     raw_prefixes=("skroutz_tablets",),
     clean_folder="Tablets_skroutz_clean",
     final_columns=(

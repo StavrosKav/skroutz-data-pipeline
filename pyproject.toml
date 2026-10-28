@@ -3,7 +3,7 @@ target-version = "py312"
 
 [tool.ruff.lint.per-file-ignores]
 # These scripts insert BASE onto sys.path before importing local packages
-# (documented convention, CLAUDE.md) — the import can't move to the top.
+# (documented convention, AGENTS.md) — the import can't move to the top.
 # Tests don't need this: pytest's pythonpath (below) puts the project root
 # on sys.path before collection.
 "ops/run_data_quality.py" = ["E402"]

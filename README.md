@@ -141,7 +141,7 @@ Live interactive report: **[dashboard_latest.html](https://stavroskav.github.io/
 | Processing | pandas · numpy |
 | Database | PostgreSQL 17 · SQLAlchemy 2.x |
 | Analytics | 16 SQL views · 10 materialized views · window functions |
-| Dashboards | Self-contained HTML (Chart.js) · Streamlit |
+| Dashboards | Self-contained HTML (Chart.js) |
 | Alerts | Gmail SMTP · Telegram Bot API |
 | Ops | Docker (Clean+Load) · Windows Task Scheduler · GitHub Actions |
 
@@ -155,14 +155,14 @@ skroutz-data-pipeline/
 ├── core/                                   # paths.py, db.py
 ├── scrapers/                               # scraper_core, phones|laptops|tablets|smartwatches, run_all
 ├── etl/                                    # clean_common, clean_*, clean_all, load_postgres
-├── reporting/                              # generate_dashboard, charts_from_db, queries, streamlit_app
+├── reporting/                              # generate_dashboard, charts_from_db, queries
 ├── alerts/                                 # notifications, telegram_*, nim_*
 ├── ops/                                    # run_data_quality, run_scraper_health
 ├── sql/                                    # create_new_schema.sql, analytics.sql
 ├── dashboard/dashboard_latest.html         # GitHub Pages artifact (CV URL)
 ├── charts/price_trend_*.png
 ├── index.html                              # Pages redirect → dashboard/dashboard_latest.html
-├── config/ · agents/ · migrations/ · tests/
+├── config/ · agents/ · tests/
 ├── docs/PIPELINE.md · docs/INSIGHTS.md
 └── Phones|Laptops|Tablets|Smartwatches_skroutz/ · Clean/   # gitignored CSVs
 ```
@@ -175,7 +175,7 @@ skroutz-data-pipeline/
 2. **Configure** — copy `.env.example` → `.env` (DB_*, optional Gmail / Telegram)
 3. **Schema once** — `sql/create_new_schema.sql` then `sql/analytics.sql`
 4. **Full pipeline** — `python run_pipeline.py` (or `run_pipeline.bat` on Windows)
-5. **Optional** — `streamlit run reporting/streamlit_app.py` · `python -m alerts.telegram_bot`
+5. **Optional** — `python -m alerts.telegram_bot`
 6. **Quality** — `pytest tests/ -v` · `ruff check .`
 
 Scrapers need a real Chrome window (headless is blocked). Docker covers Clean + Load only (`SKIP_SCRAPE=1` in `docker-compose.yml`). Details: [PIPELINE.md](docs/PIPELINE.md).

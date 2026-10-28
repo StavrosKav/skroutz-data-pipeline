@@ -9,6 +9,7 @@ from typing import Optional
 from datetime import datetime
 
 from agents.base import BaseAgent
+from core.paths import CATEGORY_FOLDERS
 
 logger = logging.getLogger(__name__)
 
@@ -54,13 +55,7 @@ class ScraperHealthMonitor(BaseAgent):
 
     def _check_category(self, category: str) -> dict:
         """Check the health of a specific category's scraper output."""
-        folder_map = {
-            "phones": "Phones_skroutz",
-            "laptops": "Laptops_skroutz",
-            "smartwatches": "Smartwatches_skroutz",
-            "tablets": "Tablets_skroutz",
-        }
-        folder_name = folder_map.get(category, f"{category.capitalize()}_skroutz")
+        folder_name = CATEGORY_FOLDERS.get(category, f"{category.capitalize()}_skroutz")
 
         folder_path = os.path.join(self.base_path, folder_name)
         if not os.path.exists(folder_path):

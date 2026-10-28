@@ -1,6 +1,6 @@
 """
 NVIDIA NIM API Client
-Async client for calling NIM endpoints (chat completions, embeddings).
+Async client for calling NIM endpoints (chat completions).
 Routes requests to appropriate models based on task type.
 
 Requirements:
@@ -33,10 +33,6 @@ class NIMModel(str, Enum):
     LLAMA_3_1_70B = "meta/llama-3.1-70b-instruct"          # General chat, good balance
     LLAMA_3_1_8B = "meta/llama-3.1-8b-instruct"            # Fast, cheap, simple tasks
 
-    # Embeddings — only nv-embedqa-e5-v5 is invokable on this account;
-    # nv-embed-v1/v2 and llama-3.2 embed variants all 404.
-    NV_EMBED_QA = "nvidia/nv-embedqa-e5-v5"
-
 
 class TaskType(str, Enum):
     """Task types that map to optimal models."""
@@ -46,8 +42,6 @@ class TaskType(str, Enum):
     CODE_REVIEW = "code_review"
     FAST_SIMPLE = "fast_simple"
     MULTILINGUAL = "multilingual"
-    EMBEDDING_QA = "embedding_qa"
-    EMBEDDING_GENERAL = "embedding_general"
 
 
 # Default routing: task -> model.
@@ -61,8 +55,6 @@ DEFAULT_MODEL_ROUTING: dict[TaskType, NIMModel] = {
     TaskType.CODE_REVIEW: NIMModel.LLAMA_3_3_70B,
     TaskType.FAST_SIMPLE: NIMModel.LLAMA_3_1_8B,
     TaskType.MULTILINGUAL: NIMModel.LLAMA_3_3_70B,
-    TaskType.EMBEDDING_QA: NIMModel.NV_EMBED_QA,
-    TaskType.EMBEDDING_GENERAL: NIMModel.NV_EMBED_QA,
 }
 
 
@@ -72,7 +64,6 @@ MODEL_COSTS: dict[NIMModel, tuple[float, float]] = {
     NIMModel.LLAMA_3_3_70B: (0.0, 0.0),
     NIMModel.LLAMA_3_1_70B: (0.0, 0.0),
     NIMModel.LLAMA_3_1_8B: (0.0, 0.0),
-    NIMModel.NV_EMBED_QA: (0.0, 0.0),
 }
 
 
@@ -115,30 +106,6 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[ChatCompletionChoice]
     usage: ChatCompletionUsage
-
-
-class EmbeddingRequest(BaseModel):
-    model: str
-    input: list[str] | str
-    encoding_format: str = "float"
-
-
-class EmbeddingData(BaseModel):
-    object: str = "embedding"
-    index: int
-    embedding: list[float]
-
-
-class EmbeddingUsage(BaseModel):
-    prompt_tokens: int
-    total_tokens: int
-
-
-class EmbeddingResponse(BaseModel):
-    object: str = "list"
-    data: list[EmbeddingData]
-    model: str
-    usage: EmbeddingUsage
 
 
 @dataclass
@@ -300,37 +267,6 @@ class NIMClient:
             async for chunk in response.aiter_bytes():
                 yield chunk
 
-    async def embed(
-        self,
-        texts: list[str] | str,
-        task: TaskType | NIMModel | str = TaskType.EMBEDDING_GENERAL,
-    ) -> list[list[float]]:
-        """
-        Generate embeddings.
-
-        Returns: list of embedding vectors (one per input text).
-        """
-        import time
-        start = time.perf_counter()
-
-        model = self._get_model(task)
-
-        request = EmbeddingRequest(
-            model=model,
-            input=texts if isinstance(texts, list) else [texts],
-        )
-
-        response_data = await self._post("/embeddings", request.model_dump())
-        response = EmbeddingResponse(**response_data)
-
-        latency_ms = int((time.perf_counter() - start) * 1000)
-        self._request_count += 1
-        self._total_latency_ms += latency_ms
-
-        # Sort by index to match input order
-        embeddings = sorted(response.data, key=lambda d: d.index)
-        return [d.embedding for d in embeddings]
-
     def get_stats(self) -> dict:
         """Return client usage statistics."""
         return {
@@ -339,54 +275,3 @@ class NIMClient:
             "avg_latency_ms": self._total_latency_ms / max(1, self._request_count),
             "total_cost_usd": self._total_cost,
         }
-
-
-# Convenience function for simple one-off calls
-async def quick_chat(
-    prompt: str,
-    system: str = "You are a helpful assistant.",
-    task: TaskType = TaskType.CHAT_DEFAULT,
-    **kwargs,
-) -> str:
-    """Quick one-liner for simple chat calls."""
-    async with NIMClient() as client:
-        resp = await client.chat([
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ], task=task, **kwargs)
-        return resp.content
-
-
-async def quick_embed(texts: list[str], task: TaskType = TaskType.EMBEDDING_GENERAL) -> list[list[float]]:
-    """Quick one-liner for embeddings."""
-    async with NIMClient() as client:
-        return await client.embed(texts, task=task)
-
-
-# Example usage / testing
-if __name__ == "__main__":
-    import asyncio
-
-    async def test():
-        async with NIMClient() as client:
-            # Chat test
-            resp = await client.chat(
-                messages=[
-                    {"role": "system", "content": "You are a price analysis assistant."},
-                    {"role": "user", "content": "Why do Xiaomi phones discount more often than iPhones?"},
-                ],
-                task=TaskType.REASONING_HEAVY,
-            )
-            print(f"Response: {resp.content[:200]}...")
-            print(f"Model: {resp.model}, Latency: {resp.latency_ms}ms, Tokens: {resp.usage}")
-
-            # Embedding test
-            embeds = await client.embed(
-                texts=["Xiaomi Redmi Note 13 Pro", "iPhone 15 Pro"],
-                task=TaskType.EMBEDDING_QA,
-            )
-            print(f"Embeddings: {len(embeds)} vectors, dim={len(embeds[0])}")
-
-            print(f"Stats: {client.get_stats()}")
-
-    asyncio.run(test())

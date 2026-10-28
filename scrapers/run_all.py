@@ -4,10 +4,10 @@ scrapers.run_all
 Stage 1 of the daily Skroutz price-tracking pipeline.
 
 Launches all four category scrapers in parallel as separate subprocesses:
-  - skroutz_phonesWHILE.py
-  - skroutz_SmartwatchesWHILE.py
-  - skroutz_tabletsWHILE.py
-  - skroutz_laptopsWHILE.py
+  - scrapers.phones
+  - scrapers.smartwatches
+  - scrapers.tablets
+  - scrapers.laptops
 
 Each scraper opens its own Chrome window, paginates through skroutz.gr,
 and saves a date-stamped raw CSV to its category folder.

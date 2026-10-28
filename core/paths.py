@@ -21,3 +21,13 @@ TEMPLATES_DIR = ROOT / "templates"
 ASSETS_DIR = ROOT / "assets"
 WATCHLIST_PATH = ROOT / "watchlist.json"
 INDEX_HTML = ROOT / "index.html"
+
+# Raw scraper output folder per category (relative to ROOT). Single source for
+# scraper_core.CONFIGS and the observer stages; kept here so observers don't
+# have to import selenium/undetected-chromedriver just to find the CSVs.
+CATEGORY_FOLDERS = {
+    "phones": "Phones_skroutz",
+    "laptops": "Laptops_skroutz",
+    "tablets": "Tablets_skroutz",
+    "smartwatches": "Smartwatches_skroutz",
+}

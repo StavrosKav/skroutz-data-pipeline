@@ -544,7 +544,7 @@ ORDER BY COALESCE(a.rev_now - a.rev_14d, 0) DESC;
 -- Data changes ONCE per day (the 08:00 pipeline). Every view above that GROUPs
 -- or windows (LAG/LEAD/FILTER) over the full price_snapshots table was paying
 -- that cost on every single read — including the hottest path in the whole
--- project (vw_biggest_drops, hit by the HTML dashboard, Streamlit, the
+-- project (vw_biggest_drops, hit by the HTML dashboard, the
 -- Telegram drop digest, and /status on every call).
 --
 -- The 10 heaviest full-table aggregates below are now MATERIALIZED VIEWs,
