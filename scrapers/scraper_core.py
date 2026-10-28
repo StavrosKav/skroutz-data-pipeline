@@ -65,7 +65,7 @@ DRIFT_THRESHOLDS = {
 # or is thinner than one listing page (~50) — the 2026-08-25 URL-unchanged
 # stop wrote 54-row CSVs and loaded as "success".
 MAX_PAGES = 200
-MAX_STALE_PAGES = 2
+MAX_STALE_PAGES = 3
 MIN_PRODUCTS = 200
 PAGE_ADVANCE_SETTLE = 3
 PAGE_ADVANCE_EXTRA = 12
@@ -376,6 +376,38 @@ def _goto_next_page(driver, attempts=3):
     return False
 
 
+def _page_number(url: str):
+    """Value of the ?page= query param (1 if absent), None if unparsable."""
+    from urllib.parse import parse_qs, urlparse
+    try:
+        vals = parse_qs(urlparse(url or "").query).get("page")
+        return int(vals[0]) if vals else 1
+    except (ValueError, TypeError):
+        return None
+
+
+def _with_page(url: str, page: int) -> str:
+    """Same URL with ?page=<page>, other query params preserved."""
+    from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+    parts = urlparse(url)
+    q = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "page"]
+    q.append(("page", str(page)))
+    return urlunparse(parts._replace(query=urlencode(q)))
+
+
+_TOTAL_RE = re.compile(r"(\d{1,3}(?:\.\d{3})*|\d+)\s+(?:προϊόντα|αποτελέσματα)")
+
+
+def _listing_total(driver):
+    """Total product count Skroutz shows on the listing (best effort, else None)."""
+    try:
+        text = driver.find_element(By.TAG_NAME, "body").text or ""
+    except Exception:
+        return None
+    m = _TOTAL_RE.search(text if isinstance(text, str) else "")
+    return int(m.group(1).replace(".", "")) if m else None
+
+
 def _card_links(driver):
     """Canonical listing URLs currently on the page — used to detect a real page change."""
     links = []
@@ -553,6 +585,9 @@ def scrape(cfg: ScraperConfig):
         seen_links: set[str] = set()
         stale_pages = 0
         page = 1
+        expected_total = _listing_total(driver)
+        if expected_total:
+            logger.info(f"[{cfg.category}] Skroutz reports {expected_total} products")
 
         while True:
             if page > MAX_PAGES:
@@ -570,7 +605,8 @@ def scrape(cfg: ScraperConfig):
             kept, new_on_page = _collect_new_rows(page_rows, seen_links)
             products.extend(kept)
 
-            if new_on_page == 0:
+            # Stale only when the page loaded cards and every link was already seen.
+            if cards and new_on_page == 0:
                 stale_pages += 1
                 logger.warning(
                     f"[{cfg.category}] page {page} added 0 new products "
@@ -582,24 +618,47 @@ def scrape(cfg: ScraperConfig):
             else:
                 stale_pages = 0
 
+            prev_url = getattr(driver, "current_url", "") or ""
+            prev_num = _page_number(prev_url)
             if not _goto_next_page(driver):
                 logger.info("Τέλος σελίδων.")
                 break
             if not _wait_for_page_advance(driver, seen_links):
+                retry_url = _with_page(prev_url or cfg.url, page + 1)
                 logger.warning(
                     f"[{cfg.category}] listing did not advance after next click — "
-                    "will re-read and count as stale if still duplicates"
+                    f"reloading expected page {page + 1}: {retry_url}"
                 )
+                _load_page(driver, retry_url)
+                _dismiss_overlays(driver)
+                if not _wait_for_page_advance(driver, seen_links):
+                    logger.warning(
+                        f"[{cfg.category}] page {page + 1} still not advanced after reload"
+                    )
+            new_num = _page_number(getattr(driver, "current_url", "") or "")
+            if prev_num is not None and new_num is not None and new_num <= prev_num:
+                logger.info(
+                    f"[{cfg.category}] next page number did not increase "
+                    f"({prev_num} -> {new_num}) — pagination wrapped, done."
+                )
+                break
             page += 1
 
-        df = pd.DataFrame(products).drop_duplicates(subset="Link", keep="first")
+        raw_df = pd.DataFrame(products)
+        # Drift guard runs BEFORE dedup: N/A links would otherwise collapse to one row.
+        _check_markup_drift(raw_df, cfg.category)
+        df = raw_df.drop_duplicates(subset="Link", keep="first")
+        if expected_total:
+            logger.info(
+                f"[{cfg.category}] scraped {len(df)} unique / Skroutz reports {expected_total} "
+                f"({len(df) / expected_total:.0%}) over {page} pages"
+            )
         if len(df) < cfg.min_products:
             logger.error(
                 f"[{cfg.category}] only {len(df)} unique products "
                 f"(min {cfg.min_products}) — refusing to write a partial scrape"
             )
             sys.exit(1)
-        _check_markup_drift(df, cfg.category)
 
         # Save raw data; date-stamp prevents overwrites and enables historical comparison
         output_folder = os.path.join(HERE, cfg.folder)

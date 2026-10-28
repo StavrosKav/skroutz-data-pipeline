@@ -4,14 +4,53 @@ Checks scraper outputs for failures and anomalies.
 """
 
 import os
+import re
 import logging
 from typing import Optional
-from datetime import datetime
+from datetime import date, datetime
 
 from agents.base import BaseAgent
 from core.paths import CATEGORY_FOLDERS
 
 logger = logging.getLogger(__name__)
+
+COUNT_DEVIATION_PCT = 20
+_DATE_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})\.csv$")
+
+
+def _run_date() -> str:
+    """Same rule as scrapers/etl: PIPELINE_DATE env, else today."""
+    return os.environ.get("PIPELINE_DATE") or date.today().isoformat()
+
+
+def csv_date(name: str):
+    m = _DATE_RE.search(name)
+    return m.group(1) if m else None
+
+
+def pick_run_csv(files, run_date=None):
+    """The CSV named for the run date (not newest mtime), or None."""
+    run_date = run_date or _run_date()
+    for f in sorted(files):
+        if csv_date(f) == run_date:
+            return f
+    return None
+
+
+def count_deviation(today_count: int, history: list, pct: float = COUNT_DEVIATION_PCT):
+    """Return % deviation vs trailing average if > pct, else None (needs history)."""
+    if not history:
+        return None
+    avg = sum(history) / len(history)
+    if avg <= 0:
+        return None
+    dev = (today_count - avg) / avg * 100
+    return round(dev, 1) if abs(dev) > pct else None
+
+
+def _row_count(path: str) -> int:
+    with open(path, "r", encoding="utf-8") as f:
+        return sum(1 for _ in f) - 1
 
 
 class ScraperHealthMonitor(BaseAgent):
@@ -82,11 +121,16 @@ class ScraperHealthMonitor(BaseAgent):
                 "row_count": 0,
             }
 
-        # Sort by modification time (newest first)
-        csv_files.sort(
-            key=lambda x: os.path.getmtime(os.path.join(folder_path, x)), reverse=True
-        )
-        latest_file = csv_files[0]
+        run_date = _run_date()
+        latest_file = pick_run_csv(csv_files, run_date)
+        if latest_file is None:
+            return {
+                "healthy": False,
+                "reason": f"No CSV for run date {run_date}",
+                "file_count": len(csv_files),
+                "latest_file": None,
+                "row_count": 0,
+            }
         file_path = os.path.join(folder_path, latest_file)
 
         # Check file age
@@ -122,6 +166,28 @@ class ScraperHealthMonitor(BaseAgent):
                 "file_count": len(csv_files),
                 "latest_file": latest_file,
                 "row_count": 0,
+            }
+
+        # Count check vs trailing 7 dated CSVs before the run date.
+        prior = sorted(f for f in csv_files if (csv_date(f) or "") < run_date)[-7:]
+        history = []
+        for f in prior:
+            try:
+                history.append(_row_count(os.path.join(folder_path, f)))
+            except Exception:
+                continue
+        dev = count_deviation(row_count, history)
+        if dev is not None:
+            return {
+                "healthy": False,
+                "reason": (
+                    f"Row count {row_count} deviates {dev:+.1f}% from 7-day avg "
+                    f"{sum(history) / len(history):.0f}"
+                ),
+                "file_count": len(csv_files),
+                "latest_file": latest_file,
+                "row_count": row_count,
+                "age_hours": round(age_hours, 1),
             }
 
         return {
