@@ -483,7 +483,7 @@ tr:hover td { background: #ffffff08; }
 
   <div class="section">
     <div class="section-title">
-      &#128683; Disappeared (last 30 days)
+      &#128683; Δεν εμφανίστηκαν &gt;30 μέρες
       <span class="count-badge" id="gone-badge"></span>
       <span class="sample-note" id="gone-note"></span>
     </div>
@@ -650,7 +650,7 @@ function buildStats() {
     { val: DATA.last_updated, lbl: 'Last Updated' },
     { val: dropsToday, lbl: (dropsToday ? '&#8595; ' : '&#8594; ') + 'Drops Today', cls: dropsToday ? 'highlight' : '' },
     { val: newWeek, lbl: (newWeek ? '&#8593; ' : '&#8594; ') + 'New This Week', cls: newWeek ? 'success' : '' },
-    { val: kpi('disappeared_30d', DATA.disappeared.length), lbl: '&#8594; Disappeared (30d)' },
+    { val: kpi('disappeared_30d', DATA.disappeared.length), lbl: '&#8594; Δεν εμφανίστηκαν >30 μέρες' },
   ];
   for (const [cat, info] of Object.entries(DATA.by_category)) {
     const label = (CAT_LABEL[cat]||cat);
@@ -912,7 +912,7 @@ function buildNewGone() {
   document.getElementById('gone-note').textContent = showingNote(DATA.disappeared.length, kpi('disappeared_30d', 0));
   const gb = document.getElementById('gone-body');
   if (!DATA.disappeared.length) {
-    gb.innerHTML = '<tr><td colspan="5" class="no-data">No products disappeared recently.</td></tr>';
+    gb.innerHTML = '<tr><td colspan="5" class="no-data">Κανένα προϊόν δεν λείπει πάνω από 30 μέρες.</td></tr>';
   } else {
     gb.innerHTML = DATA.disappeared.map(p => `<tr>
       <td>${p.brand}</td>

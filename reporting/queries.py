@@ -108,7 +108,12 @@ def hot_deals(conn, limit=20, min_drop_pct=None, min_drop_eur=None, max_drop_pct
 
 
 def disappeared(conn, days=30, limit=50):
-    """Products not seen in the last `days` days.
+    """Products not seen for MORE than `days` days, most recently seen first.
+
+    The daily scrape sees only part of the catalog, so a product missing for
+    a few days is usually just "not seen", not gone. Filtering here (not only
+    in the view) keeps this correct even on a DB whose view is still the old
+    7-day definition.
 
     ORDER BY includes skroutz_link as a tiebreaker: vw_disappeared has many
     rows sharing the same last_seen date, and without a secondary sort key
@@ -119,7 +124,7 @@ def disappeared(conn, days=30, limit=50):
         SELECT category, brand, model, product_name,
                last_seen, days_since_last_seen, skroutz_link
         FROM vw_disappeared
-        WHERE days_since_last_seen <= :days
+        WHERE days_since_last_seen > :days
         ORDER BY last_seen DESC, skroutz_link LIMIT :limit
     """)
     return pd.read_sql(query, conn, params={"days": days, "limit": limit})
@@ -197,10 +202,10 @@ def count_new_products(conn, days=7):
 
 
 def count_disappeared(conn, days=30):
-    """Products not seen for at most `days` days (same filter as disappeared())."""
+    """Products not seen for more than `days` days (same filter as disappeared())."""
     query = text("""
         SELECT COUNT(*) FROM vw_disappeared
-        WHERE days_since_last_seen <= :days
+        WHERE days_since_last_seen > :days
     """)
     return int(conn.execute(query, {"days": days}).scalar() or 0)
 

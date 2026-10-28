@@ -325,6 +325,20 @@ MATVIEWS = [
 ]
 
 
+VIEWS_SQL = os.path.join(BASE, "sql", "vw_disappeared.sql")
+
+
+def apply_view_definitions():
+    """Re-apply idempotent CREATE OR REPLACE VIEW files (no migration step)."""
+    try:
+        with open(VIEWS_SQL, encoding="utf-8") as f:
+            ddl = f.read()
+        with get_engine().begin() as conn:
+            conn.execute(text(ddl))
+    except Exception as e:
+        logger.warning(f"View definitions: could not apply {os.path.basename(VIEWS_SQL)} — {e}")
+
+
 def refresh_matviews():
     """
     Refresh the analytics materialized views so today's data shows up in
@@ -334,6 +348,7 @@ def refresh_matviews():
     """
     logger.info("=== Materialized view refresh started ===")
     t = datetime.datetime.now()
+    apply_view_definitions()
     try:
         engine = get_engine()
         failed = []

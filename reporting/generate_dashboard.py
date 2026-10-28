@@ -244,7 +244,7 @@ def fetch_data(conn):
             "url":        r.skroutz_link or "",
         })
 
-    # Disappeared (last 30 days)
+    # Not seen for >30 days
     dis_rows = queries.disappeared(conn, days=30, limit=DISAPPEARED_LIMIT).itertuples()
     disappeared = []
     for r in dis_rows:

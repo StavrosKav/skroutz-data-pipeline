@@ -9,7 +9,7 @@
 --   vw_price_history          — full daily price history with day-over-day change
 --   vw_biggest_drops          — products with the largest single-day price drops
 --   vw_brand_summary          — price stats per brand per category
---   vw_disappeared            — products not seen for 7+ days
+--   vw_disappeared            — products not seen for more than 30 days
 --   vw_active_products        — products seen today (last_seen = CURRENT_DATE)
 --   vw_price_volatility       — 30-day coefficient of variation per product
 --   vw_brand_price_trend      — daily avg price per brand/category
@@ -141,8 +141,9 @@ GROUP BY p.category, p.brand;
 
 
 -- ── 5. Disappeared products ───────────────────────────────────────────────────
--- Products whose last_seen date is more than 7 days ago — they were once on
--- skroutz but have been removed or are out of stock.
+-- Products whose last_seen date is more than 30 days ago. The daily scrape
+-- covers only part of the catalog, so shorter gaps mostly mean "not seen".
+-- Also applied daily from sql/vw_disappeared.sql (no migration needed).
 -- Useful for "what did the market lose recently?" and data-quality checks.
 
 CREATE OR REPLACE VIEW vw_disappeared AS
@@ -157,7 +158,7 @@ SELECT
     (CURRENT_DATE - last_seen) AS days_since_last_seen,
     skroutz_link
 FROM products
-WHERE last_seen < CURRENT_DATE - INTERVAL '7 days'
+WHERE last_seen < CURRENT_DATE - INTERVAL '30 days'
 ORDER BY last_seen DESC;
 
 

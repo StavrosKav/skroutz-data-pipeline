@@ -367,7 +367,7 @@ Indexes
 | `vw_price_history` | Full daily history with LAG-based day-over-day delta |
 | `vw_biggest_drops` | All negative price changes ordered by size |
 | `vw_brand_summary` | Min/max/avg/median price per brand per category |
-| `vw_disappeared` | Products not seen for 7+ days |
+| `vw_disappeared` | Products not seen for more than 30 days |
 | `vw_price_volatility` | 30-day coefficient of variation (stddev / avg) |
 | `vw_brand_price_trend` | Daily avg price per brand/category (for charts) |
 | `vw_hot_deals` | Price drop AND review surge vs. previous scrape |
