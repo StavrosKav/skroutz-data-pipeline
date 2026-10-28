@@ -10,6 +10,13 @@ from unittest.mock import patch
 import run_pipeline as rp
 
 
+def _rm_readonly(func, path, _exc):
+    # Windows: git object files are read-only; clear the flag and retry.
+    os.chmod(path, 0o700)
+    func(path)
+
+
+
 def _ok(out=""):
     return SimpleNamespace(returncode=0, stdout=out, stderr="")
 
@@ -128,4 +135,4 @@ class TestPublishPagesRealGit(unittest.TestCase):
             self.assertEqual(self._g("show", "gh-pages:dashboard/dashboard_latest.html", cwd=remote), "v2")
             self.assertEqual(self._g("status", "--porcelain", cwd=work).count("A "), 0)  # real index untouched
         finally:
-            shutil.rmtree(tmp)
+            shutil.rmtree(tmp, onexc=_rm_readonly)
