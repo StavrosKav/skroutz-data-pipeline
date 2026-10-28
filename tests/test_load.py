@@ -132,7 +132,7 @@ class TestLoadCategory(unittest.TestCase):
             f"link,price_eur,product,brand,model\n{url},299.00,Samsung Galaxy X,Samsung,Galaxy X\n"
         )
         fake_row               = MagicMock()
-        fake_row.skroutz_link  = url
+        fake_row.skroutz_id    = 1
         fake_row.id            = 42
         fake_row.is_new        = True
 
@@ -155,3 +155,30 @@ class TestLoadCategory(unittest.TestCase):
         _csvs.load_category(conn, "phone", path)
         # 1 call: upsert only — no snapshot insert
         self.assertEqual(conn.execute.call_count, 1)
+
+
+class TestSkroutzId(unittest.TestCase):
+    def test_parses_id(self):
+        self.assertEqual(_csvs.skroutz_id("https://www.skroutz.gr/s/56014849/Olympia-x.html"), 56014849)
+
+    def test_slug_change_same_id(self):
+        a = _csvs.skroutz_id("https://www.skroutz.gr/s/123/Phone-12GB-256GB.html")
+        b = _csvs.skroutz_id("https://www.skroutz.gr/s/123/Phone-12-256GB.html")
+        self.assertEqual(a, b)
+
+    def test_no_id(self):
+        self.assertIsNone(_csvs.skroutz_id("https://www.skroutz.gr/c/40/kinhta.html"))
+        self.assertIsNone(_csvs.skroutz_id(None))
+
+    def test_duplicate_id_in_csv_sent_once(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "c.csv")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("link,price_eur,product\nhttps://www.skroutz.gr/s/9/a.html,10,A\n"
+                    "https://www.skroutz.gr/s/9/b.html,11,B\nhttps://www.skroutz.gr/c/1/x.html,5,C\n")
+        conn = MagicMock()
+        conn.execute.side_effect = [[], MagicMock()]
+        _csvs.load_category(conn, "phone", path)
+        params = conn.execute.call_args_list[0].args[1]
+        self.assertEqual(params["skroutz_id"], [9])
