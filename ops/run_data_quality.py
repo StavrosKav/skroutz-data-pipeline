@@ -17,6 +17,7 @@ import pandas as pd
 BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 
 from agents.data_quality import create_data_quality_agent
+from agents.pipeline_monitoring.scraper_health_monitor import _run_date, pick_run_csv
 
 # Setup logging
 log_dir = os.path.join(BASE, "logs")
@@ -139,9 +140,12 @@ def main():
                 success = False
                 continue
 
-            # Sort by modification time (newest first)
-            files.sort(key=lambda x: os.path.getmtime(os.path.join(folder_path, x)), reverse=True)
-            latest_file = os.path.join(folder_path, files[0])
+            run_file = pick_run_csv(files)
+            if run_file is None:
+                logger.warning(f"No CSV for run date {_run_date()} in {folder_path}")
+                success = False
+                continue
+            latest_file = os.path.join(folder_path, run_file)
 
             logger.info(f"Processing latest CSV for {category}: {latest_file}")
             file_report = process_csv_file(latest_file, dq_agent)
