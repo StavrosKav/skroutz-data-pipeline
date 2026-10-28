@@ -35,6 +35,11 @@ def make_pg_executor(engine=None, timeout_ms: int = STATEMENT_TIMEOUT_MS):
     return run
 
 
+# gpt-oss-20b spends completion tokens on hidden reasoning before the answer;
+# without headroom short budgets come back empty.
+REASONING_HEADROOM = 1500
+
+
 def make_nim_llm(task=None, temperature: float = 0.0):
     """Sync LLM callable backed by NIMClient (NIMClient retries 429/5xx/timeouts)."""
     from alerts.nim_client import NIMClient, TaskType
@@ -43,7 +48,7 @@ def make_nim_llm(task=None, temperature: float = 0.0):
 
     async def _call(messages: list[dict], max_tokens: int) -> str:
         async with NIMClient() as client:
-            resp = await client.chat(messages, task=task, temperature=temperature, max_tokens=max_tokens)
+            resp = await client.chat(messages, task=task, temperature=temperature, max_tokens=max_tokens + REASONING_HEADROOM)
             return resp.content
 
     def llm(messages: list[dict], max_tokens: int) -> str:
