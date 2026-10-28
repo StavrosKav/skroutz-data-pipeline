@@ -38,7 +38,9 @@ def _queries(cat: str) -> dict[str, str]:
         ),
         "top_brands": (
             "SELECT brand, product_count, ROUND(avg_price::numeric, 2) FROM mv_brand_summary "
-            f"WHERE category = {c} ORDER BY product_count DESC LIMIT 5"
+            f"WHERE category = {c} AND brand IS NOT NULL AND brand <> '' "
+            "AND LOWER(brand) NOT IN ('none', 'smartwatch', 'unknown') "
+            "ORDER BY product_count DESC LIMIT 5"
         ),
         "drops_7d": (
             "SELECT COUNT(*), ROUND(AVG(drop_pct)::numeric, 1) FROM vw_biggest_drops "
@@ -100,7 +102,8 @@ SYSTEM_PROMPT = (
     "You summarize Greek electronics price data from skroutz.gr. Use ONLY the facts given. "
     "Do not add brands, products, prices, percentages or market knowledge that are not in the facts. "
     "If something is not in the facts, do not mention it. Write 3-5 short sentences in Greek: "
-    "price level, 30-day direction, most active brands, notable drops."
+    "price level, 30-day direction, most active brands, notable drops. "
+    "The median is διάμεση τιμή and the average is μέση τιμή: never call the median an average."
 )
 
 

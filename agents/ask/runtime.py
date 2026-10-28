@@ -35,9 +35,10 @@ def make_pg_executor(engine=None, timeout_ms: int = STATEMENT_TIMEOUT_MS):
     return run
 
 
-# gpt-oss-20b spends completion tokens on hidden reasoning before the answer;
+# Reasoning models (Nemotron 3 Ultra, gpt-oss-20b) spend completion tokens on hidden reasoning before the answer;
 # without headroom short budgets come back empty.
-REASONING_HEADROOM = 1500
+REASONING_HEADROOM = 2500
+LAST_MODEL: dict[str, str] = {}
 
 
 def make_nim_llm(task=None, temperature: float = 0.0):
@@ -49,6 +50,8 @@ def make_nim_llm(task=None, temperature: float = 0.0):
     async def _call(messages: list[dict], max_tokens: int) -> str:
         async with NIMClient() as client:
             resp = await client.chat(messages, task=task, temperature=temperature, max_tokens=max_tokens + REASONING_HEADROOM)
+            LAST_MODEL["model"] = resp.model
+            LAST_MODEL["latency_ms"] = str(resp.latency_ms)
             return resp.content
 
     def llm(messages: list[dict], max_tokens: int) -> str:
