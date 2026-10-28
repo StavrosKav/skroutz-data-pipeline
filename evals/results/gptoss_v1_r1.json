@@ -1,0 +1,348 @@
+{
+  "model": "openai/gpt-oss-20b",
+  "model_key": "gptoss",
+  "variant": "v1",
+  "summary": {
+    "n": 20,
+    "passed": 18,
+    "sql_valid": 20,
+    "median_s": 18.7,
+    "p90_s": 130.2,
+    "prompt_tokens_avg": 966,
+    "completion_tokens_avg": 620,
+    "failures": {
+      "no_sql": 0,
+      "invalid_sql": 0,
+      "wrong_result": 2,
+      "timeout": 0,
+      "api_error": 0
+    },
+    "models_used": [
+      "openai/gpt-oss-20b"
+    ]
+  },
+  "items": [
+    {
+      "id": "phone_cheapest",
+      "ok": true,
+      "why": "price_eur=10.00",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n    p.product_name,\n    p.brand,\n    lp.price_eur,\n    lp.last_price_date,\n    lp.rating,\n    lp.reviews,\n    p.skroutz_link\nFROM mv_latest_prices lp\nJOIN products p ON lp.id = p.id\nWHERE p.last_seen = (SELECT MAX(date) FROM price_snapshots)\n  AND lp.category = 'phone'\nORDER BY lp.price_eur NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 200112,
+      "llm_calls": 2,
+      "prompt_tokens": 968,
+      "completion_tokens": 754,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "laptop_most_expensive",
+      "ok": true,
+      "why": "price_eur=10906.24",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n    product_name,\n    brand,\n    price_eur,\n    last_price_date,\n    rating,\n    reviews,\n    skroutz_link\nFROM mv_latest_prices\nWHERE category = 'laptop'\n  AND last_price_date = (SELECT MAX(date) FROM price_snapshots)\nORDER BY price_eur DESC NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 66538,
+      "llm_calls": 2,
+      "prompt_tokens": 981,
+      "completion_tokens": 499,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "count_per_category",
+      "ok": true,
+      "why": "4/4 reference values found",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n    category,\n    COUNT(*) AS product_count\nFROM\n    products\nGROUP BY\n    category\nORDER BY\n    product_count DESC\nLIMIT 50",
+      "error": null,
+      "latency_ms": 175200,
+      "llm_calls": 2,
+      "prompt_tokens": 899,
+      "completion_tokens": 397,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "count_today",
+      "ok": true,
+      "why": "n=6242",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT COUNT(*) AS price_count\nFROM price_snapshots\nWHERE date = (SELECT MAX(date) FROM price_snapshots)\nLIMIT 50",
+      "error": null,
+      "latency_ms": 15458,
+      "llm_calls": 2,
+      "prompt_tokens": 853,
+      "completion_tokens": 218,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "biggest_drop_week_eur",
+      "ok": true,
+      "why": "drop_eur=-3221.62",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n    product_name,\n    brand,\n    drop_date,\n    prev_price,\n    new_price,\n    drop_eur,\n    skroutz_link\nFROM vw_biggest_drops\nWHERE drop_date >= (SELECT MAX(date) FROM price_snapshots) - INTERVAL '7 days'\nORDER BY drop_eur ASC\nLIMIT 1",
+      "error": null,
+      "latency_ms": 23970,
+      "llm_calls": 2,
+      "prompt_tokens": 1005,
+      "completion_tokens": 690,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "biggest_drop_pct_laptop_week",
+      "ok": false,
+      "why": "expected product_id=693952 in first row, got ['Dell 16 Premium DA16250 16.3\" (Ultra 7-255H)', 'Dell', '16 Premium DA16250 16.3\" (Ultra 7-255H)', datetime.date(2026, 10, 21), Decimal('4503.90'), Decimal('2052.00'), Decimal('-54.44')]",
+      "failure": "wrong_result",
+      "sql_valid": true,
+      "sql": "WITH latest AS (\n    SELECT MAX(date) AS latest_date\n    FROM price_snapshots\n)\nSELECT\n    d.product_name,\n    d.brand,\n    d.model,\n    d.drop_date,\n    d.prev_price,\n    d.new_price,\n    d.drop_pct\nFROM vw_biggest_drops d\nCROSS JOIN latest\nWHERE d.category = 'laptop'\n  AND d.drop_date >= latest.latest_date - INTERVAL '7 days'\n  AND d.drop_date <= latest.latest_date\nORDER BY d.drop_pct ASC\nLIMIT 1",
+      "error": null,
+      "latency_ms": 125229,
+      "llm_calls": 3,
+      "prompt_tokens": 1845,
+      "completion_tokens": 1016,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "drops_today_count",
+      "ok": true,
+      "why": "n=1266",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT COUNT(*) AS dropped_products\nFROM vw_biggest_drops\nWHERE drop_date = (SELECT MAX(date) FROM price_snapshots)\nLIMIT 50",
+      "error": null,
+      "latency_ms": 18018,
+      "llm_calls": 2,
+      "prompt_tokens": 852,
+      "completion_tokens": 360,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "new_products_week",
+      "ok": true,
+      "why": "n=381",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT COUNT(*) AS new_products_count\nFROM products\nWHERE first_seen >= (\n    SELECT MAX(date) FROM price_snapshots\n) - INTERVAL '7 days'\nLIMIT 50",
+      "error": null,
+      "latency_ms": 12255,
+      "llm_calls": 2,
+      "prompt_tokens": 855,
+      "completion_tokens": 261,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "avg_price_phone_today",
+      "ok": true,
+      "why": "avg_price=350.34",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT avg_price AS avg_price_eur\nFROM mv_daily_market_index\nWHERE category = 'phone'\n  AND date = (SELECT MAX(date) FROM price_snapshots)\nLIMIT 50",
+      "error": null,
+      "latency_ms": 47973,
+      "llm_calls": 2,
+      "prompt_tokens": 849,
+      "completion_tokens": 362,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "brands_most_products_phone",
+      "ok": true,
+      "why": "brand=Xiaomi",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT brand, product_count\nFROM mv_brand_summary\nWHERE category = 'phone'\nORDER BY product_count DESC\nLIMIT 1",
+      "error": null,
+      "latency_ms": 10561,
+      "llm_calls": 2,
+      "prompt_tokens": 851,
+      "completion_tokens": 277,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "apple_median_tablet",
+      "ok": true,
+      "why": "median_price=929.00",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT median_price\nFROM mv_brand_summary\nWHERE category = 'tablet'\n  AND brand = 'Apple'\nLIMIT 50",
+      "error": null,
+      "latency_ms": 8974,
+      "llm_calls": 2,
+      "prompt_tokens": 849,
+      "completion_tokens": 321,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "cheapest_iphone_15",
+      "ok": true,
+      "why": "price_eur=679.99",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "WITH latest_date AS (\n    SELECT MAX(date) AS d FROM price_snapshots\n)\nSELECT\n    p.product_name,\n    p.brand,\n    p.model,\n    m.price_eur,\n    m.last_price_date,\n    m.rating,\n    m.reviews,\n    m.skroutz_link\nFROM mv_latest_prices m\nJOIN products p ON p.id = m.id\nJOIN latest_date ld ON 1=1\nWHERE m.last_price_date = ld.d\n  AND p.last_seen = ld.d\n  AND m.category = 'phone'\n  AND m.product_name ILIKE '%iPhone 15%'\nORDER BY m.price_eur ASC NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 19305,
+      "llm_calls": 2,
+      "prompt_tokens": 942,
+      "completion_tokens": 876,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "atl_galaxy_s24",
+      "ok": true,
+      "why": "atl=436.48",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "WITH cheapest AS (\n  SELECT ps.product_id\n  FROM price_snapshots ps\n  JOIN products p ON p.id = ps.product_id\n  WHERE p.product_name ILIKE '%Samsung Galaxy S24%'\n    AND ps.price_eur IS NOT NULL\n  ORDER BY ps.price_eur NULLS LAST\n  LIMIT 1\n)\nSELECT p.product_name,\n       p.brand,\n       p.model,\n       f.all_time_low AS lowest_price\nFROM cheapest c\nJOIN products p ON p.id = c.product_id\nJOIN mv_price_floor f ON f.product_id = c.product_id\nORDER BY lowest_price\nLIMIT 1",
+      "error": null,
+      "latency_ms": 61204,
+      "llm_calls": 3,
+      "prompt_tokens": 1839,
+      "completion_tokens": 2282,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "price_history_top_phone",
+      "ok": false,
+      "why": "agent returned no rows",
+      "failure": "wrong_result",
+      "sql_valid": true,
+      "sql": "WITH latest_date AS (\n  SELECT MAX(date) AS max_date FROM price_snapshots\n),\ncheapest AS (\n  SELECT id\n  FROM mv_latest_prices\n  WHERE brand = 'Samsung' AND product_name ILIKE '%Galaxy S24%'\n  ORDER BY price_eur ASC\n  LIMIT 1\n)\nSELECT\n  p.product_name,\n  p.brand,\n  ps.date,\n  ps.price_eur,\n  ps.rating,\n  ps.reviews\nFROM price_snapshots ps\nJOIN products p ON ps.product_id = p.id\nJOIN cheapest c ON ps.product_id = c.id\nJOIN latest_date ld ON true\nWHERE ps.date >= ld.max_date - INTERVAL '7 days'\n  AND ps.date <= ld.max_date\nORDER BY ps.date ASC\nLIMIT 50",
+      "error": null,
+      "latency_ms": 31184,
+      "llm_calls": 1,
+      "prompt_tokens": 675,
+      "completion_tokens": 1444,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "smartwatch_under_50",
+      "ok": true,
+      "why": "n=1327",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT COUNT(*) AS smartwatches_below_50\nFROM mv_latest_prices\nWHERE category = 'smartwatch'\n  AND price_eur < 50\n  AND last_price_date = (SELECT MAX(date) FROM price_snapshots)\nLIMIT 50",
+      "error": null,
+      "latency_ms": 13098,
+      "llm_calls": 2,
+      "prompt_tokens": 858,
+      "completion_tokens": 349,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "best_rated_laptop",
+      "ok": true,
+      "why": "rating=4.9",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n    product_name,\n    brand,\n    model,\n    rating,\n    reviews,\n    price_eur\nFROM mv_latest_prices\nWHERE category = 'laptop'\n  AND reviews > 50\nORDER BY rating DESC, price_eur NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 16545,
+      "llm_calls": 2,
+      "prompt_tokens": 928,
+      "completion_tokens": 480,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "falling_trend_count",
+      "ok": true,
+      "why": "n=637",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT COUNT(*) AS falling_products\nFROM mv_price_trend_direction\nWHERE trend = 'falling'\nLIMIT 50",
+      "error": null,
+      "latency_ms": 7516,
+      "llm_calls": 2,
+      "prompt_tokens": 849,
+      "completion_tokens": 248,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "market_index_tablet_30d",
+      "ok": true,
+      "why": "2/2 reference values found",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "WITH latest AS (\n    SELECT MAX(date) AS last_date\n    FROM price_snapshots\n)\nSELECT\n    date,\n    avg_price\nFROM mv_daily_market_index\nWHERE category = 'tablet'\n  AND date IN (\n      (SELECT last_date FROM latest),\n      (SELECT last_date FROM latest) - INTERVAL '30 days'\n  )\nORDER BY date\nLIMIT 50",
+      "error": null,
+      "latency_ms": 27410,
+      "llm_calls": 2,
+      "prompt_tokens": 908,
+      "completion_tokens": 1025,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "ram_16gb_phones",
+      "ok": true,
+      "why": "n=51",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT COUNT(*) AS count\nFROM products p\nWHERE p.category = 'phone'\n  AND p.ram_gb = 16\n  AND p.last_seen = (SELECT MAX(date) FROM price_snapshots)\nLIMIT 50",
+      "error": null,
+      "latency_ms": 16401,
+      "llm_calls": 2,
+      "prompt_tokens": 847,
+      "completion_tokens": 445,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    },
+    {
+      "id": "out_of_scope",
+      "ok": true,
+      "why": "expected no data",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT 'NO_DATA' AS no_data WHERE false\nLIMIT 50",
+      "error": null,
+      "latency_ms": 4600,
+      "llm_calls": 1,
+      "prompt_tokens": 662,
+      "completion_tokens": 105,
+      "models_used": [
+        "openai/gpt-oss-20b"
+      ]
+    }
+  ],
+  "tag": "r1",
+  "finished_at": "2026-10-28T19:51:46"
+}

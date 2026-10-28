@@ -228,6 +228,7 @@ class NIMClient:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         stream: bool = False,
+        fallback: bool = True,
         **kwargs,
     ) -> NIMResponse | httpx.ByteStream:
         """
@@ -270,7 +271,7 @@ class NIMClient:
 
         payload = request.model_dump(exclude_none=True)
         chain = [model]
-        if model in {m.value for m in FALLBACK_CHAIN}:
+        if fallback and model in {m.value for m in FALLBACK_CHAIN}:
             chain += [m.value for m in FALLBACK_CHAIN if m.value != model]
         last_exc: BaseException | None = None
         for candidate in chain:
