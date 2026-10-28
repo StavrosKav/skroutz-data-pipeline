@@ -6,6 +6,7 @@ Provides LLM-enhanced features:
 - /analyze <category>      — LLM market analysis for a category
 - /summarize               — LLM daily summary with insights
 - /chat <message>          — Free-form chat with the price tracker AI
+- /ask <question>          — Answer from the database via guarded text-to-SQL
 
 Uses nim_client.py with dynamic model routing.
 """
@@ -184,6 +185,24 @@ def cmd_chat(args: str) -> str:
     return nim_chat_sync(args.strip())
 
 
+def cmd_ask(args: str) -> str:
+    """Usage: /ask <question> — text-to-SQL answer grounded in the database."""
+    if not args.strip():
+        return ("Usage: <code>/ask &lt;ερώτηση&gt;</code>\nΠαραδείγματα:\n"
+                "  /ask ποιο είναι το φθηνότερο iPhone 15;\n"
+                "  /ask μεγαλύτερη πτώση τιμής αυτή την εβδομάδα στα laptop")
+    from agents.ask.agent import format_telegram
+    from agents.ask.runtime import get_agent
+    try:
+        agent = get_agent()
+    except ValueError:
+        return _NOT_CONFIGURED
+    except Exception as e:
+        logger.warning(f"/ask init failed: {type(e).__name__}")
+        return "🔌 Backend unavailable right now — please try again in a bit."
+    return format_telegram(agent.ask(args))
+
+
 # Integration helper
 def register_nim_commands(dispatch_map: dict, args: str = "") -> None:
     """Register NIM commands into the bot's dispatch map.
@@ -193,4 +212,5 @@ def register_nim_commands(dispatch_map: dict, args: str = "") -> None:
         "/analyze":   lambda: cmd_analyze(args),
         "/summarize": lambda: cmd_summarize(),
         "/chat":      lambda: cmd_chat(args),
+        "/ask":       lambda: cmd_ask(args),
     })

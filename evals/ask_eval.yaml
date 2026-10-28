@@ -1,0 +1,191 @@
+{
+  "version": 1,
+  "notes": "JSON-flavoured YAML (loads with json or PyYAML). reference_sql is the ground truth computed live on the DB; checks compare result values, not answer text. 'today' = MAX(date) in price_snapshots.",
+  "items": [
+    {
+      "id": "phone_cheapest",
+      "question": "Ποιο είναι το φθηνότερο κινητό που πουλιέται σήμερα;",
+      "reference_sql": "SELECT id, product_name, price_eur FROM mv_latest_prices WHERE category='phone' AND last_price_date=(SELECT MAX(date) FROM price_snapshots) AND price_eur IS NOT NULL ORDER BY price_eur ASC LIMIT 1",
+      "check": {
+        "type": "top1",
+        "key": "price_eur"
+      }
+    },
+    {
+      "id": "laptop_most_expensive",
+      "question": "Ποιο είναι το ακριβότερο laptop σήμερα;",
+      "reference_sql": "SELECT id, product_name, price_eur FROM mv_latest_prices WHERE category='laptop' AND last_price_date=(SELECT MAX(date) FROM price_snapshots) ORDER BY price_eur DESC NULLS LAST LIMIT 1",
+      "check": {
+        "type": "top1",
+        "key": "price_eur"
+      }
+    },
+    {
+      "id": "count_per_category",
+      "question": "Πόσα προϊόντα παρακολουθούμε ανά κατηγορία;",
+      "reference_sql": "SELECT category, COUNT(*) AS n FROM products GROUP BY category ORDER BY category",
+      "check": {
+        "type": "set",
+        "key": "n"
+      }
+    },
+    {
+      "id": "count_today",
+      "question": "Πόσες τιμές μαζέψαμε στο τελευταίο scrape;",
+      "reference_sql": "SELECT COUNT(*) AS n FROM price_snapshots WHERE date=(SELECT MAX(date) FROM price_snapshots)",
+      "check": {
+        "type": "value",
+        "key": "n"
+      }
+    },
+    {
+      "id": "biggest_drop_week_eur",
+      "question": "Ποια ήταν η μεγαλύτερη πτώση τιμής σε ευρώ τις τελευταίες 7 μέρες;",
+      "reference_sql": "SELECT product_id, product_name, drop_eur FROM vw_biggest_drops WHERE drop_date > (SELECT MAX(date) FROM price_snapshots) - 7 ORDER BY drop_eur ASC LIMIT 1",
+      "check": {
+        "type": "top1",
+        "key": "product_id",
+        "alt_key": "drop_eur"
+      }
+    },
+    {
+      "id": "biggest_drop_pct_laptop_week",
+      "question": "Ποιο laptop είχε τη μεγαλύτερη ποσοστιαία πτώση αυτή την εβδομάδα;",
+      "reference_sql": "SELECT product_id, product_name, drop_pct FROM vw_biggest_drops WHERE category='laptop' AND drop_date > (SELECT MAX(date) FROM price_snapshots) - 7 ORDER BY drop_pct ASC LIMIT 1",
+      "check": {
+        "type": "top1",
+        "key": "product_id",
+        "alt_key": "drop_pct"
+      }
+    },
+    {
+      "id": "drops_today_count",
+      "question": "Πόσα προϊόντα έπεσαν σε τιμή στο τελευταίο scrape;",
+      "reference_sql": "SELECT COUNT(*) AS n FROM vw_biggest_drops WHERE drop_date=(SELECT MAX(date) FROM price_snapshots)",
+      "check": {
+        "type": "value",
+        "key": "n"
+      }
+    },
+    {
+      "id": "new_products_week",
+      "question": "Πόσα νέα προϊόντα εμφανίστηκαν τις τελευταίες 7 μέρες;",
+      "reference_sql": "SELECT COUNT(*) AS n FROM products WHERE first_seen > (SELECT MAX(date) FROM price_snapshots) - 7",
+      "check": {
+        "type": "value",
+        "key": "n"
+      }
+    },
+    {
+      "id": "avg_price_phone_today",
+      "question": "Ποια είναι η μέση τιμή κινητού σήμερα;",
+      "reference_sql": "SELECT avg_price FROM mv_daily_market_index WHERE category='phone' AND date=(SELECT MAX(date) FROM price_snapshots)",
+      "check": {
+        "type": "value",
+        "key": "avg_price",
+        "tol": 0.02
+      }
+    },
+    {
+      "id": "brands_most_products_phone",
+      "question": "Ποια μάρκα έχει τα περισσότερα κινητά;",
+      "reference_sql": "SELECT brand, product_count FROM mv_brand_summary WHERE category='phone' ORDER BY product_count DESC LIMIT 1",
+      "check": {
+        "type": "top1",
+        "key": "brand"
+      }
+    },
+    {
+      "id": "apple_median_tablet",
+      "question": "Ποια είναι η διάμεση τιμή των Apple tablets;",
+      "reference_sql": "SELECT median_price FROM mv_brand_summary WHERE category='tablet' AND brand ILIKE 'apple'",
+      "check": {
+        "type": "value",
+        "key": "median_price",
+        "tol": 0.02
+      }
+    },
+    {
+      "id": "cheapest_iphone_15",
+      "question": "Ποιο είναι το φθηνότερο iPhone 15 σήμερα;",
+      "reference_sql": "SELECT id, product_name, price_eur FROM mv_latest_prices WHERE category='phone' AND product_name ILIKE '%iphone 15%' AND last_price_date=(SELECT MAX(date) FROM price_snapshots) ORDER BY price_eur ASC LIMIT 1",
+      "check": {
+        "type": "top1",
+        "key": "price_eur"
+      }
+    },
+    {
+      "id": "atl_galaxy_s24",
+      "question": "Ποια είναι η χαμηλότερη τιμή που είχε ποτέ το φθηνότερο Samsung Galaxy S24;",
+      "reference_sql": "SELECT MIN(f.all_time_low) AS atl FROM mv_price_floor f JOIN products p ON p.id=f.product_id WHERE p.product_name ILIKE '%galaxy s24%'",
+      "check": {
+        "type": "value",
+        "key": "atl"
+      }
+    },
+    {
+      "id": "price_history_top_phone",
+      "question": "Δείξε το ιστορικό τιμής τις τελευταίες 7 μέρες του φθηνότερου Samsung Galaxy S24.",
+      "reference_sql": "SELECT date, price_eur FROM mv_price_history WHERE product_id = (SELECT id FROM mv_latest_prices WHERE product_name ILIKE '%galaxy s24%' AND last_price_date=(SELECT MAX(date) FROM price_snapshots) ORDER BY price_eur LIMIT 1) AND date > (SELECT MAX(date) FROM price_snapshots) - 7 ORDER BY date",
+      "check": {
+        "type": "set",
+        "key": "price_eur",
+        "min_overlap": 0.7
+      }
+    },
+    {
+      "id": "smartwatch_under_50",
+      "question": "Πόσα smartwatches κοστίζουν κάτω από 50€ σήμερα;",
+      "reference_sql": "SELECT COUNT(*) AS n FROM mv_latest_prices WHERE category='smartwatch' AND last_price_date=(SELECT MAX(date) FROM price_snapshots) AND price_eur < 50",
+      "check": {
+        "type": "value",
+        "key": "n"
+      }
+    },
+    {
+      "id": "best_rated_laptop",
+      "question": "Ποιο laptop με πάνω από 50 κριτικές έχει την υψηλότερη βαθμολογία;",
+      "reference_sql": "SELECT id, product_name, rating FROM mv_latest_prices WHERE category='laptop' AND reviews > 50 AND rating IS NOT NULL ORDER BY rating DESC, reviews DESC LIMIT 1",
+      "check": {
+        "type": "top1",
+        "key": "rating"
+      }
+    },
+    {
+      "id": "falling_trend_count",
+      "question": "Πόσα προϊόντα έχουν πτωτική τάση τιμής;",
+      "reference_sql": "SELECT COUNT(*) AS n FROM mv_price_trend_direction WHERE trend='falling'",
+      "check": {
+        "type": "value",
+        "key": "n"
+      }
+    },
+    {
+      "id": "market_index_tablet_30d",
+      "question": "Πώς άλλαξε η μέση τιμή των tablets τον τελευταίο μήνα; Δώσε την πρώτη και την τελευταία μέρα.",
+      "reference_sql": "SELECT date, avg_price FROM mv_daily_market_index WHERE category='tablet' AND date IN ((SELECT MIN(date) FROM mv_daily_market_index WHERE category='tablet' AND date > (SELECT MAX(date) FROM price_snapshots) - 30), (SELECT MAX(date) FROM price_snapshots)) ORDER BY date",
+      "check": {
+        "type": "set",
+        "key": "avg_price",
+        "tol": 0.02
+      }
+    },
+    {
+      "id": "ram_16gb_phones",
+      "question": "Πόσα κινητά με 16GB RAM πουλιούνται σήμερα;",
+      "reference_sql": "SELECT COUNT(*) AS n FROM products WHERE category='phone' AND ram_gb=16 AND last_seen=(SELECT MAX(date) FROM price_snapshots)",
+      "check": {
+        "type": "value",
+        "key": "n"
+      }
+    },
+    {
+      "id": "out_of_scope",
+      "question": "Ποια είναι η θερμοκρασία στην Αθήνα αύριο;",
+      "reference_sql": null,
+      "check": {
+        "type": "no_data"
+      }
+    }
+  ]
+}

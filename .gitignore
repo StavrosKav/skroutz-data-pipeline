@@ -82,3 +82,4 @@ Thumbs.db
 .ruff_cache/
 backup-*/
 
+evals/last_run.json

@@ -40,6 +40,18 @@ flowchart LR
 
 Full stage graph, failure semantics, and ops notes: **[PIPELINE.md](docs/PIPELINE.md)**.
 
+### AI: `/ask` over the database
+
+Telegram `/ask <question>` turns a Greek question into one guarded, read-only SQL
+query (SELECT-only, table allowlist, LIMIT, statement timeout), runs it, and answers
+only from the returned rows, showing the SQL. Evaluated on 20 Greek questions with
+value-based checks. Details: **[ASK_AGENT.md](docs/ASK_AGENT.md)**.
+
+```mermaid
+flowchart LR
+  Q["/ask question"] --> L1["NIM LLM → SQL"] --> G["SQL guard"] --> DB[("PostgreSQL\nread-only")] --> L2["NIM LLM → Greek answer\n+ SQL shown"]
+```
+
 ### Pipeline stages
 
 | Stage | Script | Fatal? | What it does |
