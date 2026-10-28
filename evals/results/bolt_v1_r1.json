@@ -1,0 +1,348 @@
+{
+  "model": "nvidia/nemotron-3.5-bolt-e4b",
+  "model_key": "bolt",
+  "variant": "v1",
+  "summary": {
+    "n": 20,
+    "passed": 13,
+    "sql_valid": 20,
+    "median_s": 3.7,
+    "p90_s": 6.3,
+    "prompt_tokens_avg": 1428,
+    "completion_tokens_avg": 103,
+    "failures": {
+      "no_sql": 0,
+      "invalid_sql": 0,
+      "wrong_result": 7,
+      "timeout": 0,
+      "api_error": 0
+    },
+    "models_used": [
+      "nvidia/nemotron-3.5-bolt-e4b"
+    ]
+  },
+  "items": [
+    {
+      "id": "phone_cheapest",
+      "ok": true,
+      "why": "price_eur=10.00",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n  product_name,\n  brand,\n  price_eur\nFROM mv_latest_prices\nWHERE\n  category = 'phone' AND last_price_date = (SELECT MAX(date) FROM price_snapshots)\nORDER BY\n  price_eur NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 7655,
+      "llm_calls": 2,
+      "prompt_tokens": 889,
+      "completion_tokens": 101,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "laptop_most_expensive",
+      "ok": true,
+      "why": "price_eur=10906.24",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n  product_name,\n  brand,\n  price_eur\nFROM mv_latest_prices\nWHERE\n  category = 'laptop' AND last_price_date = (SELECT MAX(date) FROM price_snapshots)\nORDER BY\n  price_eur DESC NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 3712,
+      "llm_calls": 2,
+      "prompt_tokens": 886,
+      "completion_tokens": 113,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "count_per_category",
+      "ok": true,
+      "why": "4/4 reference values found",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n  category,\n  COUNT(id) AS product_count\nFROM products\nGROUP BY\n  category\nORDER BY\n  category\nLIMIT 50",
+      "error": null,
+      "latency_ms": 3111,
+      "llm_calls": 2,
+      "prompt_tokens": 901,
+      "completion_tokens": 74,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "count_today",
+      "ok": true,
+      "why": "n=6242",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT COUNT(ps.date) FROM price_snapshots ps WHERE ps.date = (SELECT MAX(date) FROM price_snapshots)\nLIMIT 50",
+      "error": null,
+      "latency_ms": 2514,
+      "llm_calls": 2,
+      "prompt_tokens": 843,
+      "completion_tokens": 34,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "biggest_drop_week_eur",
+      "ok": true,
+      "why": "drop_eur=-3221.62",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n  product_name,\n  brand,\n  drop_eur\nFROM vw_biggest_drops\nWHERE\n  drop_date >= (SELECT MAX(date) FROM price_snapshots) - INTERVAL '7 days'\nORDER BY\n  drop_eur ASC\nLIMIT 1",
+      "error": null,
+      "latency_ms": 3118,
+      "llm_calls": 2,
+      "prompt_tokens": 902,
+      "completion_tokens": 76,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "biggest_drop_pct_laptop_week",
+      "ok": false,
+      "why": "expected product_id=693952 in first row, got ['Dell 16 Premium DA16250 16.3\" (Ultra 7-255H)', 'Dell', '16 Premium DA16250 16.3\" (Ultra 7-255H)', Decimal('-54.44')]",
+      "failure": "wrong_result",
+      "sql_valid": true,
+      "sql": "SELECT\n  p.product_name,\n  p.brand,\n  p.model,\n  vbd.drop_pct\nFROM vw_biggest_drops AS vbd\nJOIN products AS p\n  ON vbd.product_id = p.id\nWHERE\n  p.category = 'laptop' AND vbd.drop_date >= (\n    SELECT\n      MAX(date)\n    FROM price_snapshots\n  ) - INTERVAL '7 days'\nORDER BY\n  vbd.drop_pct ASC\nLIMIT 1",
+      "error": null,
+      "latency_ms": 4716,
+      "llm_calls": 2,
+      "prompt_tokens": 929,
+      "completion_tokens": 158,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "drops_today_count",
+      "ok": false,
+      "why": "expected n=1266 in first row, got ['Dell XPS DX13260T 13.4\" (Core 5-320/16GB/512GB)', 'Dell', datetime.date(2026, 10, 28), Decimal('1325.31'), Decimal('1219.99'), Decimal('-105.32')]",
+      "failure": "wrong_result",
+      "sql_valid": true,
+      "sql": "SELECT\n  product_name,\n  brand,\n  drop_date,\n  prev_price,\n  new_price,\n  drop_eur\nFROM vw_biggest_drops\nORDER BY\n  drop_date DESC\nLIMIT 50",
+      "error": null,
+      "latency_ms": 6112,
+      "llm_calls": 2,
+      "prompt_tokens": 3793,
+      "completion_tokens": 138,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "new_products_week",
+      "ok": true,
+      "why": "n=381",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n  COUNT(id) AS new_products_last_7_days\nFROM products\nWHERE\n  first_seen >= (SELECT MAX(date) FROM price_snapshots) - INTERVAL '7 days'\nLIMIT 50",
+      "error": null,
+      "latency_ms": 3322,
+      "llm_calls": 2,
+      "prompt_tokens": 852,
+      "completion_tokens": 55,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "avg_price_phone_today",
+      "ok": false,
+      "why": "expected avg_price=350.34 in first row, got [Decimal('39.01')]",
+      "failure": "wrong_result",
+      "sql_valid": true,
+      "sql": "SELECT\n  mv_brand_summary.avg_price\nFROM mv_brand_summary\nWHERE\n  mv_brand_summary.category = 'phone'\n  AND mv_brand_summary.total_snapshots > 0\nLIMIT 50",
+      "error": null,
+      "latency_ms": 3318,
+      "llm_calls": 2,
+      "prompt_tokens": 1216,
+      "completion_tokens": 64,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "brands_most_products_phone",
+      "ok": true,
+      "why": "brand=Xiaomi",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n  brand,\n  product_count\nFROM mv_brand_summary\nWHERE\n  category = 'phone'\nORDER BY\n  product_count DESC\nLIMIT 50",
+      "error": null,
+      "latency_ms": 3326,
+      "llm_calls": 2,
+      "prompt_tokens": 1328,
+      "completion_tokens": 63,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "apple_median_tablet",
+      "ok": true,
+      "why": "median_price=929.00",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n  brand,\n  median_price\nFROM mv_brand_summary\nWHERE\n  category = 'tablet' AND brand = 'Apple'\nLIMIT 1",
+      "error": null,
+      "latency_ms": 3965,
+      "llm_calls": 2,
+      "prompt_tokens": 848,
+      "completion_tokens": 50,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "cheapest_iphone_15",
+      "ok": false,
+      "why": "expected price_eur=679.99 in first row, got ['Apple iPhone 15', 'Apple', Decimal('663.05')]",
+      "failure": "wrong_result",
+      "sql_valid": true,
+      "sql": "SELECT\n  product_name,\n  brand,\n  price_eur\nFROM mv_latest_prices\nWHERE\n  category = 'phone' AND product_name ILIKE '%iPhone 15%' AND price_eur IS NOT NULL\nORDER BY\n  price_eur NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 3229,
+      "llm_calls": 2,
+      "prompt_tokens": 864,
+      "completion_tokens": 86,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "atl_galaxy_s24",
+      "ok": true,
+      "why": "atl=436.48",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n  p.product_name,\n  p.brand,\n  p.model,\n  mpf.all_time_low\nFROM products AS p\nJOIN mv_price_floor AS mpf\n  ON p.id = mpf.product_id\nWHERE\n  p.product_name ILIKE '%Samsung Galaxy S24%' AND p.category = 'phone'\nORDER BY\n  mpf.all_time_low ASC\nLIMIT 1",
+      "error": null,
+      "latency_ms": 3742,
+      "llm_calls": 2,
+      "prompt_tokens": 921,
+      "completion_tokens": 118,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "price_history_top_phone",
+      "ok": true,
+      "why": "7/7 reference values found",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n  mv_price_history.product_name,\n  mv_price_history.date,\n  mv_price_history.price_eur,\n  mv_price_history.prev_price,\n  mv_price_history.pct_change\nFROM mv_price_history\nWHERE\n  mv_price_history.product_name ILIKE '%Samsung Galaxy S24%'\n  AND mv_price_history.date >= (\n    SELECT\n      MAX(date) - INTERVAL '7 days'\n    FROM price_snapshots\n  )\nORDER BY\n  mv_price_history.date DESC\nLIMIT 50",
+      "error": null,
+      "latency_ms": 4913,
+      "llm_calls": 2,
+      "prompt_tokens": 2972,
+      "completion_tokens": 157,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "smartwatch_under_50",
+      "ok": false,
+      "why": "expected n=1327 in first row, got ['G3043 Black / Blue', 'G3043', Decimal('5.00')]",
+      "failure": "wrong_result",
+      "sql_valid": true,
+      "sql": "SELECT\n  product_name,\n  brand,\n  price_eur\nFROM mv_latest_prices\nWHERE\n  category = 'smartwatch' AND price_eur < 50\nORDER BY\n  price_eur NULLS LAST\nLIMIT 50",
+      "error": null,
+      "latency_ms": 4698,
+      "llm_calls": 2,
+      "prompt_tokens": 1818,
+      "completion_tokens": 127,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "best_rated_laptop",
+      "ok": true,
+      "why": "rating=4.9",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n  product_name,\n  brand,\n  rating,\n  reviews,\n  price_eur\nFROM mv_latest_prices\nWHERE\n  category = 'laptop' AND reviews >= 50\nORDER BY\n  rating DESC, price_eur NULLS LAST\nLIMIT 50",
+      "error": null,
+      "latency_ms": 4934,
+      "llm_calls": 2,
+      "prompt_tokens": 2754,
+      "completion_tokens": 156,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "falling_trend_count",
+      "ok": true,
+      "why": "n=637",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n  COUNT(product_id)\nFROM mv_price_trend_direction\nWHERE\n  trend = 'falling'\nLIMIT 50",
+      "error": null,
+      "latency_ms": 3417,
+      "llm_calls": 2,
+      "prompt_tokens": 838,
+      "completion_tokens": 37,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "market_index_tablet_30d",
+      "ok": false,
+      "why": "1/2 reference values found",
+      "failure": "wrong_result",
+      "sql_valid": true,
+      "sql": "SELECT\n  T1.date,\n  T1.avg_price\nFROM mv_daily_market_index AS T1\nWHERE\n  T1.category = 'tablet' AND T1.date >= (SELECT MAX(date) FROM price_snapshots) - INTERVAL '1 month'\nORDER BY\n  T1.date\nLIMIT 2",
+      "error": null,
+      "latency_ms": 3603,
+      "llm_calls": 2,
+      "prompt_tokens": 915,
+      "completion_tokens": 92,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "ram_16gb_phones",
+      "ok": false,
+      "why": "expected n=51 in first row, got ['AGM H6 Dual SIM (16/256GB) Ανθεκτικό Smartphone Μαύρο', 'AGM', Decimal('302.40')]",
+      "failure": "wrong_result",
+      "sql_valid": true,
+      "sql": "SELECT\n  p.product_name,\n  p.brand,\n  ps.price_eur\nFROM products AS p\nJOIN price_snapshots AS ps\n  ON p.id = ps.product_id\nWHERE\n  p.category = 'phone' AND p.ram_gb = 16 AND ps.date = (\n    SELECT\n      MAX(date)\n    FROM price_snapshots\n  ) AND p.last_seen = (\n    SELECT\n      MAX(last_seen)\n    FROM products\n  )\nORDER BY\n  ps.price_eur NULLS LAST\nLIMIT 50",
+      "error": null,
+      "latency_ms": 10721,
+      "llm_calls": 3,
+      "prompt_tokens": 3395,
+      "completion_tokens": 349,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    },
+    {
+      "id": "out_of_scope",
+      "ok": true,
+      "why": "expected no data",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT 'NO_DATA' AS no_data WHERE false\nLIMIT 50",
+      "error": null,
+      "latency_ms": 904,
+      "llm_calls": 1,
+      "prompt_tokens": 700,
+      "completion_tokens": 15,
+      "models_used": [
+        "nvidia/nemotron-3.5-bolt-e4b"
+      ]
+    }
+  ],
+  "tag": "r1",
+  "finished_at": "2026-10-28T19:38:09"
+}

@@ -81,7 +81,8 @@ def _jsonable(v: Any) -> Any:
 class AskAgent:
     def __init__(self, llm: LLM, executor: Executor, *, cache_size: int = 128,
                  cache_ttl_s: float = 3600, clock: Callable[[], float] = time.monotonic,
-                 sleep: Callable[[float], None] = time.sleep, llm_attempts: int = 3):
+                 sleep: Callable[[float], None] = time.sleep, llm_attempts: int = 3,
+                 sql_system: str | None = None):
         self.llm = llm
         self.executor = executor
         self.cache_size = cache_size
@@ -89,6 +90,7 @@ class AskAgent:
         self._clock = clock
         self._sleep = sleep
         self.llm_attempts = llm_attempts
+        self.sql_system = sql_system or SQL_SYSTEM
         self._cache: dict[str, tuple[float, AskResult]] = {}
 
     # ── cache ────────────────────────────────────────────────────────────
@@ -116,7 +118,7 @@ class AskAgent:
 
     def generate_sql(self, question: str, feedback: str | None = None,
                      previous_sql: str | None = None) -> str:
-        msgs = [{"role": "system", "content": SQL_SYSTEM},
+        msgs = [{"role": "system", "content": self.sql_system},
                 {"role": "user", "content": question}]
         if feedback:
             msgs.append({"role": "assistant", "content": f"```sql\n{previous_sql}\n```"})

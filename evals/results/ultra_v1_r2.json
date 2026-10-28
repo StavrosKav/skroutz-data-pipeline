@@ -1,0 +1,348 @@
+{
+  "model": "nvidia/nemotron-3-ultra-550b-a55b",
+  "model_key": "ultra",
+  "variant": "v1",
+  "summary": {
+    "n": 20,
+    "passed": 18,
+    "sql_valid": 20,
+    "median_s": 28.5,
+    "p90_s": 53.7,
+    "prompt_tokens_avg": 836,
+    "completion_tokens_avg": 674,
+    "failures": {
+      "no_sql": 0,
+      "invalid_sql": 0,
+      "wrong_result": 2,
+      "timeout": 0,
+      "api_error": 0
+    },
+    "models_used": [
+      "nvidia/nemotron-3-ultra-550b-a55b"
+    ]
+  },
+  "items": [
+    {
+      "id": "phone_cheapest",
+      "ok": true,
+      "why": "price_eur=10.00",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "WITH max_dt AS (\n    SELECT MAX(date) AS max_date FROM price_snapshots\n)\nSELECT\n    mlp.product_name,\n    mlp.brand,\n    mlp.price_eur,\n    mlp.skroutz_link\nFROM mv_latest_prices mlp\nCROSS JOIN max_dt\nWHERE mlp.category = 'phone'\n  AND mlp.last_seen = max_dt.max_date\n  AND mlp.price_eur IS NOT NULL\nORDER BY mlp.price_eur ASC NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 53537,
+      "llm_calls": 2,
+      "prompt_tokens": 893,
+      "completion_tokens": 555,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "laptop_most_expensive",
+      "ok": true,
+      "why": "price_eur=10906.24",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT product_name, brand, price_eur, last_price_date, skroutz_link\nFROM mv_latest_prices\nWHERE category = 'laptop'\n  AND last_seen = (SELECT MAX(date) FROM price_snapshots)\n  AND price_eur IS NOT NULL\nORDER BY price_eur DESC NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 26910,
+      "llm_calls": 2,
+      "prompt_tokens": 941,
+      "completion_tokens": 786,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "count_per_category",
+      "ok": true,
+      "why": "4/4 reference values found",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n    category,\n    COUNT(*) AS product_count\nFROM products\nGROUP BY category\nORDER BY product_count DESC\nLIMIT 50",
+      "error": null,
+      "latency_ms": 13723,
+      "llm_calls": 2,
+      "prompt_tokens": 853,
+      "completion_tokens": 352,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "count_today",
+      "ok": true,
+      "why": "n=6242",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT COUNT(*) AS price_count\nFROM price_snapshots\nWHERE date = (SELECT MAX(date) FROM price_snapshots)\nLIMIT 50",
+      "error": null,
+      "latency_ms": 28615,
+      "llm_calls": 2,
+      "prompt_tokens": 797,
+      "completion_tokens": 351,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "biggest_drop_week_eur",
+      "ok": true,
+      "why": "drop_eur=-3221.62",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n    product_name,\n    brand,\n    category,\n    drop_date,\n    prev_price,\n    new_price,\n    drop_eur,\n    drop_pct,\n    skroutz_link\nFROM vw_biggest_drops\nWHERE drop_date >= (SELECT MAX(date) FROM price_snapshots) - INTERVAL '7 days'\nORDER BY drop_eur ASC\nLIMIT 1",
+      "error": null,
+      "latency_ms": 31718,
+      "llm_calls": 2,
+      "prompt_tokens": 1001,
+      "completion_tokens": 756,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "biggest_drop_pct_laptop_week",
+      "ok": false,
+      "why": "expected product_id=693952 in first row, got ['Dell 16 Premium DA16250 16.3\" (Ultra 7-255H)', 'Dell', Decimal('-54.44'), datetime.date(2026, 10, 21), Decimal('4503.90'), Decimal('2052.00'), 'https://www.skroutz.gr/s/65180580/dell-16-premium-da16250-16-3-ips-fhd-ultra-7-255h-16gb-1tb-ssd-geforce-rtx-5050-w11-pro-international-english-keyboard.html']",
+      "failure": "wrong_result",
+      "sql_valid": true,
+      "sql": "WITH max_dt AS (\n    SELECT MAX(date) AS max_date FROM price_snapshots\n)\nSELECT\n    v.product_name,\n    v.brand,\n    v.drop_pct,\n    v.drop_date,\n    v.prev_price,\n    v.new_price,\n    v.skroutz_link\nFROM vw_biggest_drops v\nCROSS JOIN max_dt m\nWHERE v.category = 'laptop'\n  AND v.drop_date >= m.max_date - INTERVAL '7 days'\nORDER BY v.drop_pct ASC NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 50562,
+      "llm_calls": 2,
+      "prompt_tokens": 987,
+      "completion_tokens": 762,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "drops_today_count",
+      "ok": true,
+      "why": "n=1266",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "WITH latest_scrape AS (\n    SELECT MAX(date) AS max_date FROM price_snapshots\n)\nSELECT COUNT(DISTINCT product_id) AS products_dropped\nFROM vw_biggest_drops, latest_scrape\nWHERE drop_date = latest_scrape.max_date\nLIMIT 50",
+      "error": null,
+      "latency_ms": 14328,
+      "llm_calls": 2,
+      "prompt_tokens": 799,
+      "completion_tokens": 515,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "new_products_week",
+      "ok": true,
+      "why": "n=381",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT COUNT(*) AS new_products_count\nFROM products\nWHERE first_seen >= (SELECT MAX(date) FROM price_snapshots) - INTERVAL '7 days'\nLIMIT 50",
+      "error": null,
+      "latency_ms": 8628,
+      "llm_calls": 2,
+      "prompt_tokens": 799,
+      "completion_tokens": 366,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "avg_price_phone_today",
+      "ok": true,
+      "why": "avg_price=350.34",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "WITH latest_date AS (\n    SELECT MAX(date) AS dt FROM price_snapshots\n)\nSELECT ROUND(AVG(ps.price_eur)::numeric, 2) AS avg_price_eur\nFROM price_snapshots ps\nJOIN products p ON ps.product_id = p.id\nCROSS JOIN latest_date ld\nWHERE p.category = 'phone'\n  AND ps.date = ld.dt\n  AND ps.price_eur IS NOT NULL\nLIMIT 50",
+      "error": null,
+      "latency_ms": 47112,
+      "llm_calls": 2,
+      "prompt_tokens": 792,
+      "completion_tokens": 976,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "brands_most_products_phone",
+      "ok": true,
+      "why": "brand=Xiaomi",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT brand, product_count\nFROM mv_brand_summary\nWHERE category = 'phone'\nORDER BY product_count DESC\nLIMIT 1",
+      "error": null,
+      "latency_ms": 7028,
+      "llm_calls": 2,
+      "prompt_tokens": 794,
+      "completion_tokens": 332,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "apple_median_tablet",
+      "ok": true,
+      "why": "median_price=929.00",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT median_price AS median_price_eur\nFROM mv_brand_summary\nWHERE category = 'tablet'\n  AND brand = 'Apple'\nLIMIT 1",
+      "error": null,
+      "latency_ms": 38018,
+      "llm_calls": 2,
+      "prompt_tokens": 794,
+      "completion_tokens": 1071,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "cheapest_iphone_15",
+      "ok": true,
+      "why": "price_eur=679.99",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n    product_name,\n    brand,\n    model,\n    price_eur,\n    skroutz_link\nFROM mv_latest_prices\nWHERE category = 'phone'\n  AND product_name ILIKE '%iPhone 15%'\n  AND last_seen = (SELECT MAX(date) FROM price_snapshots)\nORDER BY price_eur ASC NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 30618,
+      "llm_calls": 2,
+      "prompt_tokens": 869,
+      "completion_tokens": 605,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "atl_galaxy_s24",
+      "ok": true,
+      "why": "atl=436.48",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "WITH cheapest_s24 AS (\n    SELECT id, product_name, brand\n    FROM mv_latest_prices\n    WHERE category = 'phone'\n      AND brand = 'Samsung'\n      AND product_name ILIKE '%Galaxy S24%'\n    ORDER BY price_eur ASC NULLS LAST\n    LIMIT 1\n)\nSELECT\n    c.product_name,\n    c.brand,\n    mpf.all_time_low AS lowest_price_eur\nFROM cheapest_s24 c\nJOIN mv_price_floor mpf ON mpf.product_id = c.id\nLIMIT 50",
+      "error": null,
+      "latency_ms": 55550,
+      "llm_calls": 2,
+      "prompt_tokens": 858,
+      "completion_tokens": 1483,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "price_history_top_phone",
+      "ok": false,
+      "why": "agent returned no rows",
+      "failure": "wrong_result",
+      "sql_valid": true,
+      "sql": "WITH cheapest_s24 AS (\n    SELECT id\n    FROM mv_latest_prices\n    WHERE brand = 'Samsung'\n      AND product_name ILIKE '%Galaxy S24%'\n      AND price_eur IS NOT NULL\n    ORDER BY price_eur ASC NULLS LAST\n    LIMIT 1\n)\nSELECT\n    mph.date,\n    mph.price_eur\nFROM mv_price_history mph\nJOIN cheapest_s24 c ON mph.product_id = c.id\nWHERE mph.date >= (\n    SELECT max(date) FROM price_snapshots\n) - INTERVAL '7 days'\nORDER BY mph.date\nLIMIT 50",
+      "error": null,
+      "latency_ms": 17495,
+      "llm_calls": 1,
+      "prompt_tokens": 660,
+      "completion_tokens": 677,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "smartwatch_under_50",
+      "ok": true,
+      "why": "n=1327",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "WITH latest_date AS (\n    SELECT MAX(date) AS dt FROM price_snapshots\n)\nSELECT COUNT(DISTINCT p.id) AS smartwatches_under_50_eur\nFROM products p\nJOIN price_snapshots ps ON ps.product_id = p.id\nJOIN latest_date ld ON ps.date = ld.dt\nWHERE p.category = 'smartwatch'\n  AND ps.price_eur IS NOT NULL\n  AND ps.price_eur < 50\nLIMIT 50",
+      "error": null,
+      "latency_ms": 48000,
+      "llm_calls": 2,
+      "prompt_tokens": 808,
+      "completion_tokens": 754,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "best_rated_laptop",
+      "ok": true,
+      "why": "rating=4.9",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT\n    product_name,\n    brand,\n    rating,\n    reviews,\n    price_eur,\n    skroutz_link\nFROM mv_latest_prices\nWHERE category = 'laptop'\n  AND reviews > 50\nORDER BY rating DESC NULLS LAST, reviews DESC NULLS LAST\nLIMIT 1",
+      "error": null,
+      "latency_ms": 20413,
+      "llm_calls": 2,
+      "prompt_tokens": 940,
+      "completion_tokens": 483,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "falling_trend_count",
+      "ok": true,
+      "why": "n=637",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT COUNT(*) AS falling_trend_products\nFROM mv_price_trend_direction\nWHERE trend = 'falling'\nLIMIT 50",
+      "error": null,
+      "latency_ms": 12422,
+      "llm_calls": 2,
+      "prompt_tokens": 799,
+      "completion_tokens": 346,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "market_index_tablet_30d",
+      "ok": true,
+      "why": "2/2 reference values found",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "WITH max_dt AS (\n    SELECT max(date) AS max_date FROM price_snapshots\n),\nbounds AS (\n    SELECT max_date, (max_date - interval '1 month')::date AS start_date FROM max_dt\n),\nfirst_day AS (\n    SELECT date AS first_date, avg_price AS first_avg_price\n    FROM mv_daily_market_index, bounds\n    WHERE category = 'tablet'\n      AND date BETWEEN bounds.start_date AND bounds.max_date\n    ORDER BY date ASC\n    LIMIT 1\n),\nlast_day AS (\n    SELECT date AS last_date, avg_price AS last_avg_price\n    FROM mv_daily_market_index, bounds\n    WHERE category = 'tablet'\n      AND date BETWEEN bounds.start_date AND bounds.max_date\n    ORDER BY date DESC\n    LIMIT 1\n)\nSELECT\n    f.first_date,\n    f.first_avg_price,\n    l.last_date,\n    l.last_avg_price,\n    l.last_avg_price - f.first_avg_price AS change_eur,\n    round(100.0 * (l.last_avg_price - f.first_avg_price) / nullif(f.first_avg_price, 0), 2) AS pct_change\nFROM first_day f, last_day l\nLIMIT 50",
+      "error": null,
+      "latency_ms": 93939,
+      "llm_calls": 2,
+      "prompt_tokens": 892,
+      "completion_tokens": 1810,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "ram_16gb_phones",
+      "ok": true,
+      "why": "n=51",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT COUNT(*) AS phone_count\nFROM products\nWHERE category = 'phone'\n  AND ram_gb = 16\n  AND last_seen = (SELECT MAX(date) FROM price_snapshots)\nLIMIT 50",
+      "error": null,
+      "latency_ms": 28350,
+      "llm_calls": 2,
+      "prompt_tokens": 791,
+      "completion_tokens": 403,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    },
+    {
+      "id": "out_of_scope",
+      "ok": true,
+      "why": "expected no data",
+      "failure": null,
+      "sql_valid": true,
+      "sql": "SELECT 'NO_DATA' AS no_data WHERE false\nLIMIT 50",
+      "error": null,
+      "latency_ms": 11948,
+      "llm_calls": 1,
+      "prompt_tokens": 649,
+      "completion_tokens": 97,
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    }
+  ],
+  "tag": "r2",
+  "finished_at": "2026-10-28T20:02:31"
+}
