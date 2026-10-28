@@ -73,18 +73,38 @@ def brand_trend(conn, category, top_n=6, days=90):
     return pd.read_sql(query, conn, params={"cat": category, "n": top_n, "days": days})
 
 
-def hot_deals(conn, limit=20):
-    """Price drop + review surge between the two most recent scrapes."""
-    query = text("""
+def hot_deals(conn, limit=20, min_drop_pct=None, min_drop_eur=None, max_drop_pct=None):
+    """Price drop + review surge between the two most recent scrapes.
+
+    Optional filters (all None = unfiltered, the original behaviour):
+      min_drop_pct — keep only drops of at least this many percent (e.g. 3.0)
+      min_drop_eur — keep only drops of at least this many euros
+      max_drop_pct — drop rows whose fall is at or beyond this percent
+                     (suspect scrapes / variant mix-ups, e.g. 40.0)
+    """
+    clauses, params = [], {"limit": limit}
+    if min_drop_pct is not None:
+        clauses.append("price_chg_pct <= -:min_pct")
+        params["min_pct"] = min_drop_pct
+    if min_drop_eur is not None:
+        clauses.append("(price_prev - price_latest) >= :min_eur")
+        params["min_eur"] = min_drop_eur
+    if max_drop_pct is not None:
+        clauses.append("price_chg_pct > -:max_pct")
+        params["max_pct"] = max_drop_pct
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    query = text(f"""
         SELECT category, brand, model, product_name,
                price_prev, price_latest, price_chg_pct, new_reviews, hot_score,
                skroutz_link,
                prev_date::text   AS prev_date,
                latest_date::text AS latest_date
         FROM vw_hot_deals
+        {where}
+        ORDER BY hot_score DESC
         LIMIT :limit
     """)
-    return pd.read_sql(query, conn, params={"limit": limit})
+    return pd.read_sql(query, conn, params=params)
 
 
 def disappeared(conn, days=30, limit=50):
@@ -159,3 +179,60 @@ def near_atl(conn, category=None, max_pct=10, limit=None):
         {limit_clause}
     """)
     return pd.read_sql(query, conn, params=params)
+
+
+# ── KPI counts ────────────────────────────────────────────────────────────────
+# Real totals, independent of the LIMITs the display lists use. Each mirrors
+# the filter of its list query so "showing N of M" is consistent.
+
+def count_drops(conn, days_back, exclude_suspect_pct=None):
+    """Number of price drops with drop_date >= CURRENT_DATE - days_back.
+    exclude_suspect_pct (e.g. 40.0) leaves out drops of that size or larger."""
+    params = {"days": days_back}
+    suspect_clause = ""
+    if exclude_suspect_pct is not None:
+        suspect_clause = "AND drop_pct > -:suspect"
+        params["suspect"] = exclude_suspect_pct
+    query = text(f"""
+        SELECT COUNT(*) FROM vw_biggest_drops
+        WHERE drop_date >= CURRENT_DATE - :days
+        {suspect_clause}
+    """)
+    return int(conn.execute(query, params).scalar() or 0)
+
+
+def count_suspect_drops(conn, days_back, suspect_pct):
+    """Number of drops of suspect_pct percent or more (likely scrape errors)."""
+    query = text("""
+        SELECT COUNT(*) FROM vw_biggest_drops
+        WHERE drop_date >= CURRENT_DATE - :days
+          AND drop_pct <= -:suspect
+    """)
+    return int(conn.execute(query, {"days": days_back, "suspect": suspect_pct}).scalar() or 0)
+
+
+def count_new_products(conn, days=7):
+    """Products first seen in the last `days` days that are in the latest scrape
+    (same filter as the New Arrivals list)."""
+    query = text("""
+        SELECT COUNT(*)
+        FROM products p
+        JOIN price_snapshots s ON s.product_id = p.id
+          AND s.date = (SELECT MAX(date) FROM price_snapshots)
+        WHERE p.first_seen >= CURRENT_DATE - :days
+    """)
+    return int(conn.execute(query, {"days": days}).scalar() or 0)
+
+
+def count_disappeared(conn, days=30):
+    """Products not seen for at most `days` days (same filter as disappeared())."""
+    query = text("""
+        SELECT COUNT(*) FROM vw_disappeared
+        WHERE days_since_last_seen <= :days
+    """)
+    return int(conn.execute(query, {"days": days}).scalar() or 0)
+
+
+def count_latest_products(conn):
+    """Number of products in vw_latest_prices (denominator for the search sample)."""
+    return int(conn.execute(text("SELECT COUNT(*) FROM vw_latest_prices")).scalar() or 0)
