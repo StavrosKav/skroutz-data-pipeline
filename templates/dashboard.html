@@ -182,25 +182,6 @@ tr:hover td { background: #ffffff08; }
 .price-range input { width: 80px; flex: none !important; }
 .search-count { color: var(--muted); font-size: 12px; }
 
-/* Watchlist */
-.wl-list { display: flex; flex-direction: column; gap: 8px; }
-.wl-item {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-  padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; gap: 16px;
-}
-.wl-item.hit { border-color: var(--rise); }
-.wl-name { font-weight: 500; font-size: 13px; }
-.wl-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
-.wl-prices { text-align: right; white-space: nowrap; }
-.wl-current { font-size: 18px; font-weight: 700; }
-.wl-current.hit   { color: var(--rise); }
-.wl-current.above { color: var(--text); }
-.wl-target { font-size: 11px; color: var(--muted); margin-top: 1px; }
-.wl-hit-badge {
-  background: #22c55e18; color: var(--rise); border: 1px solid #22c55e60;
-  border-radius: 20px; padding: 2px 10px; font-size: 11px; font-weight: 600;
-}
-
 /* History modal */
 .modal-overlay {
   display: none; position: fixed; inset: 0; background: #000000aa;
@@ -498,13 +479,6 @@ tr:hover td { background: #ffffff08; }
     </div>
   </div>
 
-  <div class="section" id="watchlist-section" style="display:none">
-    <div class="section-title">
-      &#127919; Watchlist
-      <span class="count-badge" id="wl-badge"></span>
-    </div>
-    <div class="wl-list" id="wl-list"></div>
-  </div>
 </div>
 
 <!-- ── Insights ──────────────────────────────────────────────────────────────── -->
@@ -923,30 +897,6 @@ function buildNewGone() {
     </tr>`).join('');
   }
 
-  // Watchlist
-  const wl = DATA.watchlist;
-  if (wl && wl.length) {
-    document.getElementById('watchlist-section').style.display = 'block';
-    const hits = wl.filter(w => w.hit).length;
-    document.getElementById('wl-badge').textContent = hits ? `${wl.length} · ${hits} hit` : wl.length;
-    document.getElementById('wl-list').innerHTML = wl.map(w => {
-      const priceTxt = w.price != null ? `€${w.price.toFixed(2)}` : '—';
-      const badge    = w.hit ? '<span class="wl-hit-badge">TARGET REACHED</span>' : '';
-      return `<div class="wl-item ${w.hit ? 'hit' : ''}">
-        <div>
-          <div class="wl-name">${w.label}</div>
-          <div class="wl-meta">${catBadge(w.category)} &nbsp;<a href="${w.url}" target="_blank">View on Skroutz ↗</a></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:12px">
-          ${badge}
-          <div class="wl-prices">
-            <div class="wl-current ${w.hit ? 'hit' : 'above'}">${priceTxt}</div>
-            <div class="wl-target">Target: €${w.threshold.toFixed(2)}</div>
-          </div>
-        </div>
-      </div>`;
-    }).join('');
-  }
 }
 
 // ── Brand charts (Insights) ────────────────────────────────────────────────────
