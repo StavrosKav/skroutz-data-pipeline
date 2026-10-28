@@ -42,6 +42,9 @@ class NIMModel(str, Enum):
     LLAMA_3_3_70B = "meta/llama-3.3-70b-instruct"          # General chat, newer than 3.1
     LLAMA_3_1_70B = "meta/llama-3.1-70b-instruct"          # General chat, good balance
     LLAMA_3_1_8B = "meta/llama-3.1-8b-instruct"            # Fast, cheap, simple tasks
+    # The Llama/Nemotron models above were retired by NVIDIA (HTTP 410, 2026-08-26).
+    # gpt-oss-20b is the only general chat model invokable on this account (2026-10-28).
+    GPT_OSS_20B = "openai/gpt-oss-20b"
 
 
 class TaskType(str, Enum):
@@ -59,12 +62,12 @@ class TaskType(str, Enum):
 # (codellama-70b-instruct, mistral-large, codestral, granite, starcoder,
 # deepseek-coder all 404) — those tasks fall back to the best general model.
 DEFAULT_MODEL_ROUTING: dict[TaskType, NIMModel] = {
-    TaskType.CHAT_DEFAULT: NIMModel.LLAMA_3_1_70B,
-    TaskType.REASONING_HEAVY: NIMModel.NEMOTRON_SUPER_49B,
-    TaskType.CODE_GENERATION: NIMModel.LLAMA_3_3_70B,
-    TaskType.CODE_REVIEW: NIMModel.LLAMA_3_3_70B,
-    TaskType.FAST_SIMPLE: NIMModel.LLAMA_3_1_8B,
-    TaskType.MULTILINGUAL: NIMModel.LLAMA_3_3_70B,
+    TaskType.CHAT_DEFAULT: NIMModel.GPT_OSS_20B,
+    TaskType.REASONING_HEAVY: NIMModel.GPT_OSS_20B,
+    TaskType.CODE_GENERATION: NIMModel.GPT_OSS_20B,
+    TaskType.CODE_REVIEW: NIMModel.GPT_OSS_20B,
+    TaskType.FAST_SIMPLE: NIMModel.GPT_OSS_20B,
+    TaskType.MULTILINGUAL: NIMModel.GPT_OSS_20B,
 }
 
 
@@ -74,6 +77,7 @@ MODEL_COSTS: dict[NIMModel, tuple[float, float]] = {
     NIMModel.LLAMA_3_3_70B: (0.0, 0.0),
     NIMModel.LLAMA_3_1_70B: (0.0, 0.0),
     NIMModel.LLAMA_3_1_8B: (0.0, 0.0),
+    NIMModel.GPT_OSS_20B: (0.0, 0.0),
 }
 
 
