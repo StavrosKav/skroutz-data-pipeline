@@ -100,7 +100,7 @@ skroutz-data-pipeline/
 ├── Dockerfile                   # Python image for Clean + Load
 │
 ├── tests/
-│   ├── test_pipeline.py         # unit tests (pytest)
+│   ├── test_<stage>.py          # unit tests (pytest)
 │   └── test_smoke.py            # stage compile/import + observer-contract tests
 │
 ├── .github/

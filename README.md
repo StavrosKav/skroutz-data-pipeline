@@ -125,7 +125,7 @@ Live interactive report: **[dashboard_latest.html](https://stavroskav.github.io/
 ## Engineering highlights
 
 - **Observer-stage design** — charts, alerts, dashboard, and README stats are non-fatal; contract pinned by tests (`run_pipeline.py`, `tests/test_smoke.py`).
-- **Markup-drift guard** — per-field completeness thresholds before CSV write; fixture canary on real listing HTML (`scrapers/scraper_core.py`, `tests/test_pipeline.py`).
+- **Markup-drift guard** — per-field completeness thresholds before CSV write; fixture canary on real listing HTML (`scrapers/scraper_core.py`, `tests/test_{clean,load,scrape,alerts,telegram_cmds,ops}.py`).
 - **Alerting below the app layer** — PowerShell wrapper can Telegram-alert even if Python fails to start (`run_pipeline_wrapper.ps1`).
 - **Idempotent loads** — upserts + stale-aware lock file; safe to re-run.
 - **Materialized analytics** — 16 views, 10 of them backed by materialized views refreshed `CONCURRENTLY`; pg_trgm for Telegram `/find`.
