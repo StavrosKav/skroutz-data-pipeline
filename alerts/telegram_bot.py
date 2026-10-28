@@ -614,9 +614,8 @@ def _cmd_help() -> str:
         + (
             "<b>AI</b>\n"
             "/ask &lt;question&gt;     — answer from the database (shows SQL)\n"
-            "/chat &lt;question&gt;    — ask about prices and deals\n"
-            "/analyze [category]  — market brief for a category\n"
-            "/summarize           — daily summary with insights\n\n"
+            "/chat &lt;question&gt;    — same as /ask (alias)\n"
+            "/analyze &lt;category&gt;  — market brief built from DB stats\n\n"
             if _NIM_AVAILABLE else ""
         )
         + "<i>Tip: send any skroutz.gr URL and I'll guide you through adding it.</i>\n"
@@ -644,9 +643,8 @@ def _set_commands() -> None:
     if _NIM_AVAILABLE:
         commands.extend([
             {"command": "ask",       "description": "Ask the database (text-to-SQL)"},
-            {"command": "chat",      "description": "Chat with price tracker AI"},
-            {"command": "analyze",   "description": "AI market analysis for category"},
-            {"command": "summarize", "description": "AI daily summary with insights"},
+            {"command": "chat",      "description": "Same as /ask (alias)"},
+            {"command": "analyze",   "description": "Category brief from DB stats"},
         ])
     _post("setMyCommands", {"commands": commands})
 

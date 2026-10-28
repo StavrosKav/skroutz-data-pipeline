@@ -224,23 +224,46 @@ class TestCmdAddRemove(unittest.TestCase):
 
 class TestCmdAnalyze(unittest.TestCase):
 
-    def test_smartwatches_does_not_strip_to_smartwatche(self):
+    def _run(self, arg):
         import alerts.telegram_nim as tn
-        with patch.object(tn, "nim_analyze_category_sync", return_value="ok") as call:
-            self.assertEqual(tn.cmd_analyze("smartwatches"), "ok")
-        call.assert_called_once_with("smartwatch")
+        with patch.object(tn, "_analyze_backend", return_value=("EXEC", "LLM")), \
+             patch("agents.ask.analyze.analyze", return_value="ok") as call:
+            return tn.cmd_analyze(arg), call
+
+    def test_smartwatches_does_not_strip_to_smartwatche(self):
+        out, call = self._run("smartwatches")
+        self.assertEqual(out, "ok")
+        call.assert_called_once_with("EXEC", "LLM", "smartwatch")
 
     def test_phones_and_tablet_aliases(self):
-        import alerts.telegram_nim as tn
-        with patch.object(tn, "nim_analyze_category_sync", return_value="ok") as call:
-            tn.cmd_analyze("phones")
-            tn.cmd_analyze("tablet")
-        self.assertEqual(call.call_args_list[0].args, ("phone",))
-        self.assertEqual(call.call_args_list[1].args, ("tablet",))
+        self.assertEqual(self._run("phones")[1].call_args.args[2], "phone")
+        self.assertEqual(self._run("tablet")[1].call_args.args[2], "tablet")
 
     def test_unknown_category_returns_usage(self):
-        import alerts.telegram_nim as tn
-        with patch.object(tn, "nim_analyze_category_sync") as call:
-            result = tn.cmd_analyze("cameras")
-        self.assertIn("Usage", result)
+        out, call = self._run("cameras")
+        self.assertIn("Usage", out)
         call.assert_not_called()
+
+    def test_backend_failure_is_chat_safe(self):
+        import alerts.telegram_nim as tn
+        with patch.object(tn, "_analyze_backend", side_effect=RuntimeError("db down pw=x")):
+            out = tn.cmd_analyze("phones")
+        self.assertIn("unavailable", out)
+        self.assertNotIn("pw=x", out)
+
+
+class TestChatIsAskAlias(unittest.TestCase):
+
+    def test_chat_routes_to_ask(self):
+        import alerts.telegram_nim as tn
+        with patch.object(tn, "cmd_ask", return_value="grounded") as ask:
+            self.assertEqual(tn.cmd_chat("φθηνότερο iPhone;"), "grounded")
+        ask.assert_called_once_with("φθηνότερο iPhone;")
+
+    def test_dispatch_has_no_ungrounded_commands(self):
+        import alerts.telegram_nim as tn
+        m = {}
+        tn.register_nim_commands(m, "x")
+        self.assertEqual(set(m), {"/ask", "/chat", "/analyze"})
+        for name in ("nim_chat", "nim_daily_summary", "nim_analyze_category", "cmd_summarize"):
+            self.assertFalse(hasattr(tn, name), name)

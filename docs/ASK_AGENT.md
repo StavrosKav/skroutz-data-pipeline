@@ -33,7 +33,8 @@ flowchart TD
 | Schema context | `agents/ask/schema.py` | ~15 lines describing the 9 allowlisted relations. Same list is the allowlist. |
 | Retries | `agents/ask/retry.py`, `alerts/nim_client.py` | Retry only timeouts, network errors, 429, 5xx. Other 4xx fail fast. |
 | Runtime adapters | `agents/ask/runtime.py` | NIM LLM + read-only Postgres executor. The only file that touches network/DB. |
-| Telegram | `alerts/telegram_nim.py` (`cmd_ask`) | Registered with the other AI commands. |
+| Telegram | `alerts/telegram_nim.py` (`cmd_ask`) | `/ask`; `/chat` is an alias of `/ask`. |
+| Category brief | `agents/ask/analyze.py` | `/analyze <category>`: 7 fixed, category-scoped SELECTs (each passed through the same guard) → fact lines → LLM summarizes **only** those facts; the facts are shown under the summary. If NIM fails, the facts are returned alone. |
 
 Defence in depth: even if the guard missed something, the query runs inside
 `SET TRANSACTION READ ONLY` with `SET LOCAL statement_timeout`, and the
@@ -54,5 +55,8 @@ python evals/run_ask_eval.py          # prints PASS/FAIL per item + accuracy
 Target: **≥ 16/20**. Per-item SQL, answer, attempts and latency are written to
 `evals/last_run.json` (git-ignored).
 
-Unit tests (`tests/test_ask_agent.py`) use a fake LLM and fake executor: guard
+No AI command answers from model knowledge: the old ungrounded `/chat`
+(free LLM chat) and `/summarize` were removed; `/chat` now routes to `/ask`.
+
+Unit tests (`tests/test_ask_agent.py`, `tests/test_analyze_grounded.py`) use a fake LLM and fake executor: guard
 rejections, LIMIT capping, empty-result path, self-correction, cache, retry policy.
