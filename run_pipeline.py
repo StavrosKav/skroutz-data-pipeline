@@ -467,6 +467,12 @@ def send_drop_digest():
         logger.warning(f"Could not send drop digest: {e}")
 
 
+def _watchlist_skroutz_id(url):
+    """Numeric Skroutz product id from a watchlist URL (/s/<id>/...), or None."""
+    m = re.search(r"/s/(\d+)/", url or "")
+    return int(m.group(1)) if m else None
+
+
 def send_watchlist_alerts():
     """
     Check watchlist.json against today's prices and email when a product
@@ -509,12 +515,23 @@ def send_watchlist_alerts():
                 threshold = float(item.get("threshold_eur", 0))
                 if not url:
                     continue
-                row = conn.execute(text(
-                    "SELECT brand, model, category, price_eur, skroutz_link "
-                    "FROM vw_latest_prices "
-                    "WHERE skroutz_link = :url "
-                    "   OR skroutz_link LIKE :url_prefix"
-                ), {"url": url, "url_prefix": url.split("?")[0] + "%"}).fetchone()
+                # Match on skroutz_id (stable) — Skroutz rewrites the URL slug,
+                # so a saved link can go stale; fall back to the link itself.
+                sid = _watchlist_skroutz_id(url)
+                row = None
+                if sid is not None:
+                    row = conn.execute(text(
+                        "SELECT v.brand, v.model, v.category, v.price_eur, v.skroutz_link "
+                        "FROM vw_latest_prices v JOIN products p ON p.id = v.id "
+                        "WHERE p.skroutz_id = :sid"
+                    ), {"sid": sid}).fetchone()
+                if row is None:
+                    row = conn.execute(text(
+                        "SELECT brand, model, category, price_eur, skroutz_link "
+                        "FROM vw_latest_prices "
+                        "WHERE skroutz_link = :url "
+                        "   OR skroutz_link LIKE :url_prefix"
+                    ), {"url": url, "url_prefix": url.split("?")[0] + "%"}).fetchone()
                 if row is None:
                     logger.warning(f"Watchlist: '{label}' not found in DB (URL may not match).")
                     continue

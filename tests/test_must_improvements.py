@@ -72,8 +72,8 @@ class TestLoaderSanitising(unittest.TestCase):
 
     def test_upsert_fills_nulls_and_keeps_conflict_key(self):
         src = inspect.getsource(loader.load_category)
-        self.assertIn("ON CONFLICT (skroutz_link) DO UPDATE", src)
-        for col in ("brand", "model", "specs", "ram_gb", "storage_gb", "color"):
+        self.assertIn("ON CONFLICT (skroutz_id) DO UPDATE", src)
+        for col in ("brand", "model", "ram_gb", "storage_gb", "color"):
             self.assertIn(f"COALESCE(products.{col}", src)
         self.assertIn("GREATEST(products.last_seen, EXCLUDED.last_seen)", src)
 
@@ -92,8 +92,8 @@ class TestSnapshotUpsert(unittest.TestCase):
         ):
             self.assertIn(f"{col}", src)
             self.assertIn(f"EXCLUDED.{col}", src)
-        # Product conflict key must stay skroutz_link (unchanged by Should #2).
-        self.assertIn("ON CONFLICT (skroutz_link) DO UPDATE", src)
+        # Product conflict key is skroutz_id (URL slug is not stable).
+        self.assertIn("ON CONFLICT (skroutz_id) DO UPDATE", src)
         self.assertNotIn("ON CONFLICT (product_id, date) DO NOTHING", src)
 
 if __name__ == "__main__":

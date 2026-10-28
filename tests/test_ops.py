@@ -138,3 +138,11 @@ class TestReapProcesses(unittest.TestCase):
                 [("a", a, logs[0]), ("b", b, logs[1])], timeout=10,
             ))
         self.assertFalse(a.killed)
+
+
+class TestWatchlistSkroutzId(unittest.TestCase):
+    def test_parse(self):
+        import run_pipeline
+        self.assertEqual(run_pipeline._watchlist_skroutz_id("https://www.skroutz.gr/s/123/old-slug.html?x=1"), 123)
+        self.assertIsNone(run_pipeline._watchlist_skroutz_id("https://www.skroutz.gr/c/40/x.html"))
+        self.assertIsNone(run_pipeline._watchlist_skroutz_id(""))

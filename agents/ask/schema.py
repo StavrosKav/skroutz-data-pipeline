@@ -19,7 +19,7 @@ ALLOWED_TABLES: frozenset[str] = frozenset({
 
 SCHEMA_CONTEXT = """\
 PostgreSQL. Categories: 'phone','laptop','tablet','smartwatch'. Prices in EUR. One snapshot per product per day.
-products(id, category, skroutz_link, product_name, brand, model, specs, ram_gb, storage_gb, display_inches, color, first_seen DATE, last_seen DATE)
+products(id, category, skroutz_id BIGINT UNIQUE (Skroutz product number, stable key), skroutz_link, product_name, brand, model, specs, ram_gb, storage_gb, display_inches, color, first_seen DATE, last_seen DATE)
 price_snapshots(product_id -> products.id, date DATE, price_eur, rating 0-5, reviews)
 mv_latest_prices(id = product id, category, brand, model, product_name, last_price_date, price_eur, rating, reviews, first_seen, last_seen, skroutz_link)  -- latest known price per product
 mv_price_history(product_id, category, brand, model, product_name, date, price_eur, prev_price, price_change, pct_change, rating, reviews)  -- day-over-day change

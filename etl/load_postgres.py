@@ -5,17 +5,23 @@ Loads today's cleaned CSVs (phones, laptops, smartwatches, tablets) into
 the PostgreSQL database SkroutzPR.
 
 Database schema (two tables):
-  • products        — one row per unique product (identified by skroutz_link)
+  • products        — one row per unique product (identified by skroutz_id)
   • price_snapshots — one row per product per day (price, rating, installments)
 
 Upsert strategy:
-  • products: INSERT … ON CONFLICT (skroutz_link) → last_seen advances
+  • products: keyed by skroutz_id, the numeric id after /s/ in the URL.
+              Skroutz rewrites the slug after the id (e.g. "12GB-256GB" →
+              "12-256GB"), so the full URL is NOT a stable key.
+              INSERT … ON CONFLICT (skroutz_id) → last_seen advances
               (GREATEST, so a back-dated reload never moves it backwards) and
               metadata columns are *filled* only where the stored value is
               NULL (COALESCE(existing, new)). A non-NULL value already in the
               DB is never overwritten, so existing metadata stays stable while
               fields a later scrape/cleaner can parse (e.g. tablet RAM/storage)
-              stop being frozen at NULL forever.
+              stop being frozen at NULL forever. Exception: skroutz_link,
+              product_name and specs follow the newest scrape
+              (COALESCE(new, existing)) when it is not older than last_seen,
+              so a renamed product keeps one row with its current title.
   • price_snapshots: INSERT … ON CONFLICT (product_id, date) → UPDATE
                      price_eur, installments_*, rating, reviews (same-day repair).
                      Re-running on the same day is idempotent and fixes a bad
@@ -29,6 +35,7 @@ import pandas as pd
 import datetime
 import logging
 import os
+import re
 import sys
 from sqlalchemy import text
 from dotenv import load_dotenv
@@ -45,6 +52,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
+_SKROUTZ_ID_RE = re.compile(r"/s/(\d+)/")
+
+
+def skroutz_id(link):
+    """Numeric product id from a Skroutz URL (/s/<id>/slug.html), or None."""
+    m = _SKROUTZ_ID_RE.search(str(link or ""))
+    return int(m.group(1)) if m else None
+
+
 # ── Helper functions for safe type conversion ──────────────────────────────────
 
 def _val(row, col):
@@ -117,14 +133,23 @@ def load_category(conn, category, file_path):
 
     products_rows   = []
     snapshot_extras = []   # price/rating fields, ordered parallel to products_rows
+    seen_ids        = set()
 
     for _, row in df.iterrows():
         link = _val(row, "link")
         if not link or str(link).upper() == "N/A":
             continue   # rows without a URL cannot be reliably identified
         link = str(link)
+        sid = skroutz_id(link)
+        if sid is None:
+            logger.warning(f"{category}: no skroutz id in link, skipped: {link}")
+            continue
+        if sid in seen_ids:
+            continue   # same product twice in one CSV: ON CONFLICT can't touch a row twice
+        seen_ids.add(sid)
         products_rows.append({
             "category":       category,
+            "skroutz_id":     sid,
             "skroutz_link":   link,
             "product_name":   _val(row, "product"),
             "brand":          _val(row, "brand"),
@@ -142,7 +167,7 @@ def load_category(conn, category, file_path):
             "last_seen":      today,
         })
         snapshot_extras.append({
-            "skroutz_link":           link,
+            "skroutz_id":             sid,
             "price_eur":              _price(row),
             "installments_per_month": _float(row, "installments_per_month"),
             "installments_in_total":  _float(row, "installments_in_total"),
@@ -159,30 +184,37 @@ def load_category(conn, category, file_path):
     # instead of a pair of COUNT(*) queries taken before/after the upsert.
     result = conn.execute(text("""
         INSERT INTO products (
-            category, skroutz_link, product_name, brand, model, specs,
+            category, skroutz_id, skroutz_link, product_name, brand, model, specs,
             ram_gb, storage_gb, num_cameras, camera_type,
             display_inches, battery_info, display_info, color,
             first_seen, last_seen
         )
         SELECT * FROM unnest(
-            CAST(:category AS text[]), CAST(:skroutz_link AS text[]), CAST(:product_name AS text[]),
+            CAST(:category AS text[]), CAST(:skroutz_id AS bigint[]), CAST(:skroutz_link AS text[]), CAST(:product_name AS text[]),
             CAST(:brand AS text[]), CAST(:model AS text[]), CAST(:specs AS text[]),
             CAST(:ram_gb AS int[]), CAST(:storage_gb AS int[]), CAST(:num_cameras AS int[]), CAST(:camera_type AS text[]),
             CAST(:display_inches AS float8[]), CAST(:battery_info AS text[]), CAST(:display_info AS text[]), CAST(:color AS text[]),
             CAST(:first_seen AS date[]), CAST(:last_seen AS date[])
         ) AS t(
-            category, skroutz_link, product_name, brand, model, specs,
+            category, skroutz_id, skroutz_link, product_name, brand, model, specs,
             ram_gb, storage_gb, num_cameras, camera_type,
             display_inches, battery_info, display_info, color,
             first_seen, last_seen
         )
-        ON CONFLICT (skroutz_link) DO UPDATE SET
+        ON CONFLICT (skroutz_id) DO UPDATE SET
             last_seen      = GREATEST(products.last_seen, EXCLUDED.last_seen),
-            first_seen     = COALESCE(products.first_seen,     EXCLUDED.first_seen),
-            product_name   = COALESCE(products.product_name,   EXCLUDED.product_name),
+            first_seen     = LEAST(products.first_seen,        EXCLUDED.first_seen),
+            -- newest scrape wins for URL / title / specs (unless it is a back-dated reload)
+            skroutz_link   = CASE WHEN EXCLUDED.last_seen >= products.last_seen
+                                  THEN EXCLUDED.skroutz_link ELSE products.skroutz_link END,
+            product_name   = CASE WHEN EXCLUDED.last_seen >= products.last_seen
+                                  THEN COALESCE(EXCLUDED.product_name, products.product_name)
+                                  ELSE COALESCE(products.product_name, EXCLUDED.product_name) END,
+            specs          = CASE WHEN EXCLUDED.last_seen >= products.last_seen
+                                  THEN COALESCE(EXCLUDED.specs, products.specs)
+                                  ELSE COALESCE(products.specs, EXCLUDED.specs) END,
             brand          = COALESCE(products.brand,          EXCLUDED.brand),
             model          = COALESCE(products.model,          EXCLUDED.model),
-            specs          = COALESCE(products.specs,          EXCLUDED.specs),
             ram_gb         = COALESCE(products.ram_gb,         EXCLUDED.ram_gb),
             storage_gb     = COALESCE(products.storage_gb,     EXCLUDED.storage_gb),
             num_cameras    = COALESCE(products.num_cameras,    EXCLUDED.num_cameras),
@@ -191,7 +223,7 @@ def load_category(conn, category, file_path):
             battery_info   = COALESCE(products.battery_info,   EXCLUDED.battery_info),
             display_info   = COALESCE(products.display_info,   EXCLUDED.display_info),
             color          = COALESCE(products.color,          EXCLUDED.color)
-        RETURNING id, skroutz_link, (xmax = 0) AS is_new
+        RETURNING id, skroutz_id, (xmax = 0) AS is_new
     """), {
         col: [r[col] for r in products_rows]
         for col in products_rows[0].keys()
@@ -200,14 +232,14 @@ def load_category(conn, category, file_path):
     new_products = 0
     id_map = {}
     for row in result:
-        id_map[row.skroutz_link] = row.id
+        id_map[row.skroutz_id] = row.id
         if row.is_new:
             new_products += 1
 
     # Build and batch-insert all snapshots — one executemany call
     snapshot_rows = [
         {
-            "product_id":             id_map[e["skroutz_link"]],
+            "product_id":             id_map[e["skroutz_id"]],
             "date":                   today,
             "price_eur":              e["price_eur"],
             "installments_per_month": e["installments_per_month"],
@@ -216,7 +248,7 @@ def load_category(conn, category, file_path):
             "reviews":                e["reviews"],
         }
         for e in snapshot_extras
-        if e["skroutz_link"] in id_map
+        if e["skroutz_id"] in id_map
     ]
 
     if snapshot_rows:
