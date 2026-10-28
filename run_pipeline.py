@@ -308,7 +308,7 @@ def send_failure_alert(stage, returncode):
 
 # Every analytical view backed by a MATERIALIZED VIEW (analytics.sql v4) —
 # refreshed here, once per day, right after Load SQL. All ten carry a UNIQUE
-# index so CONCURRENTLY works: readers (dashboard/bot/Streamlit) never see the
+# index so CONCURRENTLY works: readers (dashboard/bot) never see the
 # view locked or empty mid-refresh.
 MATVIEWS = [
     "mv_latest_prices",

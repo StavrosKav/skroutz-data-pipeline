@@ -4,7 +4,7 @@ Data Quality Agent runner for the pipeline (observer stage, read-only).
 Checks the day's raw scraper CSVs and writes a quality report to
 logs/data_quality_YYYY-MM-DD.json. Never modifies the CSVs.
 """
-from core.paths import ROOT
+from core.paths import ROOT, CATEGORY_FOLDERS
 
 import os
 import sys
@@ -116,12 +116,7 @@ def main():
     # as the scraper health monitor. This agent validates raw output, not
     # Clean/ — see DataQualityAgent's docstring for why.
     base_dir = BASE
-    folder_map = {
-        "phones": "Phones_skroutz",
-        "laptops": "Laptops_skroutz",
-        "smartwatches": "Smartwatches_skroutz",
-        "tablets": "Tablets_skroutz"
-    }
+    folder_map = CATEGORY_FOLDERS
 
     success = True
     report = {

@@ -2,7 +2,7 @@
 queries.py
 ----------
 Shared read queries for the consumer layer (generate_dashboard.py,
-streamlit_app.py, charts_from_db.py). Each function takes a live connection
+charts_from_db.py). Each function takes a live connection
 and returns a pandas DataFrame with raw (unrounded) numeric columns — callers
 round/rename/limit to their own display needs.
 
@@ -156,34 +156,6 @@ def market_index(conn, days=90):
     """)
     return pd.read_sql(query, conn, params={"days": days})
 
-
-def near_atl(conn, category=None, max_pct=10, limit=None):
-    """Products currently within max_pct% of their historical price floor."""
-    params = {"max_pct": max_pct}
-    cat_clause = ""
-    if category is not None:
-        cat_clause = "AND category = :cat "
-        params["cat"] = category
-    limit_clause = ""
-    if limit is not None:
-        limit_clause = "LIMIT :limit"
-        params["limit"] = limit
-    query = text(f"""
-        SELECT brand, model, category,
-               current_price, all_time_low, pct_above_atl,
-               snapshot_count, skroutz_link
-        FROM vw_near_atl
-        WHERE pct_above_atl <= :max_pct
-        {cat_clause}
-        ORDER BY pct_above_atl ASC
-        {limit_clause}
-    """)
-    return pd.read_sql(query, conn, params=params)
-
-
-# ── KPI counts ────────────────────────────────────────────────────────────────
-# Real totals, independent of the LIMITs the display lists use. Each mirrors
-# the filter of its list query so "showing N of M" is consistent.
 
 def count_drops(conn, days_back, exclude_suspect_pct=None):
     """Number of price drops with drop_date >= CURRENT_DATE - days_back.

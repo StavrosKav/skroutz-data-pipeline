@@ -71,10 +71,10 @@ skroutz-data-pipeline/
 ├── config/agents.json           # Observer thresholds + raw-CSV schema
 │
 ├── scraper_core.py              # Shared scraping engine (pagination, parsing, retries, drift guard)
-├── skroutz_phonesWHILE.py       # Scraper entry point — phones
-├── skroutz_laptopsWHILE.py      # Scraper entry point — laptops
-├── skroutz_tabletsWHILE.py      # Scraper entry point — tablets
-├── skroutz_SmartwatchesWHILE.py # Scraper entry point — smartwatches
+├── scrapers/phones.py           # Scraper entry point — phones
+├── scrapers/laptops.py          # Scraper entry point — laptops
+├── scrapers/tablets.py          # Scraper entry point — tablets
+├── scrapers/smartwatches.py     # Scraper entry point — smartwatches
 │
 ├── clean_common.py              # Shared cleaning engine (price/brand/installments/reviews, I/O)
 ├── Data_Phone.py                # Cleaner entry point — phones (adds spec enrichment)
@@ -84,7 +84,6 @@ skroutz-data-pipeline/
 │
 ├── charts_from_db.py            # Brand price-trend charts (PNG)
 ├── generate_dashboard.py        # Self-contained HTML dashboard
-├── streamlit_app.py             # Interactive Streamlit dashboard
 │
 ├── notifications.py             # Telegram notification layer
 ├── telegram_bot.py              # Interactive Telegram bot (long-polling)
@@ -257,7 +256,7 @@ step list, before Charts/Dashboard/digests — everything downstream reads these
 Data changes once per day, but 10 of the 15 analytics views in `sql/analytics.sql`
 were recomputing full-table `GROUP BY`/`LAG`/`FILTER` aggregates over all of
 `price_snapshots` (~450k rows) on **every single call** — including
-`vw_biggest_drops`, hit by the HTML dashboard, Streamlit, the Telegram drop
+`vw_biggest_drops`, hit by the HTML dashboard, the Telegram drop
 digest, and `/status`. Those 10 are now `MATERIALIZED VIEW`s (`mv_*`), and the
 original view names are kept as thin `SELECT * FROM mv_*` wrappers so no
 consumer's SQL changed:
@@ -295,7 +294,7 @@ data loss.
 | Query | Before | After |
 |---|---|---|
 | Today's drops (`vw_biggest_drops WHERE drop_date = CURRENT_DATE`) | 655 ms | 38 ms |
-| Drop count (`/status`, Streamlit header) | 404 ms | 5 ms |
+| Drop count (`/status`) | 404 ms | 5 ms |
 | `/find`-style ILIKE search | 662 ms | 2 ms |
 | `/history`-style ILIKE lookup | 547 ms | 2 ms |
 
@@ -450,7 +449,7 @@ source of truth; this section is a summary, not a copy, so it can't drift out of
 **What CI checks:**
 - **Ruff** (`[tool.ruff]` in `pyproject.toml`) — linting and code style (replaces flake8 + isort + pyupgrade).
   Per-file-ignores exist for `ops/run_data_quality.py`/`ops/run_scraper_health.py`'s
-  intentional `sys.path.insert()`-before-import convention (see `CLAUDE.md`'s "All scripts
+  intentional `sys.path.insert()`-before-import convention (see `AGENTS.md`'s "All scripts
   resolve BASE ..." rule) — not an oversight. Tests don't need it: pytest's `pythonpath = ["."]`
   (also in `pyproject.toml`) puts the project root on `sys.path` before collection.
 - **pytest** — the full suite in `tests/` (see the Testing section above for current count)
@@ -536,7 +535,7 @@ Register-ScheduledTask -TaskName "SkroutzPipeline" -Action $action -Trigger $tri
 | Signal | Source | Retention |
 |---|---|---|
 | Pipeline log | `logs/pipeline_YYYY-MM-DD.log` | 30 days (auto-rotated by `_cleanup_old_logs()`) |
-| Scraper logs | `logs/skroutz_*WHILE_YYYY-MM-DD.log` (subprocess stdout/stderr, append mode) | 30 days |
+| Scraper logs | `logs/<category>_YYYY-MM-DD.log` (subprocess stdout/stderr, append mode) | 30 days |
 | Telegram dedup records | `logs/tg_sent_YYYY-MM-DD.json` | 30 days |
 | Data quality reports | `logs/data_quality_YYYY-MM-DD.json` | 30 days |
 | Anomaly detection | `send_success_summary()` — warns if today < 50% of yesterday | Logged + emailed |
@@ -588,7 +587,7 @@ All tests are pure unit tests — no database, no Chrome, no network. Safe to ru
 
 ### Add a new product category
 
-1. Add a `ScraperConfig` to `CONFIGS` in `scrapers/scraper_core.py` and create a thin entry point `skroutz_<category>WHILE.py` (copy `scrapers/smartwatches.py` — it's 4 lines)
+1. Add a `ScraperConfig` to `CONFIGS` in `scrapers/scraper_core.py` and create a thin entry point `scrapers/<category>.py` (and add it to `scrapers/run_all.py`) (copy `scrapers/smartwatches.py` — it's 4 lines)
 2. Create a thin cleaner `Data_<Category>.py` with a `CleanerConfig` (copy `etl/clean_smartwatches.py`)
 3. Register both in `scrapers/run_all.py` and `etl/clean_all.py`
 4. Add the category string to `CATEGORIES` in `reporting/charts_from_db.py`
@@ -598,7 +597,7 @@ All tests are pure unit tests — no database, no Chrome, no network. Safe to ru
 
 1. Write the SQL `CREATE OR REPLACE VIEW vw_<name> AS ...` in `sql/analytics.sql`
 2. Run `sql/analytics.sql` against the live DB once
-3. Reference the view in `run_pipeline.py`, `streamlit_app.py`, or `reporting/generate_dashboard.py`
+3. Reference the view in `run_pipeline.py` or `reporting/generate_dashboard.py` (via `reporting/queries.py`)
 
 ### Add a new Telegram bot command
 
@@ -620,9 +619,8 @@ Edit the Windows Task Scheduler trigger time, or update the `cron:` schedule in 
 | Cleaned CSVs | `Clean/` | Stage 2; gitignored |
 | Price charts (PNG) | `charts/price_trend_{phone,laptop,smartwatch,tablet}.png` | Tracked in git |
 | HTML dashboard | `dashboard/dashboard_latest.html` | Tracked; dated copies gitignored |
-| Streamlit dashboard | `http://localhost:8501` | `streamlit run streamlit_app.py` |
 | Pipeline log | `logs/pipeline_YYYY-MM-DD.log` | Rotated at 30 days |
-| Scraper logs | `logs/skroutz_*WHILE_YYYY-MM-DD.log` | Rotated at 30 days |
+| Scraper logs | `logs/<category>_YYYY-MM-DD.log` | Rotated at 30 days |
 | Telegram dedup | `logs/tg_sent_YYYY-MM-DD.json` | Rotated at 30 days |
 | Data quality reports | `logs/data_quality_YYYY-MM-DD.json` | Rotated at 30 days |
 
@@ -641,7 +639,6 @@ Edit the Windows Task Scheduler trigger time, or update the `cron:` schedule in 
 
 | Item | Why | Effort |
 |---|---|---|
-| **Streamlit auth** | Dashboard is currently unauthenticated if served externally | 1 hour |
 | **Partition `price_snapshots` by month** | At the current daily growth rate (see README) the table reaches 100M rows within roughly a decade; partitioning keeps vacuums fast | Half day |
 | **Retry logic in Stage 1 launcher** | If one scraper fails, the others still succeed; re-running the failed scraper alone would avoid a full re-scrape | Half day |
 

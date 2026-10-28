@@ -3,15 +3,15 @@ scraper_core.py
 ---------------
 Shared scraping engine for all four skroutz.gr category scrapers.
 
-The four skroutz_*WHILE.py files are thin entry points that call
-scrape(CONFIGS["<category>"]) — the pagination loop, card parsing, retry
+scrapers/{phones,laptops,tablets,smartwatches}.py are thin entry points that
+call scrape(CONFIGS["<category>"]) — the pagination loop, card parsing, retry
 logic, markup-drift guard, and CSV writing all live here.
 
 Output: date-stamped raw CSV in the category folder (see CONFIGS).
 
 Dependencies: undetected-chromedriver, selenium, pandas
 """
-from core.paths import ROOT
+from core.paths import ROOT, CATEGORY_FOLDERS
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -99,7 +99,7 @@ CONFIGS = {
     "phones": ScraperConfig(
         category="phones",
         url="https://www.skroutz.gr/c/40/kinhta-thlefwna.html",
-        folder="Phones_skroutz",
+        folder=CATEGORY_FOLDERS["phones"],
         file_prefix="skroutz_phones",
         extract_memory_info=True,
         min_products=400,
@@ -107,21 +107,21 @@ CONFIGS = {
     "laptops": ScraperConfig(
         category="laptops",
         url="https://www.skroutz.gr/c/25/laptop.html",
-        folder="Laptops_skroutz",
+        folder=CATEGORY_FOLDERS["laptops"],
         file_prefix="skroutz_laptops",
         min_products=800,
     ),
     "tablets": ScraperConfig(
         category="tablets",
         url="https://www.skroutz.gr/c/1105/tablet.html",
-        folder="Tablets_skroutz",
+        folder=CATEGORY_FOLDERS["tablets"],
         file_prefix="skroutz_tablets",
         min_products=150,
     ),
     "smartwatches": ScraperConfig(
         category="smartwatches",
         url="https://www.skroutz.gr/c/1705/Smartwatches.html",
-        folder="Smartwatches_skroutz",
+        folder=CATEGORY_FOLDERS["smartwatches"],
         file_prefix="skroutz_Smartwatches",
         min_products=800,
     ),
@@ -522,8 +522,8 @@ def _check_markup_drift(df, category):
 
 
 def scrape(cfg: ScraperConfig):
-    # Log to console only — 1scriptToGet4.py redirects each scraper subprocess's
-    # stdout/stderr into logs/skroutz_<category>WHILE_<date>.log (append mode),
+    # Log to console only — scrapers.run_all redirects each scraper subprocess's
+    # stdout/stderr into logs/<category>_<date>.log (append mode),
     # so a second, truncated-every-run root-level log file was pure duplication.
     logging.basicConfig(
         level=logging.INFO,

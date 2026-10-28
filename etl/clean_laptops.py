@@ -8,11 +8,12 @@ Reads:  Laptops_skroutz/skroutz_laptops_<today>.csv
 Writes: Clean/Laptops_skroutz_clean/clean_<today>.csv
 """
 
+from core.paths import CATEGORY_FOLDERS
 from etl.clean_common import CleanerConfig, run_clean, clean_price as clean_price  # re-exported for tests
 
 CONFIG = CleanerConfig(
     category="laptops",
-    raw_folder="Laptops_skroutz",
+    raw_folder=CATEGORY_FOLDERS["laptops"],
     raw_prefixes=("skroutz_laptops", "skroutz_laptos"),
     clean_folder="Laptops_skroutz_clean",
     final_columns=(

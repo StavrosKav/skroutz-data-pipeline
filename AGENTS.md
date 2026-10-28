@@ -53,7 +53,6 @@ Automation: Windows Task Scheduler at 10:00 via `run_pipeline.bat`.
 | `run_pipeline.bat` | Task Scheduler launcher — update PYTHON path inside before registering |
 | `alerts/notifications.py` | Telegram notification layer — HTML parse mode, dedup, inline buttons, retry |
 | `alerts/telegram_bot.py` | Interactive Telegram bot — long-polling; /status /drops /watchlist /add /remove /find /stats /history /best /restock /cancel; URL→price conversation flow for adding watchlist items |
-| `streamlit_app.py` | Interactive Streamlit dashboard; live DB queries cached 1h; runs at localhost:8501 |
 | `tests/test_pipeline.py` | pytest test suite (unit tests for pipeline, DB helpers, notifications) |
 | `sql/create_new_schema.sql` | DDL for a fresh PostgreSQL install (run once on a new DB) |
 
@@ -86,10 +85,6 @@ Automation: Windows Task Scheduler at 10:00 via `run_pipeline.bat`.
 $env:SKIP_SCRAPE = "1"
 & ".venv\Scripts\python.exe" run_pipeline.py
 
-# Streamlit dashboard (runs until stopped — separate terminal)
-& ".venv\Scripts\python.exe" -m streamlit run streamlit_app.py
-# Opens at http://localhost:8501
-
 # Telegram bot (runs until stopped — separate terminal)
 & ".venv\Scripts\python.exe" telegram_bot.py
 
@@ -101,15 +96,14 @@ $env:SKIP_SCRAPE = "1"
 ```
 
 ## Services
-Two long-running processes run independently of the pipeline:
+One long-running process runs independently of the pipeline:
 
 | Service | Command | Port/Channel |
 |---|---|---|
-| Streamlit dashboard | streamlit run streamlit_app.py | http://localhost:8501 |
 | Telegram bot | python telegram_bot.py | Telegram (TELEGRAM_CHAT_ID in .env) |
 
-Both require DB_* vars in .env. Neither is called by run_pipeline.py —
-start them manually or as separate Task Scheduler / Windows Service entries.
+It requires DB_* vars in .env. It is not called by run_pipeline.py —
+start it manually or as separate Task Scheduler / Windows Service entries.
 
 ## Testing
 & ".venv\Scripts\python.exe" -m pytest tests/ -v
@@ -121,7 +115,7 @@ start them manually or as separate Task Scheduler / Windows Service entries.
 
 ## Logs & Outputs
 - Pipeline log: `logs/pipeline_YYYY-MM-DD.log` (created daily)
-- Scraper logs: `logs/skroutz_phonesWHILE_YYYY-MM-DD.log`, `logs/Data_Phone_YYYY-MM-DD.log`, etc. (in logs/ folder, one file per scraper/cleaner per day)
+- Scraper logs: `logs/phones_YYYY-MM-DD.log`, `logs/Data_Phone_YYYY-MM-DD.log`, etc. (in logs/ folder, one file per scraper/cleaner per day)
 - Charts output: `charts/price_trend_{phone,laptop,smartwatch,tablet}.png`
 - Dashboard: `dashboard/dashboard_latest.html` (+ dated copy)
 - Telegram dedup cache: `logs/tg_sent_YYYY-MM-DD.json` (auto-created by notifications.py; prevents duplicate alerts)
