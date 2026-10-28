@@ -66,7 +66,10 @@ class AskResult:
 def extract_sql(text: str) -> str:
     m = re.search(r"```(?:sql)?\s*(.+?)```", text, re.DOTALL | re.IGNORECASE)
     sql = m.group(1) if m else text
-    return sql.strip()
+    # strip stray/unbalanced fences and a leading "sql" language tag
+    sql = re.sub(r"```(?:sql)?", "", sql, flags=re.IGNORECASE).strip()
+    sql = re.sub(r"^sql\s*\n", "", sql, flags=re.IGNORECASE)
+    return sql.strip().rstrip(";").strip()
 
 
 def _jsonable(v: Any) -> Any:

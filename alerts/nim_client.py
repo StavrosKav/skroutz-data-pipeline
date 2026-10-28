@@ -45,6 +45,25 @@ class NIMModel(str, Enum):
     # The Llama/Nemotron models above were retired by NVIDIA (HTTP 410, 2026-08-26).
     # gpt-oss-20b is the only general chat model invokable on this account (2026-10-28).
     GPT_OSS_20B = "openai/gpt-oss-20b"
+    # Verified invokable 2026-10-28 (free tier). Ultra = primary, Bolt = fast fallback.
+    NEMOTRON_3_ULTRA = "nvidia/nemotron-3-ultra-550b-a55b"
+    NEMOTRON_35_BOLT = "nvidia/nemotron-3.5-bolt-e4b"
+
+
+# Tried in order when a model is gone/unavailable (404/410/503/timeout).
+FALLBACK_CHAIN: tuple[NIMModel, ...] = (
+    NIMModel.NEMOTRON_3_ULTRA,
+    NIMModel.NEMOTRON_35_BOLT,
+    NIMModel.GPT_OSS_20B,
+)
+
+
+def _is_fallback_error(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.TimeoutException):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (404, 410, 503)
+    return False
 
 
 class TaskType(str, Enum):
@@ -62,12 +81,12 @@ class TaskType(str, Enum):
 # (codellama-70b-instruct, mistral-large, codestral, granite, starcoder,
 # deepseek-coder all 404) — those tasks fall back to the best general model.
 DEFAULT_MODEL_ROUTING: dict[TaskType, NIMModel] = {
-    TaskType.CHAT_DEFAULT: NIMModel.GPT_OSS_20B,
-    TaskType.REASONING_HEAVY: NIMModel.GPT_OSS_20B,
-    TaskType.CODE_GENERATION: NIMModel.GPT_OSS_20B,
-    TaskType.CODE_REVIEW: NIMModel.GPT_OSS_20B,
-    TaskType.FAST_SIMPLE: NIMModel.GPT_OSS_20B,
-    TaskType.MULTILINGUAL: NIMModel.GPT_OSS_20B,
+    TaskType.CHAT_DEFAULT: NIMModel.NEMOTRON_3_ULTRA,
+    TaskType.REASONING_HEAVY: NIMModel.NEMOTRON_3_ULTRA,
+    TaskType.CODE_GENERATION: NIMModel.NEMOTRON_3_ULTRA,
+    TaskType.CODE_REVIEW: NIMModel.NEMOTRON_3_ULTRA,
+    TaskType.FAST_SIMPLE: NIMModel.NEMOTRON_3_ULTRA,
+    TaskType.MULTILINGUAL: NIMModel.NEMOTRON_3_ULTRA,
 }
 
 
@@ -78,6 +97,8 @@ MODEL_COSTS: dict[NIMModel, tuple[float, float]] = {
     NIMModel.LLAMA_3_1_70B: (0.0, 0.0),
     NIMModel.LLAMA_3_1_8B: (0.0, 0.0),
     NIMModel.GPT_OSS_20B: (0.0, 0.0),
+    NIMModel.NEMOTRON_3_ULTRA: (0.0, 0.0),
+    NIMModel.NEMOTRON_35_BOLT: (0.0, 0.0),
 }
 
 
@@ -247,7 +268,26 @@ class NIMClient:
         if stream:
             return self._stream_chat(request)
 
-        response_data = await self._post("/chat/completions", request.model_dump(exclude_none=True))
+        payload = request.model_dump(exclude_none=True)
+        chain = [model]
+        if model in {m.value for m in FALLBACK_CHAIN}:
+            chain += [m.value for m in FALLBACK_CHAIN if m.value != model]
+        last_exc: BaseException | None = None
+        for candidate in chain:
+            payload["model"] = candidate
+            try:
+                response_data = await self._post("/chat/completions", payload)
+                break
+            except Exception as exc:  # noqa: BLE001
+                if not _is_fallback_error(exc):
+                    raise
+                logger.warning("NIM model %s unavailable (%s); trying next", candidate, type(exc).__name__)
+                last_exc = exc
+        else:
+            assert last_exc is not None
+            raise last_exc
+        model = candidate
+        logger.info("NIM answered by model=%s", model)
         response = ChatCompletionResponse(**response_data)
 
         latency_ms = int((time.perf_counter() - start) * 1000)
@@ -255,7 +295,7 @@ class NIMClient:
         self._total_latency_ms += latency_ms
 
         # Cost tracking (NVIDIA-hosted NIMs are free tier, but track for future)
-        in_cost, out_cost = MODEL_COSTS.get(NIMModel(model), (0.0, 0.0))
+        in_cost, out_cost = MODEL_COSTS.get(NIMModel(model), (0.0, 0.0)) if model in NIMModel._value2member_map_ else (0.0, 0.0)
         cost = (response.usage.prompt_tokens * in_cost + response.usage.completion_tokens * out_cost) / 1_000_000
         self._total_cost += cost
 
