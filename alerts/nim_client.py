@@ -16,10 +16,20 @@ from typing import Optional
 from dataclasses import dataclass
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception_type
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
+
+
+def _is_retryable_http(exc: BaseException) -> bool:
+    """Retry timeouts, network errors, 429 and 5xx only — never other 4xx."""
+    if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code == 429 or 500 <= code < 600
+    return False
 
 
 class NIMModel(str, Enum):
@@ -176,7 +186,7 @@ class NIMClient:
     @retry(
         wait=wait_exponential_jitter(initial=1, max=30),
         stop=stop_after_attempt(3),
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.HTTPStatusError, httpx.NetworkError)),
+        retry=retry_if_exception(_is_retryable_http),
         reraise=True,
     )
     async def _post(self, path: str, json_data: dict) -> dict:

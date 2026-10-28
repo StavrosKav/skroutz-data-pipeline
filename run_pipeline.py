@@ -45,6 +45,7 @@ from core.paths import ROOT
 import html
 import subprocess
 import sys
+import tempfile
 import logging
 import datetime
 import os
@@ -324,6 +325,20 @@ MATVIEWS = [
 ]
 
 
+VIEWS_SQL = os.path.join(BASE, "sql", "vw_disappeared.sql")
+
+
+def apply_view_definitions():
+    """Re-apply idempotent CREATE OR REPLACE VIEW files (no migration step)."""
+    try:
+        with open(VIEWS_SQL, encoding="utf-8") as f:
+            ddl = f.read()
+        with get_engine().begin() as conn:
+            conn.execute(text(ddl))
+    except Exception as e:
+        logger.warning(f"View definitions: could not apply {os.path.basename(VIEWS_SQL)} — {e}")
+
+
 def refresh_matviews():
     """
     Refresh the analytics materialized views so today's data shows up in
@@ -333,6 +348,7 @@ def refresh_matviews():
     """
     logger.info("=== Materialized view refresh started ===")
     t = datetime.datetime.now()
+    apply_view_definitions()
     try:
         engine = get_engine()
         failed = []
@@ -779,23 +795,92 @@ def update_readme_stats():
     )
 
 
-def publish_artifacts():
+# Files the public GitHub Pages site needs. Published to the `gh-pages` branch
+# as ONE parentless commit, force-pushed daily, so the ~2.5 MB dashboard and
+# chart PNGs never accumulate in history. Paths are unchanged, so the public
+# URL .../dashboard/dashboard_latest.html stays the same.
+PAGES_BRANCH = "gh-pages"
+PAGES_PATHS = ("index.html", "dashboard/dashboard_latest.html", "charts", "assets")
+
+# Transition switch. "1" (default): ALSO commit dashboard + charts to main, as
+# before, so the live page keeps updating while GitHub Pages still serves from
+# main. After switching Settings -> Pages -> Source to the gh-pages branch, set
+# PUBLISH_MAIN_ARTIFACTS=0 so main only gets the small README stats commit.
+def _publish_main_artifacts():
+    return os.getenv("PUBLISH_MAIN_ARTIFACTS", "1").strip() != "0"
+
+
+def _git_run(*args, timeout=120, env=None):
+    return subprocess.run(
+        ["git", "-C", BASE, *args],
+        capture_output=True, text=True, timeout=timeout, env=env,
+    )
+
+
+def publish_pages_branch(git=None):
     """
-    Commit today's refreshed artifacts (charts, dashboard, README stats) and
-    push to origin so the GitHub Pages dashboard updates daily without a
-    manual push. Non-fatal — pipeline result is unaffected if this fails.
-    Only whitelisted artifact paths are staged; if the index already holds
-    unrelated staged changes (work in progress), skip entirely rather than
-    sweep them into an automated commit.
+    Build a single parentless commit holding only PAGES_PATHS (plus .nojekyll)
+    using a throwaway index — the working tree, HEAD and the real index are
+    never touched — then force-push it to origin/gh-pages. Returns True on success.
+    """
+    git = git or _git_run
+    present = [p for p in PAGES_PATHS if os.path.exists(os.path.join(BASE, p))]
+    if "dashboard/dashboard_latest.html" not in present:
+        logger.warning("Publish pages: dashboard_latest.html missing — skipping gh-pages publish.")
+        return False
+    fd, tmp_index = tempfile.mkstemp(prefix="pages_index_")
+    os.close(fd)
+    os.remove(tmp_index)  # git wants to create it itself
+    env = {**os.environ, "GIT_INDEX_FILE": tmp_index}
+    try:
+        for args in (("read-tree", "--empty"), ("add", "-f", "--", *present)):
+            r = git(*args, env=env)
+            if r.returncode != 0:
+                logger.warning(f"Publish pages: git {args[0]} failed — {r.stderr.strip()}")
+                return False
+        # .nojekyll: serve files as-is (no Jekyll build step on Pages)
+        fd, empty = tempfile.mkstemp(prefix="nojekyll_")
+        os.close(fd)
+        try:
+            blob = git("hash-object", "-w", empty, env=env)
+        finally:
+            os.remove(empty)
+        if blob.returncode == 0 and blob.stdout.strip():
+            git("update-index", "--add", "--cacheinfo", f"100644,{blob.stdout.strip()},.nojekyll", env=env)
+        tree = git("write-tree", env=env)
+        if tree.returncode != 0:
+            logger.warning(f"Publish pages: write-tree failed — {tree.stderr.strip()}")
+            return False
+        msg = f"site: dashboard + charts from {datetime.date.today()} run"
+        commit = git("commit-tree", tree.stdout.strip(), "-m", msg, env=env)
+        if commit.returncode != 0:
+            logger.warning(f"Publish pages: commit-tree failed — {commit.stderr.strip()}")
+            return False
+        sha = commit.stdout.strip()
+        push = git("push", "--force", "origin", f"{sha}:refs/heads/{PAGES_BRANCH}", timeout=300)
+        if push.returncode != 0:
+            logger.warning(f"Publish pages: push to {PAGES_BRANCH} failed — {push.stderr.strip()}")
+            return False
+        logger.info(f"Publish pages: force-pushed {sha[:7]} to origin/{PAGES_BRANCH} (history = 1 commit)")
+        return True
+    finally:
+        if os.path.exists(tmp_index):
+            os.remove(tmp_index)
+
+
+def publish_artifacts(git=None):
+    """
+    1. Publish site files to the gh-pages branch (single commit, force-pushed).
+    2. Commit to main: README.md stats always; dashboard + charts only while
+       PUBLISH_MAIN_ARTIFACTS != "0" (transition period). Push origin main.
+    Non-fatal — pipeline result is unaffected if this fails. If the index
+    already holds unrelated staged changes, the main commit is skipped.
     """
     logger.info("=== Publish artifacts started ===")
     t = datetime.datetime.now()
+    _git = git or _git_run
 
-    def _git(*args, timeout=120):
-        return subprocess.run(
-            ["git", "-C", BASE, *args],
-            capture_output=True, text=True, timeout=timeout,
-        )
+    pages_ok = publish_pages_branch(_git)
 
     if _git("diff", "--cached", "--quiet").returncode != 0:
         logger.warning("Publish artifacts: index already has staged changes — skipping auto-commit.")
@@ -804,14 +889,19 @@ def publish_artifacts():
     if branch != "main":
         logger.warning(f"Publish artifacts: on branch '{branch}', not main — skipping auto-commit.")
         return
-    add = _git("add", "--", "charts", "dashboard/dashboard_latest.html", "README.md")
+    paths = ["README.md"]
+    if _publish_main_artifacts() or not pages_ok:
+        # Legacy path, and the safety net if gh-pages failed: keep main's copy fresh.
+        paths = ["charts", "dashboard/dashboard_latest.html", "README.md"]
+    add = _git("add", "--", *paths)
     if add.returncode != 0:
         logger.warning(f"Publish artifacts: git add failed — {add.stderr.strip()}")
         return
     if _git("diff", "--cached", "--quiet").returncode == 0:
-        logger.info("Publish artifacts: no artifact changes to commit.")
+        logger.info("Publish artifacts: no main changes to commit.")
         return
-    msg = f"chore: refresh charts, dashboard and README stats from {datetime.date.today()} run"
+    what = "charts, dashboard and README stats" if len(paths) > 1 else "README stats"
+    msg = f"chore: refresh {what} from {datetime.date.today()} run"
     commit = _git("commit", "-m", msg)
     if commit.returncode != 0:
         logger.warning(f"Publish artifacts: git commit failed — {commit.stderr.strip()}")
@@ -822,7 +912,7 @@ def publish_artifacts():
         logger.warning(f"Publish artifacts: git push failed after {elapsed:.0f}s — {push.stderr.strip()}")
         _notif.tg_send(
             "⚠️ <b>Artifact push failed</b>\n"
-            "Committed locally but not pushed — the public GitHub Pages dashboard is stale.\n"
+            "Committed locally but not pushed to main.\n"
             f"<code>{html.escape(push.stderr.strip()[:300])}</code>"
         )
         return

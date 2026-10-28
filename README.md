@@ -40,6 +40,18 @@ flowchart LR
 
 Full stage graph, failure semantics, and ops notes: **[PIPELINE.md](docs/PIPELINE.md)**.
 
+### AI: `/ask` over the database
+
+Telegram `/ask <question>` turns a Greek question into one guarded, read-only SQL
+query (SELECT-only, table allowlist, LIMIT, statement timeout), runs it, and answers
+only from the returned rows, showing the SQL. Evaluated on 20 Greek questions with
+value-based checks. Details: **[ASK_AGENT.md](docs/ASK_AGENT.md)**.
+
+```mermaid
+flowchart LR
+  Q["/ask question"] --> L1["NIM LLM → SQL"] --> G["SQL guard"] --> DB[("PostgreSQL\nread-only")] --> L2["NIM LLM → Greek answer\n+ SQL shown"]
+```
+
 ### Pipeline stages
 
 | Stage | Script | Fatal? | What it does |
@@ -107,16 +119,16 @@ Updated daily via Task Scheduler · last pipeline run: 2026-10-28
 Average daily price for the 6 largest brands per category (7-day smoothed) — regenerated after every run by `reporting/charts_from_db.py`.
 
 **Phones**
-![Phone price trends](charts/price_trend_phone.png)
+![Phone price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_phone.png)
 
 **Laptops**
-![Laptop price trends](charts/price_trend_laptop.png)
+![Laptop price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_laptop.png)
 
 **Smartwatches**
-![Smartwatch price trends](charts/price_trend_smartwatch.png)
+![Smartwatch price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_smartwatch.png)
 
 **Tablets**
-![Tablet price trends](charts/price_trend_tablet.png)
+![Tablet price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_tablet.png)
 
 Live interactive report: **[dashboard_latest.html](https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html)** (also linked from the repo root Pages redirect).
 
@@ -125,7 +137,7 @@ Live interactive report: **[dashboard_latest.html](https://stavroskav.github.io/
 ## Engineering highlights
 
 - **Observer-stage design** — charts, alerts, dashboard, and README stats are non-fatal; contract pinned by tests (`run_pipeline.py`, `tests/test_smoke.py`).
-- **Markup-drift guard** — per-field completeness thresholds before CSV write; fixture canary on real listing HTML (`scrapers/scraper_core.py`, `tests/test_pipeline.py`).
+- **Markup-drift guard** — per-field completeness thresholds before CSV write; fixture canary on real listing HTML (`scrapers/scraper_core.py`, `tests/test_{clean,load,scrape,alerts,telegram_cmds,ops}.py`).
 - **Alerting below the app layer** — PowerShell wrapper can Telegram-alert even if Python fails to start (`run_pipeline_wrapper.ps1`).
 - **Idempotent loads** — upserts + stale-aware lock file; safe to re-run.
 - **Materialized analytics** — 16 views, 10 of them backed by materialized views refreshed `CONCURRENTLY`; pg_trgm for Telegram `/find`.

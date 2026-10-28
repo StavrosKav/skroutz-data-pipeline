@@ -175,3 +175,36 @@ class TestRenderHtml(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNotSeen30d(unittest.TestCase):
+    """'Disappeared' now means: not seen for MORE than 30 days."""
+
+    def test_count_uses_greater_than(self):
+        conn = _conn_returning(5)
+        queries.count_disappeared(conn, days=30)
+        sql, _ = _sql_and_params(conn)
+        self.assertIn("days_since_last_seen > :days", sql)
+
+    def test_list_uses_greater_than(self):
+        with patch("reporting.queries.pd.read_sql") as rs:
+            queries.disappeared(MagicMock(), days=30, limit=10)
+        self.assertIn("days_since_last_seen > :days", str(rs.call_args[0][0]))
+        self.assertEqual(rs.call_args.kwargs["params"], {"days": 30, "limit": 10})
+
+    def test_view_sql_is_30_days_and_idempotent(self):
+        from core.paths import ROOT
+        ddl = (ROOT / "sql" / "vw_disappeared.sql").read_text(encoding="utf-8")
+        self.assertIn("CREATE OR REPLACE VIEW vw_disappeared", ddl)
+        self.assertIn("INTERVAL '30 days'", ddl)
+
+    def test_refresh_applies_view_file_non_fatally(self):
+        import run_pipeline as rp
+        with patch("run_pipeline.get_engine", side_effect=Exception("down")):
+            rp.apply_view_definitions()  # must not raise
+
+    def test_template_label_is_greek(self):
+        from core.paths import ROOT
+        tpl = (ROOT / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        self.assertIn("Δεν εμφανίστηκαν", tpl)
+        self.assertNotIn("Disappeared (30d)", tpl)

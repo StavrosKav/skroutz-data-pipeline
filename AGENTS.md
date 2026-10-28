@@ -53,7 +53,7 @@ Automation: Windows Task Scheduler at 10:00 via `run_pipeline.bat`.
 | `run_pipeline.bat` | Task Scheduler launcher — update PYTHON path inside before registering |
 | `alerts/notifications.py` | Telegram notification layer — HTML parse mode, dedup, inline buttons, retry |
 | `alerts/telegram_bot.py` | Interactive Telegram bot — long-polling; /status /drops /watchlist /add /remove /find /stats /history /best /restock /cancel; URL→price conversation flow for adding watchlist items |
-| `tests/test_pipeline.py` | pytest test suite (unit tests for pipeline, DB helpers, notifications) |
+| `tests/test_{clean,load,scrape,alerts,telegram_cmds,ops}.py` | pytest test suite (unit tests for pipeline, DB helpers, notifications) |
 | `sql/create_new_schema.sql` | DDL for a fresh PostgreSQL install (run once on a new DB) |
 
 ## Database
@@ -108,7 +108,7 @@ start it manually or as separate Task Scheduler / Windows Service entries.
 ## Testing
 & ".venv\Scripts\python.exe" -m pytest tests/ -v
 
-- Test file: tests/test_pipeline.py
+- Test file: tests/test_{clean,load,scrape,alerts,telegram_cmds,ops}.py
 - Covers: DB helpers, pipeline stage entry points, notification dedup logic
 - Does NOT run scrapers or write to the live DB — uses mocks/fixtures
 - Lint: & ".venv\Scripts\python.exe" -m ruff check .

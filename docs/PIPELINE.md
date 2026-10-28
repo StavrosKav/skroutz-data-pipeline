@@ -100,7 +100,7 @@ skroutz-data-pipeline/
 ├── Dockerfile                   # Python image for Clean + Load
 │
 ├── tests/
-│   ├── test_pipeline.py         # unit tests (pytest)
+│   ├── test_<stage>.py          # unit tests (pytest)
 │   └── test_smoke.py            # stage compile/import + observer-contract tests
 │
 ├── .github/
@@ -367,7 +367,7 @@ Indexes
 | `vw_price_history` | Full daily history with LAG-based day-over-day delta |
 | `vw_biggest_drops` | All negative price changes ordered by size |
 | `vw_brand_summary` | Min/max/avg/median price per brand per category |
-| `vw_disappeared` | Products not seen for 7+ days |
+| `vw_disappeared` | Products not seen for more than 30 days |
 | `vw_price_volatility` | 30-day coefficient of variation (stddev / avg) |
 | `vw_brand_price_trend` | Daily avg price per brand/category (for charts) |
 | `vw_hot_deals` | Price drop AND review surge vs. previous scrape |
@@ -650,3 +650,14 @@ Edit the Windows Task Scheduler trigger time, or update the `cron:` schedule in 
 | **Grafana + Prometheus metrics** | Expose pipeline run time, snapshot count, error rate as time-series metrics |
 | **Price change webhook** | Push drop events to a REST endpoint for third-party integrations |
 | **Multi-user watchlist** | Telegram bot currently uses a single `watchlist.json`; per-user lists require a DB table |
+
+## Publishing (GitHub Pages)
+
+`publish_artifacts()` force-pushes the site files (`index.html`, `dashboard/dashboard_latest.html`,
+`charts/`, `assets/`, `.nojekyll`) to the `gh-pages` branch as a single parentless commit, so its
+history is always one commit. The public URL is unchanged.
+
+One-time switch: GitHub → Settings → Pages → Source: *Deploy from a branch* → `gh-pages` / `(root)`.
+After the live page is confirmed, set `PUBLISH_MAIN_ARTIFACTS=0` in `.env`; from then on main only
+gets the small README stats commit. Until then (default `1`) main is also updated as before, and it
+is always updated if the gh-pages push fails.

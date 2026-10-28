@@ -613,6 +613,7 @@ def _cmd_help() -> str:
         "/restock             — products that came back after a stock gap\n\n"
         + (
             "<b>AI</b>\n"
+            "/ask &lt;question&gt;     — answer from the database (shows SQL)\n"
             "/chat &lt;question&gt;    — ask about prices and deals\n"
             "/analyze [category]  — market brief for a category\n"
             "/summarize           — daily summary with insights\n\n"
@@ -642,6 +643,7 @@ def _set_commands() -> None:
     # Add NIM commands if available
     if _NIM_AVAILABLE:
         commands.extend([
+            {"command": "ask",       "description": "Ask the database (text-to-SQL)"},
             {"command": "chat",      "description": "Chat with price tracker AI"},
             {"command": "analyze",   "description": "AI market analysis for category"},
             {"command": "summarize", "description": "AI daily summary with insights"},
