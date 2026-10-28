@@ -650,3 +650,14 @@ Edit the Windows Task Scheduler trigger time, or update the `cron:` schedule in 
 | **Grafana + Prometheus metrics** | Expose pipeline run time, snapshot count, error rate as time-series metrics |
 | **Price change webhook** | Push drop events to a REST endpoint for third-party integrations |
 | **Multi-user watchlist** | Telegram bot currently uses a single `watchlist.json`; per-user lists require a DB table |
+
+## Publishing (GitHub Pages)
+
+`publish_artifacts()` force-pushes the site files (`index.html`, `dashboard/dashboard_latest.html`,
+`charts/`, `assets/`, `.nojekyll`) to the `gh-pages` branch as a single parentless commit, so its
+history is always one commit. The public URL is unchanged.
+
+One-time switch: GitHub → Settings → Pages → Source: *Deploy from a branch* → `gh-pages` / `(root)`.
+After the live page is confirmed, set `PUBLISH_MAIN_ARTIFACTS=0` in `.env`; from then on main only
+gets the small README stats commit. Until then (default `1`) main is also updated as before, and it
+is always updated if the gh-pages push fails.

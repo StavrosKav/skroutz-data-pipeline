@@ -107,16 +107,16 @@ Updated daily via Task Scheduler · last pipeline run: 2026-10-28
 Average daily price for the 6 largest brands per category (7-day smoothed) — regenerated after every run by `reporting/charts_from_db.py`.
 
 **Phones**
-![Phone price trends](charts/price_trend_phone.png)
+![Phone price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_phone.png)
 
 **Laptops**
-![Laptop price trends](charts/price_trend_laptop.png)
+![Laptop price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_laptop.png)
 
 **Smartwatches**
-![Smartwatch price trends](charts/price_trend_smartwatch.png)
+![Smartwatch price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_smartwatch.png)
 
 **Tablets**
-![Tablet price trends](charts/price_trend_tablet.png)
+![Tablet price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_tablet.png)
 
 Live interactive report: **[dashboard_latest.html](https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html)** (also linked from the repo root Pages redirect).
 
