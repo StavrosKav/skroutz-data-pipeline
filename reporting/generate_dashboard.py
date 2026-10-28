@@ -40,6 +40,40 @@ CHARTS_DIR = _CHARTS_DIR
 OUT_DIR    = DASHBOARD_DIR
 OUT_DIR.mkdir(exist_ok=True)
 
+# ── Display limits and KPI thresholds ──────────────────────────────────────────
+# Lists are truncated for display; KPIs come from COUNT(*) queries instead.
+DROPS_TODAY_LIMIT   = 25
+DROPS_WEEK_LIMIT    = 30
+NEW_PRODUCTS_LIMIT  = 50
+DISAPPEARED_LIMIT   = 50
+PRODUCTS_LIMIT      = 3000   # product search / price tiers / price-vs-rating sample
+HOT_DEALS_LIMIT     = 20
+
+# A drop of SUSPECT_DROP_PCT percent or more is flagged "suspect" (usually a
+# variant mix-up or a bad scrape) and kept out of KPI counts and Hot Deals.
+SUSPECT_DROP_PCT       = 40.0
+# Hot Deals must fall at least this much, in percent and in euros.
+HOT_DEAL_MIN_DROP_PCT  = 3.0
+HOT_DEAL_MIN_DROP_EUR  = 5.0
+
+
+def is_suspect_drop(drop_pct, threshold=SUSPECT_DROP_PCT):
+    """True when a drop is threshold percent or larger. drop_pct is signed
+    (negative for a drop) as in vw_biggest_drops; None is never suspect."""
+    if drop_pct is None:
+        return False
+    return abs(float(drop_pct)) >= threshold
+
+
+def is_hot_deal(price_prev, price_now, min_pct=HOT_DEAL_MIN_DROP_PCT,
+                min_eur=HOT_DEAL_MIN_DROP_EUR, suspect_pct=SUSPECT_DROP_PCT):
+    """Python mirror of the SQL filter passed to queries.hot_deals()."""
+    if not price_prev or price_now is None or price_now >= price_prev:
+        return False
+    drop_eur = price_prev - price_now
+    drop_pct = drop_eur / price_prev * 100
+    return drop_pct >= min_pct and drop_eur >= min_eur and drop_pct < suspect_pct
+
 
 def _coerce_drops(df):
     out = df.to_dict("records")
@@ -47,7 +81,21 @@ def _coerce_drops(df):
         for k in ("prev_price", "new_price", "drop_eur", "drop_pct"):
             d[k] = round(float(d[k]), 2) if pd.notna(d[k]) else None
         d["drop_date"] = str(d["drop_date"])
+        d["suspect"] = is_suspect_drop(d["drop_pct"])
     return out
+
+
+def fetch_counts(conn):
+    """Real KPI totals (COUNT(*)), independent of the display-list LIMITs."""
+    return {
+        "drops_today":         queries.count_drops(conn, 0, exclude_suspect_pct=SUSPECT_DROP_PCT),
+        "drops_week":          queries.count_drops(conn, 7, exclude_suspect_pct=SUSPECT_DROP_PCT),
+        "suspect_drops_today": queries.count_suspect_drops(conn, 0, SUSPECT_DROP_PCT),
+        "suspect_drops_week":  queries.count_suspect_drops(conn, 7, SUSPECT_DROP_PCT),
+        "new_week":            queries.count_new_products(conn, days=7),
+        "disappeared_30d":     queries.count_disappeared(conn, days=30),
+        "latest_products":     queries.count_latest_products(conn),
+    }
 
 
 def fetch_data(conn):
@@ -73,10 +121,10 @@ def fetch_data(conn):
     }
 
     # Today's drops
-    drops = _coerce_drops(queries.biggest_drops(conn, days_back=0, limit=25))
+    drops = _coerce_drops(queries.biggest_drops(conn, days_back=0, limit=DROPS_TODAY_LIMIT))
 
     # This week's drops
-    weekly_drops = _coerce_drops(queries.biggest_drops(conn, days_back=7, limit=30))
+    weekly_drops = _coerce_drops(queries.biggest_drops(conn, days_back=7, limit=DROPS_WEEK_LIMIT))
 
     # Brand summary — top 10 per category with median
     brand_rows = conn.execute(text("""
@@ -117,8 +165,8 @@ def fetch_data(conn):
         JOIN products p ON p.id = lp.id
         LEFT JOIN vw_price_volatility pv ON pv.product_id = lp.id
         ORDER BY lp.reviews DESC NULLS LAST
-        LIMIT 3000
-    """)).fetchall()
+        LIMIT :lim
+    """), {"lim": PRODUCTS_LIMIT}).fetchall()
 
     try:
         conn.execute(text("SAVEPOINT sp_floor"))
@@ -181,8 +229,8 @@ def fetch_data(conn):
         JOIN price_snapshots s ON s.product_id = p.id
           AND s.date = (SELECT MAX(date) FROM price_snapshots)
         WHERE p.first_seen >= CURRENT_DATE - 7
-        ORDER BY p.first_seen DESC LIMIT 50
-    """)).fetchall()
+        ORDER BY p.first_seen DESC LIMIT :lim
+    """), {"lim": NEW_PRODUCTS_LIMIT}).fetchall()
     new_products = []
     for r in new_rows:
         new_products.append({
@@ -197,7 +245,7 @@ def fetch_data(conn):
         })
 
     # Disappeared (last 30 days)
-    dis_rows = queries.disappeared(conn, days=30, limit=50).itertuples()
+    dis_rows = queries.disappeared(conn, days=30, limit=DISAPPEARED_LIMIT).itertuples()
     disappeared = []
     for r in dis_rows:
         disappeared.append({
@@ -238,7 +286,12 @@ def fetch_data(conn):
     watchlist = _load_watchlist(conn)
 
     # Hot deals — price drop + review surge between the two most recent scrapes
-    hot_rows = queries.hot_deals(conn, limit=20).itertuples()
+    hot_rows = queries.hot_deals(
+        conn, limit=HOT_DEALS_LIMIT,
+        min_drop_pct=HOT_DEAL_MIN_DROP_PCT,
+        min_drop_eur=HOT_DEAL_MIN_DROP_EUR,
+        max_drop_pct=SUSPECT_DROP_PCT,
+    ).itertuples()
     hot_deals = []
     for r in hot_rows:
         hot_deals.append({
@@ -310,6 +363,17 @@ def fetch_data(conn):
         "last_updated":    str(last_updated) if last_updated else str(today),
         "window_start":    str(window_start) if window_start else str(today),
         "by_category":     by_category,
+        "counts":          fetch_counts(conn),
+        "limits": {
+            "drops_today": DROPS_TODAY_LIMIT, "drops_week": DROPS_WEEK_LIMIT,
+            "new": NEW_PRODUCTS_LIMIT, "disappeared": DISAPPEARED_LIMIT,
+            "products": PRODUCTS_LIMIT, "hot_deals": HOT_DEALS_LIMIT,
+        },
+        "thresholds": {
+            "suspect_pct": SUSPECT_DROP_PCT,
+            "hot_min_pct": HOT_DEAL_MIN_DROP_PCT,
+            "hot_min_eur": HOT_DEAL_MIN_DROP_EUR,
+        },
         "drops":           drops,
         "weekly_drops":    weekly_drops,
         "hot_deals":       hot_deals,
@@ -381,16 +445,8 @@ CHARTJS_PATH = ASSETS_DIR / "chart.umd.min.js"
 CHARTJS_INLINE = CHARTJS_PATH.read_text(encoding="utf-8")
 
 
-def main():
-    print("Generating dashboard…")
-    try:
-        engine = get_engine()
-        with engine.connect() as conn:
-            data = fetch_data(conn)
-    except Exception as e:
-        print(f"Dashboard: DB connection failed — {e}", file=sys.stderr)
-        sys.exit(1)
-
+def render_html(data):
+    """Fill the HTML template from a fetch_data() dict. Pops data["history"]."""
     charts_json = {
         "price_trend_phone":      encode_chart("price_trend_phone.png"),
         "price_trend_laptop":     encode_chart("price_trend_laptop.png"),
@@ -413,6 +469,20 @@ def main():
         .replace("__HISTORY_JSON__",     json.dumps(history,     ensure_ascii=False, separators=(",", ":")))
         .replace("__CHARTS_JSON__",      json.dumps(charts_json, ensure_ascii=False, separators=(",", ":")))
     )
+    return html
+
+
+def main():
+    print("Generating dashboard…")
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            data = fetch_data(conn)
+    except Exception as e:
+        print(f"Dashboard: DB connection failed — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    html = render_html(data)
 
     out_path = OUT_DIR / f"dashboard_{data['generated']}.html"
     tmp_dated = out_path.parent / (out_path.name + ".tmp")

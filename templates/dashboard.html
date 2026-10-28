@@ -131,6 +131,9 @@ tr:hover td { background: #ffffff08; }
 /* Value styles */
 .drop-eur { color: var(--drop); font-weight: 600; }
 .drop-pct { color: #f87171; }
+.suspect-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:8px;
+  font-size:.7rem; font-weight:600; background:#facc1530; color:#facc15; cursor:help; }
+.sample-note { font-size:.75rem; font-weight:400; color:var(--muted, #94a3b8); margin-left:8px; }
 .price    { font-weight: 600; }
 .muted    { color: var(--muted); }
 
@@ -364,6 +367,7 @@ tr:hover td { background: #ffffff08; }
   <div class="section" id="hot-deals-section" style="display:none">
     <div class="section-title">&#128293; Hot Deals &mdash; Price Drop + Review Surge
       <span class="count-badge" id="hot-badge"></span>
+      <span class="sample-note" id="hot-note"></span>
     </div>
     <div class="table-wrap">
       <table>
@@ -399,7 +403,7 @@ tr:hover td { background: #ffffff08; }
 <!-- ── Products ──────────────────────────────────────────────────────────────── -->
 <div id="tab-products" class="tab-content">
   <div class="section">
-    <div class="section-title">&#128269; Product Search</div>
+    <div class="section-title">&#128269; Product Search <span class="sample-note" id="products-note"></span></div>
     <div class="search-bar">
       <input id="q" type="text" placeholder="Brand, model&hellip;" oninput="filterProducts()"/>
       <select id="cat-filter" onchange="filterProducts()">
@@ -464,6 +468,7 @@ tr:hover td { background: #ffffff08; }
     <div class="section-title">
       &#127381; New Arrivals This Week
       <span class="count-badge" id="new-badge"></span>
+      <span class="sample-note" id="new-note"></span>
     </div>
     <div class="table-wrap">
       <table>
@@ -480,6 +485,7 @@ tr:hover td { background: #ffffff08; }
     <div class="section-title">
       &#128683; Disappeared (last 30 days)
       <span class="count-badge" id="gone-badge"></span>
+      <span class="sample-note" id="gone-note"></span>
     </div>
     <div class="table-wrap">
       <table>
@@ -550,12 +556,12 @@ tr:hover td { background: #ffffff08; }
   </div>
 
   <div class="section">
-    <div class="section-title">&#128203; Price Tier Distribution</div>
+    <div class="section-title">&#128203; Price Tier Distribution <span class="sample-note sample-products"></span></div>
     <div class="intel-grid" id="tier-dist-charts"></div>
   </div>
 
   <div class="section">
-    <div class="section-title">&#11088; Price vs Rating</div>
+    <div class="section-title">&#11088; Price vs Rating <span class="sample-note sample-products"></span></div>
     <div class="scatter-legend" id="scatter-legend"></div>
     <div id="price-rating-wrap" style="max-height:400px;position:relative"><canvas id="price-rating-chart"></canvas></div>
   </div>
@@ -616,15 +622,35 @@ function showTab(btn) {
   history.replaceState(null, '', '#' + btn.dataset.tab);
 }
 
+// ── KPI counts (real COUNT(*) totals; lists below are truncated) ─────────────
+const COUNTS = DATA.counts || {};
+const THR    = DATA.thresholds || { suspect_pct: 40 };
+function kpi(key, fallback) { return COUNTS[key] != null ? COUNTS[key] : fallback; }
+function showingNote(shown, total) {
+  return total > shown ? `showing top ${shown.toLocaleString()} of ${total.toLocaleString()}` : '';
+}
+function suspectBadge() {
+  return `<span class="suspect-badge" title="Drop of ${THR.suspect_pct}% or more: likely a scrape error or variant mix-up. Excluded from KPIs and Hot Deals.">suspect</span>`;
+}
+function productsSampleNote() {
+  const total = kpi('latest_products', DATA.products.length);
+  return total > DATA.products.length
+    ? `top ${DATA.products.length.toLocaleString()} by reviews (of ${total.toLocaleString()})`
+    : `top ${DATA.products.length.toLocaleString()} by reviews`;
+}
+
 // ── Stat cards ─────────────────────────────────────────────────────────────────
 function buildStats() {
-  const bigDrop = DATA.drops.length ? DATA.drops[0] : null;
+  const bigDrop = DATA.drops.find(d => !d.suspect) || null;
+  const dropsToday = kpi('drops_today', DATA.drops.filter(d => !d.suspect).length);
+  const newWeek    = kpi('new_week', DATA.new_products.length);
   const cards = [
     { val: DATA.total_products.toLocaleString(), lbl: '&#8594; Products Tracked' },
     { val: DATA.total_snapshots.toLocaleString(), lbl: '&#8594; Price Snapshots' },
     { val: DATA.last_updated, lbl: 'Last Updated' },
-    { val: DATA.drops.length, lbl: (DATA.drops.length ? '&#8595; ' : '&#8594; ') + 'Drops Today', cls: DATA.drops.length ? 'highlight' : '' },
-    { val: DATA.new_products.length, lbl: (DATA.new_products.length ? '&#8593; ' : '&#8594; ') + 'New This Week', cls: DATA.new_products.length ? 'success' : '' },
+    { val: dropsToday, lbl: (dropsToday ? '&#8595; ' : '&#8594; ') + 'Drops Today', cls: dropsToday ? 'highlight' : '' },
+    { val: newWeek, lbl: (newWeek ? '&#8593; ' : '&#8594; ') + 'New This Week', cls: newWeek ? 'success' : '' },
+    { val: kpi('disappeared_30d', DATA.disappeared.length), lbl: '&#8594; Disappeared (30d)' },
   ];
   for (const [cat, info] of Object.entries(DATA.by_category)) {
     const label = (CAT_LABEL[cat]||cat);
@@ -729,7 +755,13 @@ function buildDropsTable() {
 
   if (dropMin > 0) sorted = sorted.filter(d => Math.abs(d.drop_eur || 0) >= dropMin);
 
-  document.getElementById('drops-title').innerHTML = `${label} <span class="count-badge">${sorted.length}</span>`;
+  const total   = dropsView === 'today' ? kpi('drops_today', null) : kpi('drops_week', null);
+  const nSusp   = sorted.filter(d => d.suspect).length;
+  const note    = [total != null ? showingNote(data.filter(d => !d.suspect).length, total) : '',
+                   nSusp ? `${nSusp} suspect (≥${THR.suspect_pct}%) not counted` : ''].filter(Boolean).join(' · ');
+  document.getElementById('drops-title').innerHTML =
+    `${label} <span class="count-badge">${total != null && !dropMin ? total : sorted.filter(d => !d.suspect).length}</span>` +
+    (note ? `<span class="sample-note">${note}</span>` : '');
 
   const maxDrop = sorted.length ? Math.abs(sorted[0].drop_eur || 0) : 1;
   const tb = document.getElementById('drops-body');
@@ -746,7 +778,7 @@ function buildDropsTable() {
       <td class="price muted">€${(d.prev_price||0).toFixed(2)}</td>
       <td class="price">€${(d.new_price||0).toFixed(2)}</td>
       <td class="drop-eur"><div class="drop-bar"><div class="drop-bar-fill" style="width:${barW}px"></div>-€${Math.abs(d.drop_eur||0).toFixed(2)}</div></td>
-      <td class="drop-pct">-${Math.abs(d.drop_pct||0).toFixed(1)}%</td>
+      <td class="drop-pct">-${Math.abs(d.drop_pct||0).toFixed(1)}%${d.suspect ? suspectBadge() : ''}</td>
       ${showDate ? `<td class="muted">${d.drop_date||''}</td>` : ''}
     </tr>`;
   }).join('');
@@ -820,6 +852,8 @@ function volBadge(cv) {
 
 function renderProductTable() {
   document.getElementById('search-count').textContent = filteredProds.length + ' results';
+  document.getElementById('products-note').textContent = productsSampleNote();
+  document.querySelectorAll('.sample-products').forEach(el => { el.textContent = productsSampleNote(); });
   const tb = document.getElementById('products-body');
   if (!filteredProds.length) {
     tb.innerHTML = '<tr><td colspan="10" class="no-data">No products found.</td></tr>';
@@ -857,7 +891,8 @@ function renderProductTable() {
 // ── New & Gone ─────────────────────────────────────────────────────────────────
 function buildNewGone() {
   // New arrivals
-  document.getElementById('new-badge').textContent = DATA.new_products.length;
+  document.getElementById('new-badge').textContent = kpi('new_week', DATA.new_products.length);
+  document.getElementById('new-note').textContent = showingNote(DATA.new_products.length, kpi('new_week', 0));
   const nb = document.getElementById('new-body');
   if (!DATA.new_products.length) {
     nb.innerHTML = '<tr><td colspan="6" class="no-data">No new products this week.</td></tr>';
@@ -873,7 +908,8 @@ function buildNewGone() {
   }
 
   // Disappeared
-  document.getElementById('gone-badge').textContent = DATA.disappeared.length;
+  document.getElementById('gone-badge').textContent = kpi('disappeared_30d', DATA.disappeared.length);
+  document.getElementById('gone-note').textContent = showingNote(DATA.disappeared.length, kpi('disappeared_30d', 0));
   const gb = document.getElementById('gone-body');
   if (!DATA.disappeared.length) {
     gb.innerHTML = '<tr><td colspan="5" class="no-data">No products disappeared recently.</td></tr>';
@@ -1079,6 +1115,8 @@ function buildHotDeals() {
   if (!deals.length) return;
   document.getElementById('hot-deals-section').style.display = 'block';
   document.getElementById('hot-badge').textContent = deals.length;
+  if (DATA.thresholds) document.getElementById('hot-note').textContent =
+    `min -${THR.hot_min_pct}% and -€${THR.hot_min_eur}, drops ≥${THR.suspect_pct}% excluded`;
   const maxScore = deals.reduce((m, d) => Math.max(m, d.score), 1);
   document.getElementById('hot-body').innerHTML = deals.map(d => {
     const barW = Math.round(d.score / maxScore * 60);
@@ -1458,13 +1496,13 @@ function buildMarketIndex() {
 
 // ── Tab badge counts ───────────────────────────────────────────────────────────
 function updateTabBadges() {
-  const drops = DATA.drops.length + (DATA.hot_deals?.length || 0);
+  const drops = kpi('drops_today', DATA.drops.filter(d => !d.suspect).length);
   const el = document.getElementById('tc-drops');
   if (el && drops) el.textContent = drops;
   const pel = document.getElementById('tc-products');
   if (pel) pel.textContent = DATA.products.length.toLocaleString();
   const nel = document.getElementById('tc-new-gone');
-  const newGone = DATA.new_products.length + DATA.disappeared.length;
+  const newGone = kpi('new_week', DATA.new_products.length) + kpi('disappeared_30d', DATA.disappeared.length);
   if (nel && newGone) nel.textContent = newGone;
 }
 
