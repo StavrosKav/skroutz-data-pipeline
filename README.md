@@ -45,7 +45,9 @@ Full stage graph, failure semantics, and ops notes: **[PIPELINE.md](docs/PIPELIN
 Telegram `/ask <question>` turns a Greek question into one guarded, read-only SQL
 query (SELECT-only, table allowlist, LIMIT, statement timeout), runs it, and answers
 only from the returned rows, showing the SQL. Evaluated on 20 Greek questions with
-value-based checks. Details: **[ASK_AGENT.md](docs/ASK_AGENT.md)**.
+value-based checks. `/chat` is an alias of `/ask`; `/analyze <category>` summarizes
+fixed DB queries (price level, 30-day change, top brands, drops) and shows the facts used.
+Details: **[ASK_AGENT.md](docs/ASK_AGENT.md)**.
 
 ```mermaid
 flowchart LR
@@ -198,7 +200,7 @@ Scrapers need a real Chrome window (headless is blocked). Docker covers Clean + 
 
 | Alert | Channel |
 |---|---|
-| Daily top drops · watchlist hits · disappeared products | Gmail + Telegram |
+| Daily top drops · watchlist hits · disappeared products | Gmail + Telegram (watchlist is private; not on the public dashboard) |
 | Pipeline success / failure | Gmail + Telegram |
 | Interactive queries (`/drops`, `/find`, `/history`, `/watchlist`, …) | Telegram bot |
 

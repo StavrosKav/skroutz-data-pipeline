@@ -9,7 +9,7 @@ Auto-called by run_pipeline.py after each successful scrape.
 
 Output: dashboard/dashboard_<YYYY-MM-DD>.html  +  dashboard/dashboard_latest.html
 """
-from core.paths import ROOT, CHARTS_DIR as _CHARTS_DIR, DASHBOARD_DIR, WATCHLIST_PATH, TEMPLATES_DIR, ASSETS_DIR
+from core.paths import ROOT, CHARTS_DIR as _CHARTS_DIR, DASHBOARD_DIR, TEMPLATES_DIR, ASSETS_DIR
 
 import os
 import sys
@@ -283,8 +283,6 @@ def fetch_data(conn):
             history[pid] = []
         history[pid].append({"date": str(r.date), "price": float(r.price_eur)})
 
-    watchlist = _load_watchlist(conn)
-
     # Hot deals — price drop + review surge between the two most recent scrapes
     hot_rows = queries.hot_deals(
         conn, limit=HOT_DEALS_LIMIT,
@@ -382,53 +380,10 @@ def fetch_data(conn):
         "products":        products,
         "new_products":    new_products,
         "disappeared":     disappeared,
-        "watchlist":        watchlist,
         "history":          history,
         "discount_data": discount_data,
         "market_index":  market_index,
     }
-
-
-def _load_watchlist(conn):
-    path = WATCHLIST_PATH
-    if not path.exists():
-        return []
-    try:
-        items = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    items = [i for i in items if i.get("url", "").strip()]
-    if not items:
-        return []
-
-    urls = [i["url"].strip() for i in items]
-    try:
-        db_rows = conn.execute(text(
-            "SELECT brand, model, category, ROUND(price_eur, 2) AS price_eur, skroutz_link "
-            "FROM vw_latest_prices WHERE skroutz_link = ANY(:urls)"
-        ), {"urls": urls}).fetchall()
-    except Exception:
-        db_rows = []
-    price_map = {r.skroutz_link: r for r in db_rows}
-
-    result = []
-    for item in items:
-        url       = item["url"].strip()
-        label     = item.get("label", url)
-        threshold = float(item.get("threshold_eur", 0))
-        row       = price_map.get(url)
-        price     = float(row.price_eur) if row and row.price_eur else None
-        result.append({
-            "label":     label,
-            "threshold": threshold,
-            "url":       url,
-            "brand":     (row.brand or "") if row else "",
-            "model":     (row.model or "") if row else "",
-            "category":  row.category      if row else "",
-            "price":     price,
-            "hit":       (price <= threshold) if price is not None else False,
-        })
-    return result
 
 
 def encode_chart(name):
@@ -455,6 +410,8 @@ def render_html(data):
     }
 
     history = data.pop("history")
+    # Public page: never publish the personal watchlist / target prices.
+    data.pop("watchlist", None)
 
     window_start_date  = datetime.date.fromisoformat(data["window_start"])
     window_start_label = f"Since {window_start_date.day} {window_start_date.strftime('%b %Y')}"

@@ -87,9 +87,8 @@ skroutz-data-pipeline/
 │
 ├── notifications.py             # Telegram notification layer
 ├── telegram_bot.py              # Interactive Telegram bot (long-polling)
-├── telegram_nim.py              # Optional LLM bot commands (/chat /analyze /summarize)
+├── telegram_nim.py              # Optional LLM bot commands (/ask /chat=alias /analyze), DB-grounded
 ├── nim_client.py                # NVIDIA NIM API client (async, retries)
-├── nim_routing.py               # Task → model routing config
 ├── db.py                        # SQLAlchemy engine singleton
 │
 ├── analytics.sql                # 15 analytics views — run once against DB
@@ -433,9 +432,9 @@ Long-polling bot — run as a **separate persistent process**, not part of the d
 | `/remove <n>` | Remove watchlist item by index |
 | `/find <query>` | Full-text product search by name/brand |
 | `/stats` | DB totals: products, snapshots, categories |
-| `/chat <question>` | LLM chat (requires `NIM_API_KEY`) |
-| `/analyze <category>` | LLM market analysis (requires `NIM_API_KEY`) |
-| `/summarize` | LLM daily summary from DB stats (requires `NIM_API_KEY`) |
+| `/ask <question>` | Guarded text-to-SQL answer from the DB, shows SQL (requires `NIM_API_KEY`) |
+| `/chat <question>` | Alias of `/ask` |
+| `/analyze <category>` | Fixed DB queries → LLM summary of only those facts; facts shown |
 
 ---
 
