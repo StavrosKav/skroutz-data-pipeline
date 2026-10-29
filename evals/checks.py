@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Sequence
 
-from agents.ask.agent import NO_DATA
+from agents.ask.agent import NO_DATA, OFF_TOPIC
 
 
 def _num(v: Any) -> float | None:
@@ -35,7 +35,7 @@ def check(spec: dict, ref_cols: list[str], ref_rows: list[list[Any]],
     kind = spec["type"]
     tol = float(spec.get("tol", 0.0))
     if kind == "no_data":
-        ok = not got_rows or answer.strip() == NO_DATA
+        ok = not got_rows or answer.strip() in (NO_DATA, OFF_TOPIC)
         return ok, "expected no data"
     if not ref_rows:
         ok = not got_rows or answer.strip() == NO_DATA

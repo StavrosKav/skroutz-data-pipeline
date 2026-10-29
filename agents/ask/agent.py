@@ -26,6 +26,8 @@ LLM = Callable[[list[dict], int], str]
 # executor(sql) -> (column names, rows)
 Executor = Callable[[str], tuple[Sequence[str], Sequence[Sequence[Any]]]]
 
+OFF_TOPIC = ("Μπορώ να απαντήσω μόνο σε ερωτήσεις για τιμές κινητών, laptops, tablets "
+             "και smartwatches στο Skroutz, π.χ. /ask φθηνότερο iPhone 15 σήμερα.")
 NO_DATA = "Δεν υπάρχει στα δεδομένα."
 MAX_QUESTION_CHARS = 500
 SQL_MAX_TOKENS = 400
@@ -166,7 +168,9 @@ class AskAgent:
         except Exception as exc:  # noqa: BLE001
             return AskResult(question, "Σφάλμα κατά την εκτέλεση του ερωτήματος.",
                              error=f"{type(exc).__name__}", attempts=2)
-        if not rows or (cols == ["no_data"]):
+        if cols == ["no_data"]:
+            res = AskResult(question, OFF_TOPIC, sql, cols, rows, attempts=attempts)
+        elif not rows:
             res = AskResult(question, NO_DATA, sql, cols, rows, attempts=attempts)
         else:
             res = AskResult(question, self.answer_from_rows(question, cols, rows), sql, cols, rows,

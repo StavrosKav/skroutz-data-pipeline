@@ -23,7 +23,7 @@
     {
       "id": "count_per_category",
       "question": "Πόσα προϊόντα παρακολουθούμε ανά κατηγορία;",
-      "reference_sql": "SELECT category, COUNT(*) AS n FROM products GROUP BY category ORDER BY category",
+      "reference_sql": "SELECT category, COUNT(*) AS n FROM products WHERE last_seen=(SELECT MAX(date) FROM price_snapshots) GROUP BY category ORDER BY category",
       "check": {
         "type": "set",
         "key": "n"
@@ -50,7 +50,7 @@
     },
     {
       "id": "biggest_drop_pct_laptop_week",
-      "question": "Ποιο laptop είχε τη μεγαλύτερη ποσοστιαία πτώση αυτή την εβδομάδα;",
+      "question": "Ποιο laptop είχε τη μεγαλύτερη ποσοστιαία πτώση τιμής τις τελευταίες 7 μέρες;",
       "reference_sql": "SELECT product_id, product_name, drop_pct FROM vw_biggest_drops WHERE category='laptop' AND drop_date > (SELECT MAX(date) FROM price_snapshots) - 7 ORDER BY drop_pct ASC LIMIT 1",
       "check": {
         "type": "top1",
@@ -125,7 +125,7 @@
     },
     {
       "id": "price_history_top_phone",
-      "question": "Δείξε το ιστορικό τιμής τις τελευταίες 7 μέρες του φθηνότερου Samsung Galaxy S24.",
+      "question": "Δείξε το ιστορικό τιμής τις τελευταίες 7 μέρες του φθηνότερου Samsung Galaxy S24 που πουλιέται σήμερα.",
       "reference_sql": "SELECT date, price_eur FROM mv_price_history WHERE product_id = (SELECT id FROM mv_latest_prices WHERE product_name ILIKE '%galaxy s24%' AND last_price_date=(SELECT MAX(date) FROM price_snapshots) ORDER BY price_eur LIMIT 1) AND date > (SELECT MAX(date) FROM price_snapshots) - 7 ORDER BY date",
       "check": {
         "type": "set",
@@ -174,6 +174,33 @@
       "id": "ram_16gb_phones",
       "question": "Πόσα κινητά με 16GB RAM πουλιούνται σήμερα;",
       "reference_sql": "SELECT COUNT(*) AS n FROM products WHERE category='phone' AND ram_gb=16 AND last_seen=(SELECT MAX(date) FROM price_snapshots)",
+      "check": {
+        "type": "value",
+        "key": "n"
+      }
+    },
+    {
+      "id": "laptops_count_current",
+      "question": "Πόσα laptops έχουμε;",
+      "reference_sql": "SELECT COUNT(*) AS n FROM products WHERE category='laptop' AND last_seen=(SELECT MAX(date) FROM price_snapshots)",
+      "check": {
+        "type": "value",
+        "key": "n"
+      }
+    },
+    {
+      "id": "laptops_count_all_time",
+      "question": "Πόσα laptops έχουμε δει ποτέ συνολικά από την αρχή;",
+      "reference_sql": "SELECT COUNT(*) AS n FROM products WHERE category='laptop'",
+      "check": {
+        "type": "value",
+        "key": "n"
+      }
+    },
+    {
+      "id": "tablets_count_en_current",
+      "question": "How many tablets are there?",
+      "reference_sql": "SELECT COUNT(*) AS n FROM products WHERE category='tablet' AND last_seen=(SELECT MAX(date) FROM price_snapshots)",
       "check": {
         "type": "value",
         "key": "n"

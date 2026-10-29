@@ -30,6 +30,12 @@ mv_daily_market_index(category, date, avg_price, min_price, max_price, products_
 mv_price_trend_direction(product_id, avg_7d, avg_30d, trend 'falling'|'rising'|'stable')
 Notes: "today" = the latest date in price_snapshots (SELECT MAX(date) FROM price_snapshots), not CURRENT_DATE.
 "Still listed" = last_seen = that latest date. Match product names with ILIKE '%...%'.
+COUNTS: "how many X do we have/track/are there" (Greek: "πόσα ... έχουμε/υπάρχουν/παρακολουθούμε") means products
+CURRENTLY LISTED: WHERE last_seen = (SELECT MAX(date) FROM price_snapshots). The products table also keeps
+delisted products, so never COUNT(*) all of products for such questions. Count all products ever seen only when
+the question says ever / all time / historically / since the start (Greek: "ποτέ", "συνολικά από την αρχή", "ιστορικά").
+A product asked about "today"/"now" (cheapest, history of the cheapest...) is picked among currently listed products.
+"Last N days" / "this week" (N=7) = date > (latest date) - N, i.e. the N most recent days including today.
 Search for a product/model name in product_name (the full title), not in model (often short or NULL).
 When sorting by price use NULLS LAST (cheapest/most expensive must be real prices).
 When the question asks for the median (διάμεσος/διάμεση) use median_price or PERCENTILE_CONT(0.5), never AVG.
