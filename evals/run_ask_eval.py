@@ -61,7 +61,7 @@ def main() -> int:
                         "answer": res.answer, "error": res.error,
                         "attempts": res.attempts, "latency_ms": res.latency_ms})
 
-    print(f"\nAccuracy: {passed}/{len(items)}  (target {TARGET}/20)")
+    print(f"\nAccuracy: {passed}/{len(items)}  (target {TARGET}/{len(items)})")
     Path(a.out).write_text(json.dumps(results, ensure_ascii=False, indent=2, default=str),
                            encoding="utf-8")
     return 0 if passed >= min(TARGET, len(items)) else 1

@@ -750,7 +750,10 @@ def update_readme_stats():
                 "       ROUND(AVG(s.price_eur))  AS avg_price, "
                 "       ROUND(MIN(s.price_eur))  AS min_price, "
                 "       ROUND(MAX(s.price_eur))  AS max_price, "
-                "       COUNT(DISTINCT p.brand)  AS brands "
+                "       (SELECT COUNT(*) FROM (SELECT b.brand FROM products b "
+                "          WHERE b.category = p.category AND b.brand IS NOT NULL "
+                "            AND LOWER(b.brand) NOT IN ('smartwatch', 'unknown', '') "
+                "          GROUP BY b.brand HAVING COUNT(*) >= 5) bb) AS brands "
                 "FROM products p "
                 "JOIN price_snapshots s ON s.product_id = p.id "
                 "GROUP BY p.category ORDER BY p.category"
@@ -772,15 +775,15 @@ def update_readme_stats():
         label  = CAT_LABELS.get(r.category, r.category.capitalize())
         avg_p  = f"€{int(r.avg_price):,}" if r.avg_price is not None else "—"
         rng    = f"€{int(r.min_price):,}–€{int(r.max_price):,}" if r.min_price is not None else "—"
-        # Smartwatch brand extraction is unreliable (garbage/placeholder values inflate
-        # the distinct count into the hundreds) — omit rather than show a misleading number.
-        brands = str(r.brands) if r.brands and r.category != "smartwatch" else "—"
+        # Brands = brands with 5+ products (placeholders like "Smartwatch" excluded),
+        # so one-off junk values from listing titles do not inflate the count.
+        brands = str(r.brands) if r.brands else "n/a"
         table_rows.append(f"| {label} | {r.products:,} | {r.snapshots:,} | {avg_p} | {rng} | {brands} |")
     table_rows.append(f"| **Total** | **{total_products:,}** | **{total_snapshots:,}** | | | |")
 
     today_str   = datetime.date.today().isoformat()
     table_block = (
-        "| Category | Products | Snapshots | Avg Price | Range | Brands |\n"
+        "| Category | Products | Snapshots | Avg Price | Range | Brands (5+ products) |\n"
         "|---|---|---|---|---|---|\n"
         + "\n".join(table_rows)
         + f"\n\nUpdated daily via Task Scheduler · last pipeline run: {today_str}"

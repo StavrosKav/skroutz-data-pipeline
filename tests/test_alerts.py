@@ -389,11 +389,10 @@ class TestUpdateReadmeStats(unittest.TestCase):
         self.assertNotIn("old-products-badge", content)
         self.assertNotIn("old table content", content)
 
-    def test_smartwatch_brand_count_omitted(self):
+    def test_smartwatch_brand_count_shown(self):
         rows = [self._row("smartwatch", 50, 900, 100, 5, 300, 999)]
         content = self._run_with_tempdir(rows)
-        self.assertIn("| Smartwatch | 50 | 900 | €100 | €5–€300 | — |", content)
-        self.assertNotIn("999", content)
+        self.assertIn("| Smartwatch | 50 | 900 | €100 | €5–€300 | 999 |", content)
 
     def test_db_error_does_not_touch_readme(self):
         import run_pipeline

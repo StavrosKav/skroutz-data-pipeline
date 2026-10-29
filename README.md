@@ -1,127 +1,130 @@
-# Skroutz Price Tracker
+# Skroutz Price Intelligence
 
-**Live Dashboard (CV link):** [https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html](https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html)
+A daily data pipeline and AI assistant that tracks every phone, laptop, tablet and smartwatch price on [Skroutz.gr](https://www.skroutz.gr), with an evaluated text to SQL agent on top.
+
+**Live dashboard:** [https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html](https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html)
 
 [![CI](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml)
 <!-- STATS:BADGES:START -->
 ![Products](https://img.shields.io/badge/Products-22%2C584-blue?style=flat-square)
 ![Snapshots](https://img.shields.io/badge/Snapshots-1021k-green?style=flat-square)
 <!-- STATS:BADGES:END -->
-![Categories](https://img.shields.io/badge/Categories-4-orange?style=flat-square)
-![Daily rows](https://img.shields.io/badge/Daily_rows-~6.5k-purple?style=flat-square)
+![Ask eval](https://img.shields.io/badge/ask_eval-22%2F23-blueviolet?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-336791?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
-[![Live Dashboard](https://img.shields.io/badge/Live_Dashboard-view-e63946?style=flat-square)](https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html)
 
-Production-style ETL pipeline that tracks every phone, laptop, tablet, and smartwatch on [Skroutz.gr](https://www.skroutz.gr) — Greece's largest e-commerce aggregator. It scrapes ~6.5k listings daily, upserts into PostgreSQL, refreshes analytics views, regenerates charts + a self-contained HTML dashboard, and alerts on price drops via Gmail and Telegram. It runs daily since 25 May 2026 (Windows Task Scheduler on my laptop), after a two week baseline in June 2025.
+![Phone price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_phone.png)
 
-**Data story:** [What 460,000 snapshots (to 18 Jul 2026) reveal about Greek electronics pricing →](docs/INSIGHTS.md)
+## What it does
 
-### Key findings (as of 18 Jul 2026)
+1. Every day at 10:00, Windows Task Scheduler starts the pipeline.
+2. Selenium with undetected_chromedriver scrapes the public listing pages of 4 categories: phones, laptops, tablets and smartwatches.
+3. pandas cleans brands, models, specs and Greek price formats.
+4. Data quality guards check the result. A markup drift guard stops the run if fields go missing, and a count check flags a run that is more than 20% off the 7 day average.
+5. The loader upserts into PostgreSQL by `skroutz_id` (the Skroutz product number). This is the product key, so a product keeps its history even when Skroutz changes its URL.
+6. Materialized views refresh, then charts and a self contained HTML dashboard are rebuilt and published to GitHub Pages.
+7. A Telegram bot answers questions about the data with an LLM and sends the daily alerts.
 
-- **Most electronics listings barely last a year — smartwatches are the outlier.** Of phones tracked in June 2025, only 6.6% were still listed in July 2026 (laptops 11.2%, tablets 23.9%); smartwatches survived at 51.7%.
-- **Discounting is brand culture.** Nothing cuts prices ≥3% on 6.9% of product-days — nearly 4× Apple's 1.6%.
-- **Not every "sale" is a real deal.** Of 141 products cut ≥10% in summer sales week, only 27% hit a genuine new low.
+Daily runs started on 25 May 2026, after a two week baseline in June 2025. About 6,300 products are listed on a normal day.
 
----
+**Data story:** [what the snapshots reveal about Greek electronics pricing](docs/INSIGHTS.md)
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  A["Daily trigger\nTask Scheduler 10:00"] --> B["Scrape\n4 categories · Selenium"]
-  B --> C["Clean\npandas normalisation"]
-  C --> D["Load\nPostgreSQL upsert"]
-  D --> E["Matviews\nCONCURRENTLY"]
-  E --> F["Charts + HTML\ndashboard_latest.html"]
-  E --> G["Alerts\nGmail + Telegram"]
+  T["Task Scheduler<br/>daily 10:00"] --> S["Scrape<br/>Selenium + undetected_chromedriver"]
+  S --> C["Clean<br/>pandas"]
+  C --> Q{"Quality guards<br/>drift guard, 20% count check"}
+  Q -->|pass| L["Load<br/>PostgreSQL upsert by skroutz_id"]
+  Q -->|fail| X["Abort + alert"]
+  L --> V["Materialized views"]
+  V --> D["Dashboard + charts<br/>GitHub Pages"]
+  V --> A["Alerts<br/>Gmail + Telegram"]
+  V --> B["Telegram bot"]
+  B --> ASK["/ask: text to SQL<br/>read only guard"]
+  B --> AN["/analyze: 7 fixed SQL queries<br/>then LLM summary"]
+  ASK --> LLM["NVIDIA NIM<br/>Nemotron 3 Ultra, then fallbacks"]
+  AN --> LLM
 ```
 
-Full stage graph, failure semantics, and ops notes: **[PIPELINE.md](docs/PIPELINE.md)**.
+More detail: [docs/PIPELINE.md](docs/PIPELINE.md) and [docs/ASK_AGENT.md](docs/ASK_AGENT.md).
 
-### AI: `/ask` over the database
+## Data in the database
 
-Telegram `/ask <question>` turns a Greek question into one guarded, read-only SQL
-query (SELECT-only, table allowlist, LIMIT, statement timeout), runs it, and answers
-only from the returned rows, showing the SQL. Evaluated on 20 Greek questions with
-value-based checks. `/chat` is an alias of `/ask`; `/analyze <category>` summarizes
-fixed DB queries (price level, 30-day change, top brands, drops) and shows the facts used.
-Details: **[ASK_AGENT.md](docs/ASK_AGENT.md)**.
-
-```mermaid
-flowchart LR
-  Q["/ask question"] --> L1["NIM LLM → SQL"] --> G["SQL guard"] --> DB[("PostgreSQL\nread-only")] --> L2["NIM LLM → Greek answer\n+ SQL shown"]
-```
-
-### Pipeline stages
-
-| Stage | Script | Fatal? | What it does |
-|---|---|---|---|
-| 1 Scrape | `scrapers/run_all.py` → 4× Selenium | Yes | Parallel category scrapes → raw CSVs |
-| 2 Health monitor | `ops/run_scraper_health.py` | No (observer) | Freshness / row-count checks on raw CSVs |
-| 3 Clean | `etl/clean_all.py` | Yes | Brand/model/specs, Greek price formats |
-| 4 Data quality | `ops/run_data_quality.py` | No (observer) | Schema / completeness / anomaly report |
-| 5 Load | `etl/load_postgres.py` | Yes | Idempotent upsert → `products` + `price_snapshots` |
-| Post | charts, dashboard, digests | No | PNG charts, `dashboard/dashboard_latest.html`, alerts |
-
-Observers can fail without aborting the run or corrupting data. Any fatal-stage non-zero exit aborts immediately and fires Gmail + Telegram.
-
----
-
-## Data model
-
-```mermaid
-erDiagram
-  PRODUCTS {
-    int id PK
-    string category
-    string brand
-    string model
-    string product_name
-    string skroutz_link UK
-    date first_seen
-    date last_seen
-  }
-  PRICE_SNAPSHOTS {
-    int id PK
-    int product_id FK
-    date date
-    decimal price_eur
-    int reviews
-    decimal rating
-  }
-  PRODUCTS ||--o{ PRICE_SNAPSHOTS : "has"
-```
-
-`UNIQUE(product_id, date)` on `price_snapshots` makes every load re-run safe.
-
----
-
-## Live market snapshot
+Products are counted once per `skroutz_id`, after merging duplicates created by URL changes. "Products" means every product ever seen, including products no longer listed.
 
 <!-- STATS:TABLE:START -->
-| Category | Products | Snapshots | Avg Price | Range | Brands |
+| Category | Products | Snapshots | Avg Price | Range | Brands (5+ products) |
 |---|---|---|---|---|---|
-| Laptop | 9,162 | 358,424 | €1,712 | €52–€12,266 | 46 |
-| Phone | 4,853 | 191,987 | €338 | €9–€3,859 | 139 |
-| Smartwatch | 6,710 | 399,945 | €92 | €4–€3,399 | — |
-| Tablet | 1,859 | 70,351 | €568 | €31–€6,766 | 101 |
+| Laptop | 9,162 | 358,424 | €1,712 | €52–€12,266 | 25 |
+| Phone | 4,853 | 191,987 | €338 | €9–€3,859 | 70 |
+| Smartwatch | 6,710 | 399,945 | €92 | €4–€3,399 | 239 |
+| Tablet | 1,859 | 70,351 | €568 | €31–€6,766 | 36 |
 | **Total** | **22,584** | **1,020,707** | | | |
 
 Updated daily via Task Scheduler · last pipeline run: 2026-10-29
 <!-- STATS:TABLE:END -->
 
-**Coverage:** Two-week baseline in June 2025, then unattended daily runs from 2026-05-25.
+## The AI part
 
----
+**`/ask <question>`** turns a Greek or English question into one SQL query, runs it on a read only connection and answers only from the returned rows. The bot shows the SQL it used, so every answer can be checked.
+
+**`/analyze <category>`** does not let the model invent numbers. It first runs 7 fixed read only queries (price level, 30 day change, top brands, biggest drops and more), then asks the model to summarize only those facts. `/chat` is an alias of `/ask`.
+
+**Model:** NVIDIA NIM `nvidia/nemotron-3-ultra-550b-a55b`. If it does not answer, the bot tries `nvidia/nemotron-3.5-bolt-e4b` and then `openai/gpt-oss-20b`.
+
+**Current vs all time:** the database keeps products that are no longer listed. A question like "how many laptops do we have" counts products listed in the latest run. The bot counts all products ever seen only when the question says ever, all time or historically.
+
+## AI evaluation
+
+The eval set has 23 Greek and English questions over the real database. Each question has a reference SQL query. A question passes when the values the agent returns match the values of the reference query, so the check does not depend on wording.
+
+Latest run with the production setup (Nemotron 3 Ultra, prompt v1): **22/23 on 29 Oct 2026**.
+
+Model and prompt comparison on the first 20 questions (28 Oct 2026, temperature 0, no fallback):
+
+| Model | Prompt | Accuracy | Valid SQL | Median s | p90 s |
+|---|---|---|---|---|---|
+| `nvidia/nemotron-3.5-bolt-e4b` | v1 | 13/20 | 20/20 | 3.7 | 6.3 |
+| `openai/gpt-oss-20b` | v1 | 18/20 | 20/20 | 18.7 | 130.2 |
+| `nvidia/nemotron-3-ultra-550b-a55b` | v0 (no hints) | 16/20 | 20/20 | 23.5 | 45.1 |
+| `nvidia/nemotron-3-ultra-550b-a55b` | v1 (production) | 18/20 | 20/20 | 29.5 | 41.4 |
+| `nvidia/nemotron-3-ultra-550b-a55b` | v2 (few shot) | 17/20 | 19/20 | 18.7 | 45.3 |
+
+What I took from it: Ultra with prompt v1 is the most accurate and has a usable tail latency. gpt-oss-20b is as accurate but its p90 is over 2 minutes. Bolt is 8 times faster but misses date and "still listed" filters. Few shot examples did not help. The set is small, so a 1 or 2 question gap is noise.
+
+Known miss on 29 Oct: `atl_galaxy_s24` asks for the all time low of the cheapest Galaxy S24. The model picked the cheapest one listed today, while the reference uses every S24 model ever seen. The question is ambiguous and will be reworded.
+
+Full results: [evals/RESULTS.md](evals/RESULTS.md). Conclusions: [evals/CONCLUSIONS.md](evals/CONCLUSIONS.md). Run it yourself: `python evals/run_ask_eval.py` or `python evals/compare.py`.
+
+## Guardrails
+
+Every SQL query the model writes goes through `agents/ask/guard.py` before it runs. The guard blocks:
+
+* anything that is not a single `SELECT` (or `WITH ... SELECT`) statement
+* more than one statement (`;` outside strings and comments)
+* write and admin keywords: `INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`, `TRUNCATE`, `GRANT`, `COPY`, `SET`, `SELECT INTO` and similar
+* tables outside an allowlist of 9 analytics tables and views, so system catalogs (`pg_catalog`, `information_schema`, `pg_user`, `pg_stat_activity`) and internal tables are out of reach
+* other schemas than `public`
+* dangerous functions such as `pg_sleep`, `pg_read_file`, `dblink`, `set_config`, `current_setting`
+* dollar quoted strings and unclosed comments or strings
+
+It also adds `LIMIT 50` when there is no limit and caps any limit at 200 rows. The query then runs inside a `READ ONLY` transaction with a 5 second statement timeout, and the transaction is always rolled back. Questions are cut to 500 characters. If the question is not about the data (for example the weather), the model returns a fixed "no data" query and the bot replies politely that it only answers questions about Skroutz prices. If the SQL fails, the model gets one chance to fix it with the error message.
+
+## Engineering highlights
+
+* **Stable product key:** `skroutz_id` with a unique constraint. A one off merge removed duplicates created by URL changes, with the snapshot count unchanged.
+* **Observer stages:** charts, alerts, dashboard and README stats can fail without stopping the run.
+* **Markup drift guard:** completeness thresholds per field before the CSV is written, plus a fixture test on real listing HTML.
+* **Idempotent loads:** upserts, `UNIQUE(product_id, date)` on snapshots and a lock file, so a re run is safe.
+* **Materialized analytics:** 16 views, 10 of them materialized and refreshed `CONCURRENTLY`.
+* **CI on every push:** ruff, pytest, pip-audit and TruffleHog.
 
 ## Price trend charts
 
-Average daily price for the 6 largest brands per category (7-day smoothed) — regenerated after every run by `reporting/charts_from_db.py`.
-
-**Phones**
-![Phone price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_phone.png)
+Average daily price for the 6 largest brands per category (7 day smoothed), rebuilt after every run.
 
 **Laptops**
 ![Laptop price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_laptop.png)
@@ -132,85 +135,67 @@ Average daily price for the 6 largest brands per category (7-day smoothed) — r
 **Tablets**
 ![Tablet price trends](https://stavroskav.github.io/skroutz-data-pipeline/charts/price_trend_tablet.png)
 
-Live interactive report: **[dashboard_latest.html](https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html)** (also linked from the repo root Pages redirect).
-
----
-
-## Engineering highlights
-
-- **Observer-stage design** — charts, alerts, dashboard, and README stats are non-fatal; contract pinned by tests (`run_pipeline.py`, `tests/test_smoke.py`).
-- **Markup-drift guard** — per-field completeness thresholds before CSV write; fixture canary on real listing HTML (`scrapers/scraper_core.py`, `tests/test_{clean,load,scrape,alerts,telegram_cmds,ops}.py`).
-- **Alerting below the app layer** — PowerShell wrapper can Telegram-alert even if Python fails to start (`run_pipeline_wrapper.ps1`).
-- **Idempotent loads** — upserts + stale-aware lock file; safe to re-run.
-- **Materialized analytics** — 16 views, 10 of them backed by materialized views refreshed `CONCURRENTLY`; pg_trgm for Telegram `/find`.
-- **CI on every push** — ruff, pytest, pip-audit, TruffleHog (+ nightly schedule).
-
----
-
 ## Tech stack
 
-| Layer | Technology |
+| Layer | Tools |
 |---|---|
-| Scraping | Python 3.12 · Selenium · undetected-chromedriver |
-| Processing | pandas · numpy |
-| Database | PostgreSQL 17 · SQLAlchemy 2.x |
-| Analytics | 16 SQL views · 10 materialized views · window functions |
-| Dashboards | Self-contained HTML (Chart.js) |
-| Alerts | Gmail SMTP · Telegram Bot API |
-| Ops | Docker (Clean+Load) · Windows Task Scheduler · GitHub Actions |
+| Scraping | Python 3.12, Selenium, undetected_chromedriver |
+| Processing | pandas, numpy |
+| Database | PostgreSQL 17, SQLAlchemy 2, materialized views, pg_trgm |
+| AI | NVIDIA NIM (Nemotron 3 Ultra), text to SQL with a SQL guard, eval harness |
+| Output | Self contained HTML dashboard (Chart.js), GitHub Pages |
+| Alerts | Gmail SMTP, Telegram Bot API |
+| Quality and ops | pytest, ruff, GitHub Actions (pip-audit, TruffleHog), Docker, Windows Task Scheduler |
 
----
+## How to run
 
-## Project layout
+1. Install Python 3.12, create a venv, run `pip install -r requirements.txt`.
+2. Copy `.env.example` to `.env` and fill in the DB settings. Gmail, Telegram and NIM keys are optional.
+3. Create the schema once: `sql/create_new_schema.sql`, then `sql/analytics.sql`.
+4. Run the pipeline: `python run_pipeline.py`.
+5. Optional bot: `python -m alerts.telegram_bot`.
+6. Tests and lint: `pytest` and `ruff check .`.
+7. Eval: `python evals/run_ask_eval.py` (needs a NIM key and a loaded database).
+
+The scrapers need a real Chrome window because headless mode is blocked. Docker covers only Clean and Load.
+
+## Project structure
 
 ```
-skroutz-data-pipeline/
-├── run_pipeline.py / .bat / _wrapper.ps1   # orchestrator + scheduler entry
-├── core/                                   # paths.py, db.py
-├── scrapers/                               # scraper_core, phones|laptops|tablets|smartwatches, run_all
-├── etl/                                    # clean_common, clean_*, clean_all, load_postgres
-├── reporting/                              # generate_dashboard, charts_from_db, queries
-├── alerts/                                 # notifications, telegram_*, nim_*
-├── ops/                                    # run_data_quality, run_scraper_health
-├── sql/                                    # create_new_schema.sql, analytics.sql
-├── dashboard/dashboard_latest.html         # GitHub Pages artifact (CV URL)
-├── charts/price_trend_*.png
-├── index.html                              # Pages redirect → dashboard/dashboard_latest.html
-├── config/ · agents/ · tests/
-├── docs/PIPELINE.md · docs/INSIGHTS.md
-└── Phones|Laptops|Tablets|Smartwatches_skroutz/ · Clean/   # gitignored CSVs
+run_pipeline.py        orchestrator (scheduler entry: run_pipeline.bat, run_pipeline_wrapper.ps1)
+core/                  paths and database connection
+scrapers/              one scraper per category plus shared core
+etl/                   cleaning and PostgreSQL loader
+ops/                   data quality and scraper health checks
+reporting/             dashboard and chart generation
+alerts/                Gmail, Telegram bot, NIM client
+agents/ask/            /ask text to SQL, SQL guard and /analyze grounded summary
+evals/                 eval questions, checks, runner and model comparison
+sql/                   schema, views, materialized views
+tests/                 pytest, split by pipeline stage
+dashboard/, charts/    published artifacts (GitHub Pages)
+docs/                  pipeline, agent and insight write ups
 ```
 
----
+## Scope and compliance
 
-## Run locally (high level)
+* Only four public category listing pages are scraped (`/c/40/`, `/c/25/`, `/c/1105/`, `/c/1705/`). They are not disallowed by [robots.txt](https://www.skroutz.gr/robots.txt).
+* No login and no personal data. There are pauses of 1.2 to 3 seconds between page loads.
+* No raw CSVs in git. The dashboard shows aggregated stats and a bounded sample of listings.
 
-1. **Python 3.12 + venv** — `pip install -r requirements.txt`
-2. **Configure** — copy `.env.example` → `.env` (DB_*, optional Gmail / Telegram)
-3. **Schema once** — `sql/create_new_schema.sql` then `sql/analytics.sql`
-4. **Full pipeline** — `python run_pipeline.py` (or `run_pipeline.bat` on Windows)
-5. **Optional** — `python -m alerts.telegram_bot`
-6. **Quality** — `pytest tests/ -v` · `ruff check .`
+## Honest notes and limitations
 
-Scrapers need a real Chrome window (headless is blocked). Docker covers Clean + Load only (`SKIP_SCRAPE=1` in `docker-compose.yml`). Details: [PIPELINE.md](docs/PIPELINE.md).
+* It runs on my own laptop, so a day is missed if the laptop is off.
+* Smartwatch brand parsing is weak. Some rows have no brand or the brand "Smartwatch", so the table counts only brands with 5 or more products.
+* Phone RAM is filled for about 68% of products.
+* The eval set is small and written by me, so the score is a sanity check, not a benchmark.
+* The free NIM catalog changes. Older models I used were retired, which is why there is a fallback chain.
 
----
+## Roadmap
 
-## Alerts & Telegram
+* Grow the eval set to about 50 questions and run it in CI.
+* Fix smartwatch brands and phone spec fill rates.
+* A lighter dashboard and a short demo video.
+* Move scheduling off the laptop.
 
-| Alert | Channel |
-|---|---|
-| Daily top drops · watchlist hits · disappeared products | Gmail + Telegram (watchlist is private; not on the public dashboard) |
-| Pipeline success / failure | Gmail + Telegram |
-| Interactive queries (`/drops`, `/find`, `/history`, `/watchlist`, …) | Telegram bot |
-
----
-
-## Scope & compliance
-
-- Only four public category listing pages (`/c/40/`, `/c/25/`, `/c/1105/`, `/c/1705/`) — not disallowed by [robots.txt](https://www.skroutz.gr/robots.txt) for `User-agent: *`.
-- Never hits disallowed paths (`/api/`, `/users/`, `/cart/`, `/checkout/`).
-- No login, no personal data — public listings only; ~1.2–3s pauses between page loads.
-- No raw CSVs in git; published dashboard is aggregated stats + a bounded sample of listings.
-
-> Personal learning / portfolio project. MIT licensed.
+Personal portfolio project. MIT licensed.

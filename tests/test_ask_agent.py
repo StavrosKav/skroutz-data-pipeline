@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agents.ask.agent import NO_DATA, AskAgent, extract_sql, format_telegram
+from agents.ask.agent import NO_DATA, OFF_TOPIC, AskAgent, extract_sql, format_telegram
 from agents.ask.guard import SQLGuardError, validate_sql
 from agents.ask.retry import RetryableError, call_with_retry, is_retryable
 from evals.checks import check
@@ -36,6 +36,9 @@ ROOT = Path(__file__).resolve().parents[1]
     "",
     "EXPLAIN ANALYZE SELECT 1",
     "SELECT current_setting('x')",
+    "SELECT * FROM pg_catalog.pg_tables",
+    "SELECT * FROM pg_stat_activity",
+    "SELECT pg_read_file('/etc/passwd')",
 ])
 def test_guard_rejects(sql):
     with pytest.raises(SQLGuardError):
@@ -66,7 +69,7 @@ def test_guard_rejects_semicolon_hidden_after_comment():
 
 def test_eval_reference_sql_passes_guard():
     items = json.loads((ROOT / "evals" / "ask_eval.yaml").read_text(encoding="utf-8"))["items"]
-    assert len(items) == 20 and len({i["id"] for i in items}) == 20
+    assert len(items) == 23 and len({i["id"] for i in items}) == 23
     for it in items:
         if it["reference_sql"]:
             validate_sql(it["reference_sql"])
@@ -193,3 +196,29 @@ def test_eval_checks():
                  [["a", 1], ["b", 2]], "")[0]
     assert check({"type": "no_data"}, [], [], [], NO_DATA)[0]
     assert not check({"type": "value", "key": "n"}, ["n"], [[1]], [], NO_DATA)[0]
+
+
+# ── current vs all-time counts, off-topic ────────────────────────────────────
+def test_schema_defaults_counts_to_currently_listed():
+    from agents.ask.agent import SQL_SYSTEM
+    assert "CURRENTLY LISTED" in SQL_SYSTEM
+    assert "last_seen = (SELECT MAX(date) FROM price_snapshots)" in SQL_SYSTEM
+    assert "all time" in SQL_SYSTEM and "ποτέ" in SQL_SYSTEM
+
+
+def test_eval_has_current_and_all_time_count_pair():
+    items = {i["id"]: i for i in json.loads(
+        (ROOT / "evals" / "ask_eval.yaml").read_text(encoding="utf-8"))["items"]}
+    assert "last_seen" in items["laptops_count_current"]["reference_sql"]
+    assert "last_seen" not in items["laptops_count_all_time"]["reference_sql"]
+    assert "last_seen" in items["count_per_category"]["reference_sql"]
+    assert "σήμερα" in items["price_history_top_phone"]["question"]
+
+
+def test_off_topic_gets_polite_answer_without_second_llm_call():
+    llm = FakeLLM(["```sql\nSELECT 'NO_DATA' AS no_data WHERE false\n```"])
+    db = FakeDB([(["no_data"], [])])
+    res = _agent(llm, db).ask("τι καιρό θα κάνει αύριο;")
+    assert res.answer == OFF_TOPIC and len(llm.calls) == 1
+    ok, _ = check({"type": "no_data"}, [], [], res.rows, res.answer)
+    assert ok
