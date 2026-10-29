@@ -616,9 +616,27 @@ def send_watchlist_alerts():
         logger.warning(f"Watchlist: could not send email — {e}")
 
 
+# Same rule as sql/vw_disappeared.sql: a product is "disappeared" only after
+# more than 30 days unseen. The daily scrape sees only part of the catalog, so
+# 1-2 day gaps are normal (the old 1-2 day rule raised 1,066 false alarms on 29 Oct 2026).
+DISAPPEARED_DAYS = 30
+
+
+def newly_disappeared_rows(conn, today):
+    """Products that crossed the >30 day line today (last seen exactly 31 days ago)."""
+    cutoff = today - datetime.timedelta(days=DISAPPEARED_DAYS + 1)
+    rows = conn.execute(text(
+        "SELECT brand, model, category, product_name, last_seen, "
+        "       CAST(:age AS INTEGER) AS days_since_last_seen, skroutz_link "
+        "FROM products WHERE last_seen = :cutoff "
+        "ORDER BY category, product_name"
+    ), {"cutoff": cutoff, "age": DISAPPEARED_DAYS + 1}).fetchall()
+    return list(rows)
+
+
 def send_disappeared_alert():
     """
-    Email a summary of products that disappeared from Skroutz in the last 2 days.
+    Email a summary of products that crossed the 30 day "not seen" line today.
     Useful for spotting discontinued models or unusually cheap listings that
     got pulled. Non-fatal — pipeline result is unaffected if this fails.
     """
@@ -627,13 +645,7 @@ def send_disappeared_alert():
     try:
         engine = get_engine()
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                "SELECT brand, model, category, product_name, last_seen, "
-                "       (CURRENT_DATE - last_seen) AS days_since_last_seen, skroutz_link "
-                "FROM products "
-                "WHERE last_seen BETWEEN CURRENT_DATE - 2 AND CURRENT_DATE - 1 "
-                "ORDER BY category, last_seen DESC"
-            )).fetchall()
+            rows = newly_disappeared_rows(conn, datetime.date.today())
     except Exception as e:
         logger.warning(f"Disappeared alert: DB query failed — {e}")
         return

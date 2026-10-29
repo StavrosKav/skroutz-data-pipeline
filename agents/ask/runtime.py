@@ -16,8 +16,8 @@ def make_pg_executor(engine=None, timeout_ms: int = STATEMENT_TIMEOUT_MS):
     from sqlalchemy import text
 
     if engine is None:
-        from core.db import get_engine
-        engine = get_engine()
+        from core.db import get_ask_engine
+        engine = get_ask_engine()  # read-only role, never the pipeline superuser
 
     def run(sql: str) -> tuple[Sequence[str], Sequence[Sequence[Any]]]:
         with engine.connect() as conn:

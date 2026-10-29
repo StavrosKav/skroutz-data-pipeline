@@ -26,7 +26,7 @@ A daily data pipeline and AI assistant that tracks every phone, laptop, tablet a
 6. Materialized views refresh, then charts and a self contained HTML dashboard are rebuilt and published to GitHub Pages.
 7. A Telegram bot answers questions about the data with an LLM and sends the daily alerts.
 
-Daily runs started on 25 May 2026, after a two week baseline in June 2025. About 6,300 products are listed on a normal day.
+Daily runs started on 25 May 2026, after a two week baseline in June 2025. About 6,600 products are listed on a normal day.
 
 **Data story:** [what the snapshots reveal about Greek electronics pricing](docs/INSIGHTS.md)
 
@@ -111,7 +111,7 @@ Every SQL query the model writes goes through `agents/ask/guard.py` before it ru
 * dangerous functions such as `pg_sleep`, `pg_read_file`, `dblink`, `set_config`, `current_setting`
 * dollar quoted strings and unclosed comments or strings
 
-It also adds `LIMIT 50` when there is no limit and caps any limit at 200 rows. The query then runs inside a `READ ONLY` transaction with a 5 second statement timeout, and the transaction is always rolled back. Questions are cut to 500 characters. If the question is not about the data (for example the weather), the model returns a fixed "no data" query and the bot replies politely that it only answers questions about Skroutz prices. If the SQL fails, the model gets one chance to fix it with the error message.
+It also adds `LIMIT 50` when there is no limit and caps any limit at 200 rows. The query then runs inside a `READ ONLY` transaction with a 5 second statement timeout, and the transaction is always rolled back. It connects as `skroutz_ask`, a separate database role that can only SELECT the allowed tables and views, is read only by default and has a 5 second timeout. If that role is not configured, `/ask` refuses to run instead of falling back to the pipeline user. Questions are cut to 500 characters. If the question is not about the data (for example the weather), the model returns a fixed "no data" query and the bot replies politely that it only answers questions about Skroutz prices. If the SQL fails, the model gets one chance to fix it with the error message.
 
 ## Engineering highlights
 

@@ -23,11 +23,18 @@ FORBIDDEN_KEYWORDS = frozenset({
     "commit", "rollback", "savepoint",
 })
 FORBIDDEN_FUNCTIONS = re.compile(
-    r"\b(pg_sleep\w*|pg_read_\w+|pg_ls_dir|pg_stat_file|lo_\w+|dblink\w*|"
-    r"pg_terminate_backend|pg_cancel_backend|set_config|current_setting|"
-    r"pg_reload_conf|txid_\w+|nextval|setval)\s*\(",
+    # Any pg_* admin/file/sleep function, any *xml* helper (query_to_xml runs
+    # SQL hidden in a string and skips the table allowlist), plus the rest.
+    r"\b(pg_\w+|\w*xml\w*|xpath\w*|lo_\w+|dblink\w*|set_config|current_setting|"
+    r"txid_\w+|nextval|setval|currval|version|inet_\w+|current_database|"
+    r"current_schemas?|has_\w+_privilege)\s*\(",
     re.IGNORECASE,
 )
+# Catalog schemas are never needed by /ask questions.
+FORBIDDEN_SCHEMAS = re.compile(r"\b(pg_catalog|information_schema|pg_toast)\s*\.", re.IGNORECASE)
+# A string literal that itself looks like SQL is never a legitimate filter value.
+SQL_IN_LITERAL = re.compile(
+    r"\b(select|insert|update|delete|drop|union|copy|create|alter|grant)\b\s+\S", re.IGNORECASE)
 
 
 class SQLGuardError(ValueError):
@@ -50,6 +57,9 @@ def _strip_literals(sql: str) -> str:
             i = j + 2
             out.append(" ")
         elif c == "'":
+            prev = sql[max(0, i - 2):i]
+            if re.search(r"(^|[^\w])[eEbBxXnN]$", " " + prev) or prev.endswith("&"):
+                raise SQLGuardError("Ειδικά string (E'', U&'', B'', X'') δεν επιτρέπονται")
             j = i + 1
             while True:
                 j = sql.find("'", j)
@@ -59,6 +69,8 @@ def _strip_literals(sql: str) -> str:
                     j += 2
                     continue
                 break
+            if SQL_IN_LITERAL.search(sql[i + 1:j]):
+                raise SQLGuardError("Το string μοιάζει με SQL")
             i = j + 1
             out.append("''")
         elif c == '"':
@@ -110,6 +122,8 @@ def validate_sql(sql: str, allowed: frozenset[str] = ALLOWED_TABLES,
     bad = sorted(words & FORBIDDEN_KEYWORDS)
     if bad:
         raise SQLGuardError(f"Απαγορευμένη λέξη-κλειδί: {', '.join(bad)}")
+    if FORBIDDEN_SCHEMAS.search(code):
+        raise SQLGuardError("Μη επιτρεπτό schema")
     if FORBIDDEN_FUNCTIONS.search(code):
         raise SQLGuardError("Απαγορευμένη συνάρτηση")
     ctes = _cte_names(code)
