@@ -83,3 +83,4 @@ Thumbs.db
 backup-*/
 
 evals/last_run.json
+.coverage
