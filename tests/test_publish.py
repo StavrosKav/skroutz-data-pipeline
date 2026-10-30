@@ -122,12 +122,14 @@ class TestPublishPagesRealGit(unittest.TestCase):
             os.makedirs(os.path.join(work, "dashboard"))
             os.makedirs(os.path.join(work, "charts"))
             html = os.path.join(work, "dashboard", "dashboard_latest.html")
-            open(html, "w").write("v1")
-            open(os.path.join(work, "charts", "a.png"), "w").write("png")
-            open(os.path.join(work, "other.py"), "w").write("x")
+            for p, s in ((html, "v1"), (os.path.join(work, "charts", "a.png"), "png"),
+                         (os.path.join(work, "other.py"), "x")):
+                with open(p, "w") as f:
+                    f.write(s)
             with patch.object(rp, "BASE", work):
                 self.assertTrue(rp.publish_pages_branch())
-                open(html, "w").write("v2")
+                with open(html, "w") as f:
+                    f.write("v2")
                 self.assertTrue(rp.publish_pages_branch())
             self.assertEqual(self._g("rev-list", "--count", "gh-pages", cwd=remote), "1")
             files = set(self._g("ls-tree", "-r", "--name-only", "gh-pages", cwd=remote).split())
