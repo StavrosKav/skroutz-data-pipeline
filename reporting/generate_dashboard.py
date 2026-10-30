@@ -105,7 +105,7 @@ def fetch_data(conn):
     total_snapshots = conn.execute(text("SELECT COUNT(*) FROM price_snapshots")).scalar()
     last_updated    = conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
     window_start    = conn.execute(text(
-        "SELECT MIN(date) FROM price_snapshots WHERE date >= CURRENT_DATE - 90"
+        "SELECT MIN(date) FROM price_snapshots WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 90"
     )).scalar()
 
     # Per-category stats (latest day)
@@ -228,7 +228,7 @@ def fetch_data(conn):
         FROM products p
         JOIN price_snapshots s ON s.product_id = p.id
           AND s.date = (SELECT MAX(date) FROM price_snapshots)
-        WHERE p.first_seen >= CURRENT_DATE - 7
+        WHERE p.first_seen >= (SELECT MAX(date) FROM price_snapshots) - 7
         ORDER BY p.first_seen DESC LIMIT :lim
     """), {"lim": NEW_PRODUCTS_LIMIT}).fetchall()
     new_products = []

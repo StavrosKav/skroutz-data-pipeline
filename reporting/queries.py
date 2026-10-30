@@ -33,7 +33,7 @@ def category_snapshot(conn):
 
 
 def biggest_drops(conn, days_back, categories=None, limit=100):
-    """Price drops with drop_date >= CURRENT_DATE - days_back, most negative drop_eur first."""
+    """Price drops with drop_date >= (SELECT MAX(date) FROM price_snapshots) - days_back, most negative drop_eur first."""
     params = {"days": days_back, "limit": limit}
     cat_clause = ""
     if categories:
@@ -46,7 +46,7 @@ def biggest_drops(conn, days_back, categories=None, limit=100):
                prev_price, new_price, drop_eur, drop_pct,
                drop_date, skroutz_link
         FROM vw_biggest_drops
-        WHERE drop_date >= CURRENT_DATE - :days
+        WHERE drop_date >= (SELECT MAX(date) FROM price_snapshots) - :days
         {cat_clause}
         ORDER BY drop_eur ASC LIMIT :limit
     """)
@@ -67,7 +67,7 @@ def brand_trend(conn, category, top_n=6, days=90):
         FROM vw_brand_price_trend bt
         JOIN top_brands tb ON tb.brand = bt.brand
         WHERE bt.category = :cat
-          AND bt.date >= CURRENT_DATE - :days
+          AND bt.date >= (SELECT MAX(date) FROM price_snapshots) - :days
         ORDER BY bt.brand, bt.date
     """)
     return pd.read_sql(query, conn, params={"cat": category, "n": top_n, "days": days})
@@ -156,14 +156,14 @@ def market_index(conn, days=90):
     query = text("""
         SELECT category, date, avg_price
         FROM vw_daily_market_index
-        WHERE date >= CURRENT_DATE - :days
+        WHERE date >= (SELECT MAX(date) FROM price_snapshots) - :days
         ORDER BY category, date
     """)
     return pd.read_sql(query, conn, params={"days": days})
 
 
 def count_drops(conn, days_back, exclude_suspect_pct=None):
-    """Number of price drops with drop_date >= CURRENT_DATE - days_back.
+    """Number of price drops with drop_date >= (SELECT MAX(date) FROM price_snapshots) - days_back.
     exclude_suspect_pct (e.g. 40.0) leaves out drops of that size or larger."""
     params = {"days": days_back}
     suspect_clause = ""
@@ -172,7 +172,7 @@ def count_drops(conn, days_back, exclude_suspect_pct=None):
         params["suspect"] = exclude_suspect_pct
     query = text(f"""
         SELECT COUNT(*) FROM vw_biggest_drops
-        WHERE drop_date >= CURRENT_DATE - :days
+        WHERE drop_date >= (SELECT MAX(date) FROM price_snapshots) - :days
         {suspect_clause}
     """)
     return int(conn.execute(query, params).scalar() or 0)
@@ -182,7 +182,7 @@ def count_suspect_drops(conn, days_back, suspect_pct):
     """Number of drops of suspect_pct percent or more (likely scrape errors)."""
     query = text("""
         SELECT COUNT(*) FROM vw_biggest_drops
-        WHERE drop_date >= CURRENT_DATE - :days
+        WHERE drop_date >= (SELECT MAX(date) FROM price_snapshots) - :days
           AND drop_pct <= -:suspect
     """)
     return int(conn.execute(query, {"days": days_back, "suspect": suspect_pct}).scalar() or 0)
@@ -196,7 +196,7 @@ def count_new_products(conn, days=7):
         FROM products p
         JOIN price_snapshots s ON s.product_id = p.id
           AND s.date = (SELECT MAX(date) FROM price_snapshots)
-        WHERE p.first_seen >= CURRENT_DATE - :days
+        WHERE p.first_seen >= (SELECT MAX(date) FROM price_snapshots) - :days
     """)
     return int(conn.execute(query, {"days": days}).scalar() or 0)
 
