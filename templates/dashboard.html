@@ -652,6 +652,7 @@ function buildStats() {
 function countUp() {
   document.querySelectorAll('.stat-card .val').forEach(el => {
     const raw = el.textContent.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return;  // dates stay text
     const num = parseInt(raw.replace(/[^0-9]/g, ''), 10);
     if (isNaN(num) || num < 10) return;
     const prefix  = raw.match(/^[^0-9]*/)?.[0] ?? '';

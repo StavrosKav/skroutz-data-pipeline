@@ -10,7 +10,7 @@
 --   vw_biggest_drops          — products with the largest single-day price drops
 --   vw_brand_summary          — price stats per brand per category
 --   vw_disappeared            — products not seen for more than 30 days
---   vw_active_products        — products seen today (last_seen = CURRENT_DATE)
+--   vw_active_products        — products in the latest scrape (last_seen = latest scrape date)
 --   vw_price_volatility       — 30-day coefficient of variation per product
 --   vw_brand_price_trend      — daily avg price per brand/category
 --   vw_hot_deals              — products with price drop + review surge in the last 7 days
@@ -163,7 +163,7 @@ ORDER BY last_seen DESC;
 
 
 -- ── 5b. Active catalog (seen today) ───────────────────────────────────────────
--- Products whose last_seen equals CURRENT_DATE — the live catalog as of the
+-- Products whose last_seen equals the latest scrape date — the live catalog as of the
 -- latest successful scrape day. Plain view (no matview / refresh needed).
 -- See also docs/sql/active_catalog.sql for example queries.
 
@@ -181,7 +181,7 @@ SELECT
     last_seen,
     skroutz_link
 FROM products
-WHERE last_seen = CURRENT_DATE
+WHERE last_seen = (SELECT MAX(date) FROM price_snapshots)
 ORDER BY category, brand, model;
 
 
@@ -198,7 +198,7 @@ SELECT
     ROUND((STDDEV(price_eur) / NULLIF(AVG(price_eur), 0) * 100)::NUMERIC, 1)  AS cv_pct,
     COUNT(*)                                                                    AS snap_count
 FROM price_snapshots
-WHERE date >= CURRENT_DATE - 30
+WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 30
 GROUP BY product_id;
 
 
@@ -363,7 +363,7 @@ WITH drops AS (
     FROM vw_price_history ph
     JOIN products p ON p.id = ph.product_id
     WHERE ph.pct_change <= -3
-      AND ph.date >= CURRENT_DATE - 90
+      AND ph.date >= (SELECT MAX(date) FROM price_snapshots) - 90
       AND p.brand IS NOT NULL
     GROUP BY p.category, p.brand
 ),
@@ -372,7 +372,7 @@ totals AS (
            COUNT(DISTINCT ps.date) AS tracked_days
     FROM price_snapshots ps
     JOIN products p ON p.id = ps.product_id
-    WHERE ps.date >= CURRENT_DATE - 90 AND p.brand IS NOT NULL
+    WHERE ps.date >= (SELECT MAX(date) FROM price_snapshots) - 90 AND p.brand IS NOT NULL
     GROUP BY p.category, p.brand
 )
 SELECT
@@ -686,7 +686,7 @@ SELECT
     ROUND((STDDEV(price_eur) / NULLIF(AVG(price_eur), 0) * 100)::NUMERIC, 1)  AS cv_pct,
     COUNT(*)                                                                    AS snap_count
 FROM price_snapshots
-WHERE date >= CURRENT_DATE - 30
+WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 30
 GROUP BY product_id
 WITH DATA;
 
