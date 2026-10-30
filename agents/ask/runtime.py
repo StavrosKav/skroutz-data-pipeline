@@ -1,4 +1,4 @@
-"""Real adapters: PostgreSQL executor (read-only) and NVIDIA NIM LLM.
+﻿"""Real adapters: PostgreSQL executor (read-only) and NVIDIA NIM LLM.
 
 Only this file touches the network/DB; agents.ask.agent stays pure.
 """
@@ -41,15 +41,19 @@ REASONING_HEADROOM = 2500
 LAST_MODEL: dict[str, str] = {}
 
 
-def make_nim_llm(task=None, temperature: float = 0.0):
-    """Sync LLM callable backed by NIMClient (NIMClient retries 429/5xx/timeouts)."""
+def make_nim_llm(task=None, temperature: float = 0.0, model: str | None = None):
+    """Sync LLM callable backed by NIMClient (NIMClient retries 429/5xx/timeouts).
+
+    model pins one NIM model and turns fallback off (used by the model comparison eval)."""
     from alerts.nim_client import NIMClient, TaskType
 
     task = task or TaskType.CODE_GENERATION
 
     async def _call(messages: list[dict], max_tokens: int) -> str:
         async with NIMClient() as client:
-            resp = await client.chat(messages, task=task, temperature=temperature, max_tokens=max_tokens + REASONING_HEADROOM)
+            extra = {"fallback": False} if model else {}
+            resp = await client.chat(messages, task=model or task, temperature=temperature,
+                                     max_tokens=max_tokens + REASONING_HEADROOM, **extra)
             LAST_MODEL["model"] = resp.model
             LAST_MODEL["latency_ms"] = str(resp.latency_ms)
             return resp.content
