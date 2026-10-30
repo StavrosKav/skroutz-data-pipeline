@@ -1,4 +1,4 @@
-﻿"""Run the /ask eval against the real DB + NIM.
+"""Run the /ask eval against the real DB + NIM.
 
     python evals/run_ask_eval.py [--only ID ...] [--out evals/last_run.json] [--report PATH]
 
@@ -14,7 +14,9 @@ import argparse
 import datetime as dt
 import json
 import math
+import re
 import sys
+import time
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
@@ -59,6 +61,48 @@ def load_items(path: Path = EVAL_FILE) -> list[dict]:
     return data["items"]
 
 
+def _transient(error) -> bool:
+    """agent.ask reports unexpected errors as a bare exception type name
+    (for example HTTPStatusError or ReadTimeout). Guard rejections are sentences."""
+    return bool(error) and bool(re.fullmatch(r"\w+", str(error))) and error != "SQLGuardError"
+
+
+def run_item(agent, it: dict, execute, tries: int = 3, sleep=time.sleep) -> dict:
+    """Run one eval item. NIM errors (429, 404, 5xx, timeouts) are retried with
+    backoff (2 s, 4 s). If they still fail, the item is a FAIL with the error,
+    so one bad call never stops the whole run."""
+    try:
+        ref_cols, ref_rows = ([], [])
+        if it.get("reference_sql"):
+            c, rr = execute(it["reference_sql"])
+            ref_cols, ref_rows = list(c), [list(x) for x in rr]
+    except Exception as exc:  # noqa: BLE001
+        return {"id": it["id"], "ok": False, "why": f"reference error: {type(exc).__name__}",
+                "sql": None, "answer": None, "error": type(exc).__name__, "attempts": 0,
+                "latency_ms": None, "model": None, "tries": 0}
+    res, err, n = None, None, 0
+    for n in range(1, tries + 1):
+        LAST_MODEL.clear()
+        try:
+            res, err = agent.ask(it["question"]), None
+        except Exception as exc:  # noqa: BLE001
+            res, err = None, type(exc).__name__
+        if (res is not None and not _transient(res.error)) or n == tries:
+            break
+        sleep(2 ** n)
+    if res is None:
+        return {"id": it["id"], "ok": False, "why": f"NIM error after {n} tries: {err}",
+                "sql": None, "answer": None, "error": err, "attempts": 0,
+                "latency_ms": None, "model": LAST_MODEL.get("model"), "tries": n}
+    if _transient(res.error):
+        ok, why = False, f"NIM error after {n} tries: {res.error}"
+    else:
+        ok, why = check(it["check"], ref_cols, ref_rows, res.rows, res.answer)
+    return {"id": it["id"], "ok": ok, "why": why, "sql": res.sql, "answer": res.answer,
+            "error": res.error, "attempts": res.attempts, "latency_ms": res.latency_ms,
+            "model": LAST_MODEL.get("model"), "tries": n}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", nargs="*")
@@ -74,19 +118,10 @@ def main() -> int:
 
     results, passed = [], 0
     for it in items:
-        ref_cols, ref_rows = ([], [])
-        if it.get("reference_sql"):
-            c, r = execute(it["reference_sql"])
-            ref_cols, ref_rows = list(c), [list(x) for x in r]
-        LAST_MODEL.clear()
-        res = agent.ask(it["question"])
-        ok, why = check(it["check"], ref_cols, ref_rows, res.rows, res.answer)
-        passed += ok
-        print(f"{'PASS' if ok else 'FAIL'}  {it['id']:<32} {why[:100]}")
-        results.append({"id": it["id"], "ok": ok, "why": why, "sql": res.sql,
-                        "answer": res.answer, "error": res.error,
-                        "attempts": res.attempts, "latency_ms": res.latency_ms,
-                        "model": LAST_MODEL.get("model")})
+        row = run_item(agent, it, execute)
+        passed += row["ok"]
+        print(f"{'PASS' if row['ok'] else 'FAIL'}  {it['id']:<32} {row['why'][:100]}")
+        results.append(row)
 
     target = target_for(len(items))
     print(f"\nAccuracy: {passed}/{len(items)}  (target {target}/{len(items)})")

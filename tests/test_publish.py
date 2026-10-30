@@ -80,9 +80,17 @@ class TestPublishArtifacts(unittest.TestCase):
         self.assertEqual(g.adds(), [("add", "--", "README.md")])
         self.assertIn(("push", "origin", "main"), g.pushes())
 
-    def test_transition_default_still_commits_site_to_main(self):
+    def test_opt_in_still_commits_site_to_main(self):
         g = self._run("1")
         self.assertIn("dashboard/dashboard_latest.html", g.adds()[0])
+
+    def test_default_is_gh_pages_only(self):
+        # Pages serves from gh-pages since 29 Oct 2026, so main gets only README stats.
+        env = {k: v for k, v in os.environ.items() if k != "PUBLISH_MAIN_ARTIFACTS"}
+        g = FakeGit()
+        with patch.dict(os.environ, env, clear=True), patch.object(rp._notif, "tg_send"):
+            rp.publish_artifacts(git=g)
+        self.assertEqual(g.adds(), [("add", "--", "README.md")])
 
     def test_pages_failure_falls_back_to_main_commit(self):
         g = self._run("0", fail={"write-tree"})

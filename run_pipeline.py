@@ -844,12 +844,12 @@ def update_readme_stats():
 PAGES_BRANCH = "gh-pages"
 PAGES_PATHS = ("index.html", "dashboard/dashboard_latest.html", "charts", "assets")
 
-# Transition switch. "1" (default): ALSO commit dashboard + charts to main, as
-# before, so the live page keeps updating while GitHub Pages still serves from
-# main. After switching Settings -> Pages -> Source to the gh-pages branch, set
-# PUBLISH_MAIN_ARTIFACTS=0 so main only gets the small README stats commit.
+# GitHub Pages serves from the gh-pages branch (since 29 Oct 2026), so by default
+# main only gets the small README stats commit. Set PUBLISH_MAIN_ARTIFACTS=1 to
+# also commit dashboard + charts to main (old behaviour). If the gh-pages push
+# fails, publish_artifacts still falls back to committing them to main.
 def _publish_main_artifacts():
-    return os.getenv("PUBLISH_MAIN_ARTIFACTS", "1").strip() != "0"
+    return os.getenv("PUBLISH_MAIN_ARTIFACTS", "0").strip() == "1"
 
 
 def _git_run(*args, timeout=120, env=None):
