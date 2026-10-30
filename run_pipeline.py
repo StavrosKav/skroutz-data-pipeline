@@ -1050,8 +1050,30 @@ _RUN_ID = None
 _RUN_FINISHED = False
 
 
+def _abort_stale_runs():
+    """Close 'running' rows older than the lock window: their process died without
+    writing a finish (power off, scheduler kill). Best-effort, never blocks the run."""
+    try:
+        with get_engine().begin() as conn:
+            ids = conn.execute(text(
+                "UPDATE pipeline_runs SET status = 'failed', finished_at = now(), "
+                "  failed_stage = 'aborted_stale', error = :reason "
+                "WHERE status = 'running' "
+                "  AND started_at < now() - make_interval(secs => :secs) "
+                "RETURNING id"
+            ), {"secs": _LOCK_STALE_SECONDS,
+                "reason": f"aborted: still 'running' after {_LOCK_STALE_SECONDS // 3600} h "
+                          "(process ended without recording a finish); closed by the next run"}
+            ).fetchall()
+        if ids:
+            logger.warning(f"pipeline_runs: auto-aborted stale run(s) {[r[0] for r in ids]}")
+    except Exception as e:
+        logger.warning(f"pipeline_runs: could not abort stale runs — {e}")
+
+
 def _run_log_start():
     global _RUN_ID
+    _abort_stale_runs()
     try:
         with get_engine().begin() as conn:
             _RUN_ID = conn.execute(text(
