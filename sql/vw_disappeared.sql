@@ -10,8 +10,8 @@ SELECT
     product_name,
     first_seen,
     last_seen,
-    (CURRENT_DATE - last_seen) AS days_since_last_seen,
+    ((SELECT MAX(date) FROM price_snapshots) - last_seen) AS days_since_last_seen,
     skroutz_link
 FROM products
-WHERE last_seen < CURRENT_DATE - INTERVAL '30 days'
+WHERE last_seen < (SELECT MAX(date) FROM price_snapshots) - INTERVAL '30 days'
 ORDER BY last_seen DESC;

@@ -254,7 +254,7 @@ def _cmd_drops(args: str = "") -> str:
         with engine.connect() as conn:
             rows = conn.execute(text(
                 "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
-                "FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE "
+                "FROM vw_biggest_drops WHERE drop_date = (SELECT MAX(date) FROM price_snapshots) "
                 + cat_clause +
                 "ORDER BY ABS(drop_eur) DESC LIMIT 10"
             ), params).fetchall()
@@ -538,8 +538,8 @@ def _cmd_stats() -> str:
         with engine.connect() as conn:
             total_p  = conn.execute(text("SELECT COUNT(*) FROM products")).scalar()
             total_s  = conn.execute(text("SELECT COUNT(*) FROM price_snapshots")).scalar()
-            today_s  = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CURRENT_DATE")).scalar()
-            today_d  = conn.execute(text("SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE")).scalar()
+            today_s  = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = (SELECT MAX(date) FROM price_snapshots)")).scalar()
+            today_d  = conn.execute(text("SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = (SELECT MAX(date) FROM price_snapshots)")).scalar()
             last_run = conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
     except Exception as e:
         return _db_unavailable(e)
@@ -563,7 +563,7 @@ def _cmd_restock() -> str:
                 SELECT brand, model, category, price_before, price_after,
                        price_chg_pct, gap_days, after_gap
                 FROM vw_restock_pricing
-                WHERE after_gap >= CURRENT_DATE - 14
+                WHERE after_gap >= (SELECT MAX(date) FROM price_snapshots) - 14
                 ORDER BY after_gap DESC, ABS(price_chg_pct) DESC
                 LIMIT 10
             """)).fetchall()

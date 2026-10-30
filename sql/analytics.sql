@@ -155,10 +155,10 @@ SELECT
     product_name,
     first_seen,
     last_seen,
-    (CURRENT_DATE - last_seen) AS days_since_last_seen,
+    ((SELECT MAX(date) FROM price_snapshots) - last_seen) AS days_since_last_seen,
     skroutz_link
 FROM products
-WHERE last_seen < CURRENT_DATE - INTERVAL '30 days'
+WHERE last_seen < (SELECT MAX(date) FROM price_snapshots) - INTERVAL '30 days'
 ORDER BY last_seen DESC;
 
 
@@ -425,19 +425,19 @@ ORDER BY pct_above_atl ASC;
 CREATE OR REPLACE VIEW vw_price_trend_direction AS
 SELECT
     product_id,
-    ROUND(AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7),  2) AS avg_7d,
-    ROUND(AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30), 2) AS avg_30d,
+    ROUND(AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 7),  2) AS avg_7d,
+    ROUND(AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 30), 2) AS avg_30d,
     CASE
-        WHEN AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7)
-           < AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30) * 0.97
+        WHEN AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 7)
+           < AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 30) * 0.97
         THEN 'falling'
-        WHEN AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7)
-           > AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30) * 1.03
+        WHEN AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 7)
+           > AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 30) * 1.03
         THEN 'rising'
         ELSE 'stable'
     END AS trend
 FROM price_snapshots
-WHERE date >= CURRENT_DATE - 30
+WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 30
 GROUP BY product_id;
 
 
@@ -701,19 +701,19 @@ SELECT * FROM mv_price_volatility;
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_price_trend_direction AS
 SELECT
     product_id,
-    ROUND(AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7),  2) AS avg_7d,
-    ROUND(AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30), 2) AS avg_30d,
+    ROUND(AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 7),  2) AS avg_7d,
+    ROUND(AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 30), 2) AS avg_30d,
     CASE
-        WHEN AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7)
-           < AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30) * 0.97
+        WHEN AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 7)
+           < AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 30) * 0.97
         THEN 'falling'
-        WHEN AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 7)
-           > AVG(price_eur) FILTER (WHERE date >= CURRENT_DATE - 30) * 1.03
+        WHEN AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 7)
+           > AVG(price_eur) FILTER (WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 30) * 1.03
         THEN 'rising'
         ELSE 'stable'
     END AS trend
 FROM price_snapshots
-WHERE date >= CURRENT_DATE - 30
+WHERE date >= (SELECT MAX(date) FROM price_snapshots) - 30
 GROUP BY product_id
 WITH DATA;
 
