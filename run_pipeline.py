@@ -386,6 +386,13 @@ def run_charts():
         logger.info(f"=== Charts complete in {elapsed:.0f}s ===")
 
 
+def _pipeline_date() -> str:
+    """The run date pinned at start (PIPELINE_DATE), else today. Used instead of
+    the DB's CURRENT_DATE so a run that crosses midnight still counts its own day.
+    """
+    return os.environ.get("PIPELINE_DATE") or datetime.date.today().isoformat()
+
+
 def send_drop_digest():
     if not GMAIL_APP_PASSWORD and not _notif._TOKEN:
         return
@@ -395,9 +402,9 @@ def send_drop_digest():
             rows = conn.execute(text(
                 "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
                 "FROM vw_biggest_drops "
-                "WHERE drop_date = CURRENT_DATE "
+                "WHERE drop_date = CAST(:d AS date) "
                 "ORDER BY ABS(drop_eur) DESC LIMIT 10"
-            )).fetchall()
+            ), {"d": _pipeline_date()}).fetchall()
     except Exception as e:
         logger.warning(f"Drop digest: DB query failed — {e}")
         return
@@ -961,10 +968,11 @@ def send_success_summary(elapsed):
     try:
         engine = get_engine()
         with engine.connect() as conn:
-            snaps          = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CURRENT_DATE")).scalar()
-            new_prods      = conn.execute(text("SELECT COUNT(*) FROM products WHERE first_seen = CURRENT_DATE")).scalar()
-            drops          = conn.execute(text("SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CURRENT_DATE")).scalar()
-            yesterday_snaps = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CURRENT_DATE - 1")).scalar() or 0
+            d = {"d": _pipeline_date()}
+            snaps          = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CAST(:d AS date)"), d).scalar()
+            new_prods      = conn.execute(text("SELECT COUNT(*) FROM products WHERE first_seen = CAST(:d AS date)"), d).scalar()
+            drops          = conn.execute(text("SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CAST(:d AS date)"), d).scalar()
+            yesterday_snaps = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CAST(:d AS date) - 1"), d).scalar() or 0
     except Exception as e:
         logger.warning(f"Success summary: DB query failed — {e}")
         return

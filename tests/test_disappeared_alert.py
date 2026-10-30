@@ -34,4 +34,5 @@ def test_product_crossing_30_days_is_reported_once():
 
 def test_rule_matches_view():
     assert rp.DISAPPEARED_DAYS == 30
-    assert "30 days" in open("sql/vw_disappeared.sql", encoding="utf-8").read()
+    with open("sql/vw_disappeared.sql", encoding="utf-8") as f:
+        assert "30 days" in f.read()
