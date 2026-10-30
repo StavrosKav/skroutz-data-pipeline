@@ -53,7 +53,7 @@ python evals/run_ask_eval.py          # prints PASS/FAIL per item + accuracy
 ```
 
 Target: **≥ 19/23** (80% of the items). Latest runs (30 Oct 2026,
-`nvidia/nemotron-3-ultra-550b-a55b`, prompt v1): **23/23 twice**. Per-item SQL, answer, attempts and latency are written to
+`nvidia/nemotron-3-ultra-550b-a55b`, prompt v1): the score changes from run to run. The five runs on that day gave 20, 22, 21, 23 and 23 out of 23 (reports in `evals/results/`). The first run was 20/23 because 3 reference answers were wrong; they were fixed before the reruns. One model at a time is compared in `evals/results/model_comparison_2026-10-30.md`. If NIM returns 429, 404, 5xx or a timeout, the eval retries the question up to 3 times and then counts it as FAIL, so the run always finishes. Per-item SQL, answer, attempts and latency are written to
 `evals/last_run.json` (git-ignored).
 
 No AI command answers from model knowledge: the old ungrounded `/chat`

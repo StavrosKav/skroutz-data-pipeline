@@ -1,6 +1,6 @@
 # Skroutz Price Intelligence
 
-A daily data pipeline and AI assistant that tracks every phone, laptop, tablet and smartwatch price on [Skroutz.gr](https://www.skroutz.gr), with an evaluated text to SQL agent on top.
+A daily data pipeline and an AI agent that tracks every phone, laptop, tablet and smartwatch price on [Skroutz.gr](https://www.skroutz.gr), with an evaluated text to SQL agent on top.
 
 **Live dashboard:** [https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html](https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html)
 
@@ -9,7 +9,7 @@ A daily data pipeline and AI assistant that tracks every phone, laptop, tablet a
 ![Products](https://img.shields.io/badge/Products-22%2C635-blue?style=flat-square)
 ![Snapshots](https://img.shields.io/badge/Snapshots-1027k-green?style=flat-square)
 <!-- STATS:BADGES:END -->
-![Ask eval](https://img.shields.io/badge/ask_eval-22%2F23-blueviolet?style=flat-square)
+![Ask eval](https://img.shields.io/badge/ask_eval-23%2F23_(2_runs%2C_varies)-blueviolet?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-336791?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -67,9 +67,9 @@ Products are counted once per `skroutz_id`, after merging duplicates created by 
 Updated daily via Task Scheduler · last pipeline run: 2026-10-30
 <!-- STATS:TABLE:END -->
 
-## The AI part
+## The AI part: an agent you can check
 
-**`/ask <question>`** turns a Greek or English question into one SQL query, runs it on a read only connection and answers only from the returned rows. The bot shows the SQL it used, so every answer can be checked.
+**`/ask <question>`** is a small text to SQL agent. You ask in Greek or English, for example "πόσα laptops έχουμε". The agent writes one SQL query, a guard checks it, it runs on a read only database role, and the bot answers only from the returned rows. The bot also shows the SQL it used, so every answer can be checked by a person. If the SQL fails, the agent gets one chance to fix it with the error message.
 
 **`/analyze <category>`** does not let the model invent numbers. It first runs 7 fixed read only queries (price level, 30 day change, top brands, biggest drops and more), then asks the model to summarize only those facts. `/chat` is an alias of `/ask`.
 
@@ -77,41 +77,82 @@ Updated daily via Task Scheduler · last pipeline run: 2026-10-30
 
 **Current vs all time:** the database keeps products that are no longer listed. A question like "how many laptops do we have" counts products listed in the latest run. The bot counts all products ever seen only when the question says ever, all time or historically.
 
-## AI evaluation
+## How I evaluate the agent
 
-The eval set has 23 Greek and English questions over the real database. Each question has a reference SQL query. A question passes when the values the agent returns match the values of the reference query, so the check does not depend on wording.
+I did not want to say "the bot works" without proof. So there is an eval with 23 Greek and English questions over the real database ([evals/ask_eval.yaml](evals/ask_eval.yaml)).
 
-Latest run with the production setup (Nemotron 3 Ultra, prompt v1): **23/23 on two runs, 30 Oct 2026** (`nvidia/nemotron-3-ultra-550b-a55b`, target 19/23). Earlier runs: 22/23 on 29 Oct; 20/23 on 30 Oct before three eval references were corrected.
+It works in 3 simple steps:
 
-Model and prompt comparison on the first 20 questions (28 Oct 2026, temperature 0, no fallback):
+1. **Question.** The eval sends a real question to the agent, the same way a user would.
+2. **Agent writes SQL.** The agent writes the SQL. It goes through the same read only guard and the same `skroutz_ask` role as in production.
+3. **Checker compares values.** For every question I wrote a reference SQL query. It runs live on the same database in the same run, so the expected answer is always fresh. The checker ([evals/checks.py](evals/checks.py)) compares the values, not the text of the answer. Some price questions allow values up to 2% off.
 
-| Model | Prompt | Accuracy | Valid SQL | Median s | p90 s |
-|---|---|---|---|---|---|
-| `nvidia/nemotron-3.5-bolt-e4b` | v1 | 13/20 | 20/20 | 3.7 | 6.3 |
-| `openai/gpt-oss-20b` | v1 | 18/20 | 20/20 | 18.7 | 130.2 |
-| `nvidia/nemotron-3-ultra-550b-a55b` | v0 (no hints) | 16/20 | 20/20 | 23.5 | 45.1 |
-| `nvidia/nemotron-3-ultra-550b-a55b` | v1 (production) | 18/20 | 20/20 | 29.5 | 41.4 |
-| `nvidia/nemotron-3-ultra-550b-a55b` | v2 (few shot) | 17/20 | 19/20 | 18.7 | 45.3 |
+The target is 80% (19/23).
 
-What I took from it: Ultra with prompt v1 is the most accurate and has a usable tail latency. gpt-oss-20b is as accurate but its p90 is over 2 minutes. Bolt is 8 times faster but misses date and "still listed" filters. Few shot examples did not help. The set is small, so a 1 or 2 question gap is noise.
+**Current result: 23/23 on two runs, 30 Oct 2026** ([rerun3](evals/results/ask_eval_2026-10-30_rerun3.md), [rerun4](evals/results/ask_eval_2026-10-30_rerun4.md)). The score is not the same every time. On the same day, with the same setup, other runs gave 22/23 and 21/23 ([rerun1](evals/results/ask_eval_2026-10-30_rerun1.md), [rerun2](evals/results/ask_eval_2026-10-30_rerun2.md)). So I report a range, not one lucky number.
 
-Fixed on 30 Oct: `atl_galaxy_s24` asked for the all time low of "the cheapest" Galaxy S24, which is ambiguous; it now asks for the lowest price any S24 variant ever had. Two other references (`apple_median_tablet`, `falling_trend_count`) included history or delisted products, against the bot's current-state rule, and were corrected. The prompt also gained general rules for status counts, current-price aggregates and variant answers.
+### A passing example
 
-Full results: [evals/RESULTS.md](evals/RESULTS.md). Conclusions: [evals/CONCLUSIONS.md](evals/CONCLUSIONS.md). Run it yourself: `python evals/run_ask_eval.py` or `python evals/compare.py`.
+Question: "how many laptops do we have" (`laptops_count_current`). The agent counted only laptops listed in the latest run and returned 2,170. The reference SQL returned the same value, so it passed. The all time version of the question (`laptops_count_all_time`) expects 9,186, and the agent also got that right. This shows the agent understands the difference between "now" and "ever".
 
-## Guardrails
+### A failing example and what I learned
+
+The first run on 30 Oct scored 20/23 ([report](evals/results/ask_eval_2026-10-30.md)). When I looked at the 3 failures, the eval itself had problems:
+
+* `falling_trend_count`: the reference expected 640 products with a falling price, the agent said 552. The reference also counted products that are no longer listed. That breaks the bot's own rule (count only current products). The agent was right, so I fixed the reference.
+* `apple_median_tablet`: the same problem. The reference expected 929.00, the agent gave 872.75 using only current tablets. I fixed the reference.
+* `atl_galaxy_s24`: the question asked for the all time low of "the cheapest" Galaxy S24, which is not clear. Now it asks for the lowest price any S24 variant ever had (436.48).
+
+After the fix, the same two questions still sometimes fail: in rerun1 and rerun2 the agent sometimes answered 640 or 929.00 again. **Lesson:** a wrong eval can hide a correct model, so a failure must be read before it is trusted. And one run is not enough, because the model does not answer the same way every time.
+
+### What the eval does not check
+
+* The wording of the answer. Only the values are compared.
+* Speed. Latency is written in the report but it does not affect pass or fail.
+* The SQL itself. A different query that gives the right values still passes.
+* It is not in CI. It needs the real database and a NIM key, so I run it by hand (`python evals/run_ask_eval.py`).
+* 23 questions written by me is a small set. It is a sanity check, not a benchmark.
+
+## Model comparison
+
+On 30 Oct 2026 I ran the same 23 questions with one NVIDIA NIM model at a time, fallback off, so each score belongs to that model only ([full report](evals/results/model_comparison_2026-10-30.md)).
+
+| Model | Complete runs | Score per run | Median latency / question | p90 latency / question |
+|---|---|---|---|---|
+| `nvidia/nemotron-3-ultra-550b-a55b` | 1 | 22/23 | 25.5 s | 58.0 s |
+| `openai/gpt-oss-20b` | 2 | 21/23, 17/23 | 26.2 s | 134.5 s |
+| `nvidia/nemotron-3.5-bolt-e4b` | 1 | 13/23 | 3.6 s | 5.0 s |
+
+To be honest about the limits:
+
+* The NIM free tier stopped some runs. Two more Ultra runs ended with `429 Too Many Requests`, and a second Bolt run got `404 Not Found`. Those runs are not counted, so Ultra and Bolt have only one run each.
+* Ultra's one miss (`new_products_week`) was a timeout, not a wrong answer.
+* In gpt-oss-20b run 2, 5 questions hit a read timeout and 4 of them count as fails. So most of the 21 vs 17 gap is the service, not the model's SQL.
+* Bolt is very fast but wrong on 10 of 23. Its misses are logic errors, not timeouts, so it does not reach the 80% target.
+
+What I take from it: Ultra gives the most correct answers and stays the main model. gpt-oss-20b is close when NIM is healthy but slower in the tail. Bolt stays a fallback only. I need more runs per model to measure the real spread.
+
+An older test on 28 Oct with only 20 questions is kept as history in [evals/RESULTS.md](evals/RESULTS.md).
+
+## Safety: the agent can only read
 
 Every SQL query the model writes goes through `agents/ask/guard.py` before it runs. The guard blocks:
 
 * anything that is not a single `SELECT` (or `WITH ... SELECT`) statement
 * more than one statement (`;` outside strings and comments)
 * write and admin keywords: `INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`, `TRUNCATE`, `GRANT`, `COPY`, `SET`, `SELECT INTO` and similar
-* tables outside an allowlist of 9 analytics tables and views, so system catalogs (`pg_catalog`, `information_schema`, `pg_user`, `pg_stat_activity`) and internal tables are out of reach
+* tables outside an allowlist of 9 analytics tables and views, so system catalogs and internal tables are out of reach
 * other schemas than `public`
 * dangerous functions such as `pg_sleep`, `pg_read_file`, `dblink`, `set_config`, `current_setting`
 * dollar quoted strings and unclosed comments or strings
 
-It also adds `LIMIT 50` when there is no limit and caps any limit at 200 rows. The query then runs inside a `READ ONLY` transaction with a 5 second statement timeout, and the transaction is always rolled back. It connects as `skroutz_ask`, a separate database role that can only SELECT the allowed tables and views, is read only by default and has a 5 second timeout. If that role is not configured, `/ask` refuses to run instead of falling back to the pipeline user. Questions are cut to 500 characters. If the question is not about the data (for example the weather), the model returns a fixed "no data" query and the bot replies politely that it only answers questions about Skroutz prices. If the SQL fails, the model gets one chance to fix it with the error message.
+It also adds `LIMIT 50` when there is no limit and caps any limit at 200 rows. The query runs inside a `READ ONLY` transaction with a 5 second timeout, and the transaction is always rolled back.
+
+All bot commands connect as `skroutz_ask`, a separate database role that can only SELECT the allowed tables and views. If that role is not configured, the bot refuses to run instead of falling back to the pipeline user ([tests/test_ask_db_role.py](tests/test_ask_db_role.py)).
+
+I also tried to break the guard myself: [tests/test_guard_bypass.py](tests/test_guard_bypass.py) has 35 attack queries (hidden statements, comments, system tables, dangerous functions and more). All of them must be blocked, and they run in CI on every push.
+
+Questions are cut to 500 characters. If the question is not about the data (for example the weather), the bot replies politely that it only answers questions about Skroutz prices.
 
 ## Engineering highlights
 
@@ -119,7 +160,11 @@ It also adds `LIMIT 50` when there is no limit and caps any limit at 200 rows. T
 * **Observer stages:** charts, alerts, dashboard and README stats can fail without stopping the run.
 * **Markup drift guard:** completeness thresholds per field before the CSV is written, plus a fixture test on real listing HTML.
 * **Idempotent loads:** upserts, `UNIQUE(product_id, date)` on snapshots and a lock file, so a re run is safe.
-* **Materialized analytics:** 16 views, 10 of them materialized and refreshed `CONCURRENTLY`.
+* **Materialized analytics:** 26 views, 10 of them materialized and refreshed `CONCURRENTLY`.
+* **Latest scrape date, not today's date:** the bot commands, the dashboard queries and all date based views count from the last scrape day (`MAX(date)` in `price_snapshots`). So if the laptop misses a day, "today" still means the last real data.
+* **Stuck runs close by themselves:** a run still marked `running` after 6 hours is closed as `aborted_stale` at the next start.
+* **Daily database backup:** a dump is checked with `pg_restore --list`, and dumps older than 7 days are deleted.
+* **383 tests** in pytest.
 * **CI on every push:** ruff, pytest, pip-audit and TruffleHog.
 
 ## Price trend charts
@@ -188,7 +233,7 @@ docs/                  pipeline, agent and insight write ups
 * It runs on my own laptop, so a day is missed if the laptop is off.
 * Smartwatch brand parsing is weak. Some rows have no brand or the brand "Smartwatch", so the table counts only brands with 5 or more products.
 * Phone RAM is filled for about 68% of products.
-* The eval set is small and written by me, so the score is a sanity check, not a benchmark.
+* The eval set is small and written by me, so the score is a sanity check, not a benchmark. The score also changes from run to run.
 * The free NIM catalog changes. Older models I used were retired, which is why there is a fallback chain.
 
 ## Roadmap
