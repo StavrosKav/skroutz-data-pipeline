@@ -657,6 +657,6 @@ Edit the Windows Task Scheduler trigger time, or update the `cron:` schedule in 
 history is always one commit. The public URL is unchanged.
 
 One-time switch: GitHub → Settings → Pages → Source: *Deploy from a branch* → `gh-pages` / `(root)`.
-After the live page is confirmed, set `PUBLISH_MAIN_ARTIFACTS=0` in `.env`; from then on main only
-gets the small README stats commit. Until then (default `1`) main is also updated as before, and it
-is always updated if the gh-pages push fails.
+The switch was done on 29 Oct 2026. Since then the default is `PUBLISH_MAIN_ARTIFACTS=0`: main only
+gets the small README stats commit. Set it to `1` in `.env` to also commit dashboard and charts to main.
+Main is always updated if the gh-pages push fails.
