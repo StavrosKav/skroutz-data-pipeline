@@ -22,15 +22,17 @@
 
 
 -- ── products ──────────────────────────────────────────────────────────────────
--- One row per unique product, identified by its canonical skroutz URL.
+-- One row per unique product, identified by skroutz_id (the number after /s/
+-- in the URL; Skroutz can rewrite the slug, so the URL is not a stable key).
 -- Metadata (brand, model, specs, ram_gb, …) is written on first insert; later
--- loads only fill columns that are still NULL (COALESCE in 4csvsTOsql.py) and
+-- loads only fill columns that are still NULL (COALESCE in etl/load_postgres.py) and
 -- never overwrite an existing value.
 -- first_seen / last_seen track the date range during which the product was observed.
 
 CREATE TABLE IF NOT EXISTS products (
     id             SERIAL PRIMARY KEY,
     category       VARCHAR(20)  NOT NULL,       -- 'phone' | 'laptop' | 'tablet' | 'smartwatch'
+    skroutz_id     BIGINT,                       -- number after /s/ in the URL; the loader's upsert key
     skroutz_link   TEXT         UNIQUE NOT NULL, -- canonical URL; used as the natural key
     product_name   TEXT,                         -- full name as shown on skroutz
     brand          VARCHAR(100),
@@ -78,6 +80,12 @@ CREATE TABLE IF NOT EXISTS price_snapshots (
 -- Pattern 1 needs no extra index: UNIQUE(product_id, date) already provides
 -- a btree on exactly those columns.
 
+-- Upsert key for etl/load_postgres.py (ON CONFLICT (skroutz_id)). Same name as on
+-- the live DB. The ALTER keeps this file re-runnable on a DB created before skroutz_id.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS skroutz_id BIGINT;
+CREATE UNIQUE INDEX IF NOT EXISTS products_skroutz_id_key
+    ON products (skroutz_id);
+
 CREATE INDEX IF NOT EXISTS idx_products_brand
     ON products (brand);
 
@@ -95,7 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_price_snapshots_date
 
 -- ── CHECK constraints ─────────────────────────────────────────────────────────
 -- Guarded so this file stays re-runnable against an existing database.
--- 4csvsTOsql.py already maps price <= 0 and rating outside 0–5 to NULL, so a
+-- etl/load_postgres.py already maps price <= 0 and rating outside 0–5 to NULL, so a
 -- bad scrape value cannot abort a load on these constraints.
 
 DO $$

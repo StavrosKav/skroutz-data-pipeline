@@ -7,7 +7,8 @@ services:
       POSTGRES_DB: ${DB_NAME:-SkroutzPR}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./sql/create_new_schema.sql:/docker-entrypoint-initdb.d/create_new_schema.sql
+      - ./sql/create_new_schema.sql:/docker-entrypoint-initdb.d/01_create_new_schema.sql
+      - ./sql/analytics.sql:/docker-entrypoint-initdb.d/02_analytics.sql
     ports:
       - "5432:5432"
     healthcheck:

@@ -38,6 +38,10 @@ MODULES = [
 LOG_DIR = os.path.join(HERE, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
+# 30-minute hard ceiling per cleaner. Waited on one after another, so the stage can
+# take up to 4 x CLEAN_TIMEOUT (run_pipeline's lock window depends on it).
+CLEAN_TIMEOUT = 1800
+
 def run_all_cleaners():
     """
     Spawn each cleaning script as its own subprocess and capture its output to a dated log.
@@ -66,17 +70,16 @@ def run_all_cleaners():
         procs.append((name, p, log_file))
 
     # Wait for all cleaners to finish and report their exit status
-    TIMEOUT = 1800  # 30-minute hard ceiling per cleaner
     any_failed = False
     for name, proc, log_file in procs:
         try:
             try:
-                ret = proc.wait(timeout=TIMEOUT)
+                ret = proc.wait(timeout=CLEAN_TIMEOUT)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()  # reap the process handle
-                log_file.write(f"\n[TIMEOUT] {name} killed after {TIMEOUT}s\n")
-                logging.error(f"{name} timed out after {TIMEOUT//60}m — killed.")
+                log_file.write(f"\n[TIMEOUT] {name} killed after {CLEAN_TIMEOUT}s\n")
+                logging.error(f"{name} timed out after {CLEAN_TIMEOUT//60}m — killed.")
                 any_failed = True
                 continue
         finally:

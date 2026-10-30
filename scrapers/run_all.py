@@ -45,6 +45,9 @@ os.makedirs(LOG_DIR, exist_ok=True)
 LAUNCH_DELAY = 13
 
 
+# Wall-clock ceiling for the whole Scrape stage (run_pipeline's lock window depends on it).
+SCRAPE_STAGE_TIMEOUT = 7200
+
 def run_all_scrapers():
     """
     Spawn each scraper as its own subprocess and capture its output to a dated log file.
@@ -78,7 +81,7 @@ def run_all_scrapers():
     # One wall-clock ceiling for the whole stage. Sequential wait(7200) per
     # process used to stack (2026-08-24: phones killed at 2h, tablets kept
     # wrapping until 3h51m, then the stage failed).
-    return _reap_processes(procs, timeout=7200)
+    return _reap_processes(procs, timeout=SCRAPE_STAGE_TIMEOUT)
 
 
 def _reap_processes(procs, timeout):

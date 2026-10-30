@@ -94,7 +94,7 @@ class TestCmdFind(unittest.TestCase):
     def test_db_error_returns_error_string(self):
         from unittest.mock import patch
         import alerts.telegram_bot as tb
-        with patch("alerts.telegram_bot.get_engine", side_effect=Exception("connection refused")):
+        with patch("alerts.telegram_bot.get_readonly_engine", side_effect=Exception("connection refused")):
             result = tb._cmd_find("galaxy s25")
         self.assertIn("Backend unavailable", result)
         self.assertNotIn("connection refused", result)
@@ -107,7 +107,7 @@ class TestCmdFind(unittest.TestCase):
         mock_engine.connect.return_value.__enter__.return_value = mock_conn
         mock_engine.connect.return_value.__exit__.return_value = False
         mock_conn.execute.return_value.fetchall.return_value = []
-        with patch("alerts.telegram_bot.get_engine", return_value=mock_engine):
+        with patch("alerts.telegram_bot.get_readonly_engine", return_value=mock_engine):
             result = tb._cmd_find("nonexistent xyz abc")
         self.assertIn("No products found", result)
 
@@ -126,7 +126,7 @@ class TestCmdFind(unittest.TestCase):
         row.all_time_low = 750.0
         row.pct_above_atl = 6.5
         mock_conn.execute.return_value.fetchall.return_value = [row]
-        with patch("alerts.telegram_bot.get_engine", return_value=mock_engine):
+        with patch("alerts.telegram_bot.get_readonly_engine", return_value=mock_engine):
             result = tb._cmd_find("galaxy s25")
         self.assertIn("Samsung", result)
         self.assertIn("799€", result)
@@ -150,7 +150,7 @@ class TestCmdHistory(unittest.TestCase):
     def test_db_error_returns_error_string(self):
         from unittest.mock import patch
         import alerts.telegram_bot as tb
-        with patch("alerts.telegram_bot.get_engine", side_effect=Exception("timeout")):
+        with patch("alerts.telegram_bot.get_readonly_engine", side_effect=Exception("timeout")):
             result = tb._cmd_history("iphone 16")
         self.assertIn("Backend unavailable", result)
         self.assertNotIn("timeout", result)
@@ -163,7 +163,7 @@ class TestCmdHistory(unittest.TestCase):
         mock_engine.connect.return_value.__enter__.return_value = mock_conn
         mock_engine.connect.return_value.__exit__.return_value = False
         mock_conn.execute.return_value.fetchone.return_value = None
-        with patch("alerts.telegram_bot.get_engine", return_value=mock_engine):
+        with patch("alerts.telegram_bot.get_readonly_engine", return_value=mock_engine):
             result = tb._cmd_history("nonexistent xyz abc")
         self.assertIn("No product found", result)
 

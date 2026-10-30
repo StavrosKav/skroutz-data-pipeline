@@ -67,3 +67,12 @@ def get_ask_engine():
             pool_pre_ping=True,
         )
     return _ask_engine
+
+
+def get_readonly_engine():
+    """Read-only engine for the Telegram bot's non-AI commands (/status, /find, ...).
+
+    They only SELECT, so they reuse the read-only role of /ask instead of the
+    pipeline superuser, and fail closed the same way if it is not configured.
+    """
+    return get_ask_engine()
