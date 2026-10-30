@@ -1,4 +1,6 @@
-﻿## Conclusions (2026-10-28)
+﻿## Conclusions (2026-10-28, historical, 20-question set)
+
+> Historical. Written for the original 20 questions; the set now has 23.
 
 Caveat first: 20 questions, one run per cell (two for Ultra v1). A 1-2 question
 gap is noise, not a ranking. Treat this as a smoke-level comparison.

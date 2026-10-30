@@ -98,7 +98,7 @@
     {
       "id": "apple_median_tablet",
       "question": "Ποια είναι η διάμεση τιμή των Apple tablets;",
-      "reference_sql": "SELECT median_price FROM mv_brand_summary WHERE category='tablet' AND brand ILIKE 'apple'",
+      "reference_sql": "SELECT ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price_eur)::numeric, 2) AS median_price FROM mv_latest_prices WHERE category='tablet' AND brand ILIKE 'apple' AND last_price_date=(SELECT MAX(date) FROM price_snapshots)",
       "check": {
         "type": "value",
         "key": "median_price",
@@ -116,7 +116,7 @@
     },
     {
       "id": "atl_galaxy_s24",
-      "question": "Ποια είναι η χαμηλότερη τιμή που είχε ποτέ το φθηνότερο Samsung Galaxy S24;",
+      "question": "Ποια είναι η χαμηλότερη τιμή που είχε ποτέ οποιοδήποτε Samsung Galaxy S24 (όλες οι εκδόσεις, μαζί με όσα δεν πωλούνται πια);",
       "reference_sql": "SELECT MIN(f.all_time_low) AS atl FROM mv_price_floor f JOIN products p ON p.id=f.product_id WHERE p.product_name ILIKE '%galaxy s24%'",
       "check": {
         "type": "value",
@@ -154,7 +154,7 @@
     {
       "id": "falling_trend_count",
       "question": "Πόσα προϊόντα έχουν πτωτική τάση τιμής;",
-      "reference_sql": "SELECT COUNT(*) AS n FROM mv_price_trend_direction WHERE trend='falling'",
+      "reference_sql": "SELECT COUNT(*) AS n FROM mv_price_trend_direction t JOIN products p ON p.id=t.product_id WHERE t.trend='falling' AND p.last_seen=(SELECT MAX(date) FROM price_snapshots)",
       "check": {
         "type": "value",
         "key": "n"

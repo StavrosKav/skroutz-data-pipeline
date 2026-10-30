@@ -81,7 +81,7 @@ Updated daily via Task Scheduler · last pipeline run: 2026-10-30
 
 The eval set has 23 Greek and English questions over the real database. Each question has a reference SQL query. A question passes when the values the agent returns match the values of the reference query, so the check does not depend on wording.
 
-Latest run with the production setup (Nemotron 3 Ultra, prompt v1): **22/23 on 29 Oct 2026**.
+Latest run with the production setup (Nemotron 3 Ultra, prompt v1): **23/23 on two runs, 30 Oct 2026** (`nvidia/nemotron-3-ultra-550b-a55b`, target 19/23). Earlier runs: 22/23 on 29 Oct; 20/23 on 30 Oct before three eval references were corrected.
 
 Model and prompt comparison on the first 20 questions (28 Oct 2026, temperature 0, no fallback):
 
@@ -95,7 +95,7 @@ Model and prompt comparison on the first 20 questions (28 Oct 2026, temperature 
 
 What I took from it: Ultra with prompt v1 is the most accurate and has a usable tail latency. gpt-oss-20b is as accurate but its p90 is over 2 minutes. Bolt is 8 times faster but misses date and "still listed" filters. Few shot examples did not help. The set is small, so a 1 or 2 question gap is noise.
 
-Known miss on 29 Oct: `atl_galaxy_s24` asks for the all time low of the cheapest Galaxy S24. The model picked the cheapest one listed today, while the reference uses every S24 model ever seen. The question is ambiguous and will be reworded.
+Fixed on 30 Oct: `atl_galaxy_s24` asked for the all time low of "the cheapest" Galaxy S24, which is ambiguous; it now asks for the lowest price any S24 variant ever had. Two other references (`apple_median_tablet`, `falling_trend_count`) included history or delisted products, against the bot's current-state rule, and were corrected. The prompt also gained general rules for status counts, current-price aggregates and variant answers.
 
 Full results: [evals/RESULTS.md](evals/RESULTS.md). Conclusions: [evals/CONCLUSIONS.md](evals/CONCLUSIONS.md). Run it yourself: `python evals/run_ask_eval.py` or `python evals/compare.py`.
 
