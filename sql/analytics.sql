@@ -290,11 +290,6 @@ ORDER BY hot_score DESC;
 -- WHERE skroutz_link = 'https://www.skroutz.gr/s/...'
 -- ORDER BY date;
 
--- Biggest price drops this week:
--- SELECT brand, model, drop_date, prev_price, new_price, drop_eur, drop_pct
--- FROM vw_biggest_drops
--- WHERE drop_date >= CURRENT_DATE - 7
--- LIMIT 20;
 
 -- Average price per brand for phones (cheapest brands first):
 -- SELECT brand, product_count, avg_price, median_price

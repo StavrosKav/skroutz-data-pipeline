@@ -160,7 +160,7 @@ def _fixture_data():
 
 class TestRenderHtml(unittest.TestCase):
     def test_render_embeds_counts(self):
-        with patch.object(gd, "encode_chart", return_value=None):
+        with patch.object(gd, "chart_url", return_value=""):
             html = gd.render_html(_fixture_data())
         self.assertNotIn("__DATA_JSON__", html)
         m = re.search(r"const DATA\s*=\s*(\{.*?\});\s*\n", html)
@@ -203,8 +203,9 @@ class TestNotSeen30d(unittest.TestCase):
         with patch("run_pipeline.get_engine", side_effect=Exception("down")):
             rp.apply_view_definitions()  # must not raise
 
-    def test_template_label_is_greek(self):
+    def test_template_label_says_over_30_days(self):
+        # Page is English only (lang="en"); label keeps the "> 30 days" meaning.
         from core.paths import ROOT
         tpl = (ROOT / "templates" / "dashboard.html").read_text(encoding="utf-8")
-        self.assertIn("Δεν εμφανίστηκαν", tpl)
+        self.assertIn("Not Seen for Over 30 Days", tpl)
         self.assertNotIn("Disappeared (30d)", tpl)

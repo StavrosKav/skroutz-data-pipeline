@@ -9,12 +9,11 @@ Auto-called by run_pipeline.py after each successful scrape.
 
 Output: dashboard/dashboard_<YYYY-MM-DD>.html  +  dashboard/dashboard_latest.html
 """
-from core.paths import ROOT, CHARTS_DIR as _CHARTS_DIR, DASHBOARD_DIR, TEMPLATES_DIR, ASSETS_DIR
+from core.paths import ROOT, CHARTS_DIR as _CHARTS_DIR, DASHBOARD_DIR, TEMPLATES_DIR
 
 import os
 import sys
 import json
-import base64
 import logging
 import datetime
 
@@ -24,6 +23,7 @@ from sqlalchemy import text
 import pandas as pd
 
 import reporting.queries as queries
+import reporting.dashboard_payload as payload
 from core.db import get_engine
 
 load_dotenv()
@@ -48,6 +48,7 @@ NEW_PRODUCTS_LIMIT  = 50
 DISAPPEARED_LIMIT   = 50
 PRODUCTS_LIMIT      = 3000   # product search / price tiers / price-vs-rating sample
 HOT_DEALS_LIMIT     = 20
+SPARK_POINTS        = 8      # points per product sparkline (last 30 days)
 
 # A drop of SUSPECT_DROP_PCT percent or more is flagged "suspect" (usually a
 # variant mix-up or a bad scrape) and kept out of KPI counts and Hot Deals.
@@ -219,6 +220,21 @@ def fetch_data(conn):
             "trend":     trend_map.get(r.id, ""),
         })
 
+    # Sparkline: last 30 days of prices per listed product, a few points each
+    spark_map = {}
+    if products:
+        spark_rows = conn.execute(text("""
+            SELECT product_id, ROUND(price_eur) AS price
+            FROM price_snapshots
+            WHERE product_id = ANY(:ids) AND price_eur IS NOT NULL
+              AND date >= (SELECT MAX(date) FROM price_snapshots) - 30
+            ORDER BY product_id, date
+        """), {"ids": [p["id"] for p in products]}).fetchall()
+        for r in spark_rows:
+            spark_map.setdefault(r.product_id, []).append(int(r.price))
+    for p in products:
+        p["spark"] = payload.downsample(spark_map.get(p["id"], []), SPARK_POINTS)
+
     # New arrivals (first seen in last 7 days)
     new_rows = conn.execute(text("""
         SELECT p.id, p.category, p.brand, p.model, p.product_name,
@@ -356,6 +372,8 @@ def fetch_data(conn):
 
     return {
         "generated":       str(today),
+        "freshness":       payload.freshness(
+            datetime.datetime.now().astimezone(), last_updated or today),
         "total_products":  total_products,
         "total_snapshots": total_snapshots,
         "last_updated":    str(last_updated) if last_updated else str(today),
@@ -386,30 +404,32 @@ def fetch_data(conn):
     }
 
 
-def encode_chart(name):
-    p = CHARTS_DIR / name
-    if not p.exists():
+def chart_url(name, version):
+    """Relative URL of a chart PNG (published next to dashboard/ on Pages), or ''."""
+    if not (CHARTS_DIR / name).exists():
         return ""
-    return "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode()
+    return f"../charts/{name}?v={version}"
 
 
 HTML_TEMPLATE_PATH = TEMPLATES_DIR / "dashboard.html"
 HTML_TEMPLATE = HTML_TEMPLATE_PATH.read_text(encoding="utf-8")
 
-CHARTJS_PATH = ASSETS_DIR / "chart.umd.min.js"
-CHARTJS_INLINE = CHARTJS_PATH.read_text(encoding="utf-8")
+# Chart.js is loaded from ../assets/ (published with the page) instead of inlined.
+CHARTJS_SRC = "../assets/chart.umd.min.js"
 
 
 def render_html(data):
     """Fill the HTML template from a fetch_data() dict. Pops data["history"]."""
     charts_json = {
-        "price_trend_phone":      encode_chart("price_trend_phone.png"),
-        "price_trend_laptop":     encode_chart("price_trend_laptop.png"),
-        "price_trend_smartwatch": encode_chart("price_trend_smartwatch.png"),
-        "price_trend_tablet":     encode_chart("price_trend_tablet.png"),
+        k: chart_url(k + ".png", data["generated"])
+        for k in ("price_trend_phone", "price_trend_laptop",
+                  "price_trend_smartwatch", "price_trend_tablet")
     }
 
-    history = data.pop("history")
+    history = payload.compact_history(data.pop("history"))
+    data = dict(data, products=payload.compact_products(data["products"]),
+                brand_trend={cat: payload.compact_history(series)
+                             for cat, series in data["brand_trend"].items()})
     # Public page: never publish the personal watchlist / target prices.
     data.pop("watchlist", None)
 
@@ -417,7 +437,7 @@ def render_html(data):
     window_start_label = f"Since {window_start_date.day} {window_start_date.strftime('%b %Y')}"
 
     html = (HTML_TEMPLATE
-        .replace("__CHARTJS_INLINE__",     CHARTJS_INLINE)
+        .replace("__CHARTJS_SRC__",        f"{CHARTJS_SRC}?v={data['generated']}")
         .replace("__GENERATED__",          data["generated"])
         .replace("__TOTAL_PRODUCTS__",     f"{data['total_products']:,}")
         .replace("__TOTAL_SNAPSHOTS__",    f"{data['total_snapshots']:,}")
