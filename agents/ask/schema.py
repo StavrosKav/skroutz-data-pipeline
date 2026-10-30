@@ -30,7 +30,9 @@ mv_daily_market_index(category, date, avg_price, min_price, max_price, products_
 mv_price_trend_direction(product_id, avg_7d, avg_30d, trend 'falling'|'rising'|'stable')  -- every product with a snapshot in the last 30 days, includes delisted ones; join products for last_seen
 Notes: "today" = the latest date in price_snapshots (SELECT MAX(date) FROM price_snapshots), not CURRENT_DATE.
 "Still listed" = last_seen = that latest date. Match product names with ILIKE '%...%'.
-COUNTS: "how many X do we have/track/are there" (Greek: "πόσα ... έχουμε/υπάρχουν/παρακολουθούμε") means products
+COUNTS: any "how many products/X ..." question, including "how many X do we have/track/are there" and counts by
+status or trend ("how many products have a falling trend / are rated 5 / dropped") (Greek: "πόσα ... έχουμε/υπάρχουν/
+παρακολουθούμε", "πόσα προϊόντα έχουν/είναι ...") means products
 CURRENTLY LISTED: WHERE last_seen = (SELECT MAX(date) FROM price_snapshots). The products table also keeps
 delisted products, so never COUNT(*) all of products for such questions. Count all products ever seen only when
 the question says ever / all time / historically / since the start (Greek: "ποτέ", "συνολικά από την αρχή", "ιστορικά").
@@ -40,4 +42,7 @@ Search for a product/model name in product_name (the full title), not in model (
 When sorting by price use NULLS LAST (cheapest/most expensive must be real prices).
 When the question asks for the median (διάμεσος/διάμεση) use median_price or PERCENTILE_CONT(0.5), never AVG.
 "New this week" = first_seen >= latest date - 7.
+Aggregates of prices (median, average, min, max per brand/category) describe current prices by default: compute them
+from mv_latest_prices of currently listed products. Use mv_brand_summary only when the question asks about all history
+(ever / historically / over time).
 """
