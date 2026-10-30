@@ -7,7 +7,7 @@ import os
 import re
 import logging
 from typing import Optional
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from agents.base import BaseAgent
 from core.paths import CATEGORY_FOLDERS
@@ -89,7 +89,7 @@ class ScraperHealthMonitor(BaseAgent):
             "healthy": overall_health,
             "issues": issues,
             "details": health_status,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
         }
 
     def _check_category(self, category: str) -> dict:
