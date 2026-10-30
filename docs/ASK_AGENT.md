@@ -43,7 +43,7 @@ role with `SELECT` on the allowlisted relations only.
 
 ## Evaluation
 
-`evals/ask_eval.yaml` holds 20 Greek questions (cheapest product, biggest drop
+`evals/ask_eval.yaml` holds 23 Greek and English questions (cheapest product, biggest drop
 this week, counts per category, price history, ATL, ratings, one out-of-scope
 question). Each has a **reference SQL** run live on the DB; the check compares
 result *values* (top-1, scalar with tolerance, or set overlap), never answer text.
@@ -52,7 +52,8 @@ result *values* (top-1, scalar with tolerance, or set overlap), never answer tex
 python evals/run_ask_eval.py          # prints PASS/FAIL per item + accuracy
 ```
 
-Target: **≥ 16/20**. Per-item SQL, answer, attempts and latency are written to
+Target: **≥ 19/23** (80% of the items). Latest runs (30 Oct 2026,
+`nvidia/nemotron-3-ultra-550b-a55b`, prompt v1): **23/23 twice**. Per-item SQL, answer, attempts and latency are written to
 `evals/last_run.json` (git-ignored).
 
 No AI command answers from model knowledge: the old ungrounded `/chat`
