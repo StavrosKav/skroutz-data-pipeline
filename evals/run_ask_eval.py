@@ -1,4 +1,4 @@
-"""Run the /ask eval against the real DB + NIM.
+﻿"""Run the /ask eval against the real DB + NIM.
 
     python evals/run_ask_eval.py [--only ID ...] [--out evals/last_run.json] [--report PATH]
 
@@ -64,11 +64,12 @@ def main() -> int:
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--out", default=str(BASE / "evals" / "last_run.json"))
     ap.add_argument("--report", default=None)
+    ap.add_argument("--model", default=None, help="pin one NIM model, no fallback")
     a = ap.parse_args()
     load_dotenv(BASE / ".env")
 
     execute = make_pg_executor()
-    agent = AskAgent(make_nim_llm(), execute, llm_attempts=1, cache_size=0)
+    agent = AskAgent(make_nim_llm(model=a.model), execute, llm_attempts=1, cache_size=0)
     items = [i for i in load_items() if not a.only or i["id"] in a.only]
 
     results, passed = [], 0
