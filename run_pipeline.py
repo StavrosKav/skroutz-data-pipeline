@@ -109,13 +109,16 @@ def _cleanup_old_logs(days: int = 30) -> None:
         logger.info(f"Cleaned up {removed} log file(s) older than {days} days.")
 
 _LOCK_FILE = os.path.join(BASE, "pipeline.lock")
-_LOCK_STALE_SECONDS = 2 * 3600
+# Worst case: Scrape 7200 s + Clean 4 x 1800 s + Load/reports, about 4.5 h. A 6 h
+# window can't reclaim a live run's lock and still frees a crashed run's lock
+# long before the next daily run (tests/test_lock_window.py).
+_LOCK_STALE_SECONDS = 6 * 3600
 
 
 def _acquire_lock() -> bool:
     """One pipeline at a time — a concurrent run doubles scraper load and risks
-    bot detection. A lock older than 2h can only be a crashed run's leftover
-    (a full run takes ~10-15 min), so it is reclaimed."""
+    bot detection. A lock older than _LOCK_STALE_SECONDS (6 h, above the worst-case
+    runtime) can only be a crashed run's leftover, so it is reclaimed."""
     try:
         if time.time() - os.path.getmtime(_LOCK_FILE) > _LOCK_STALE_SECONDS:
             os.remove(_LOCK_FILE)
