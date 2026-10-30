@@ -6,8 +6,8 @@ A daily data pipeline and AI assistant that tracks every phone, laptop, tablet a
 
 [![CI](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml)
 <!-- STATS:BADGES:START -->
-![Products](https://img.shields.io/badge/Products-22%2C584-blue?style=flat-square)
-![Snapshots](https://img.shields.io/badge/Snapshots-1021k-green?style=flat-square)
+![Products](https://img.shields.io/badge/Products-22%2C635-blue?style=flat-square)
+![Snapshots](https://img.shields.io/badge/Snapshots-1027k-green?style=flat-square)
 <!-- STATS:BADGES:END -->
 ![Ask eval](https://img.shields.io/badge/ask_eval-22%2F23-blueviolet?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
@@ -58,13 +58,13 @@ Products are counted once per `skroutz_id`, after merging duplicates created by 
 <!-- STATS:TABLE:START -->
 | Category | Products | Snapshots | Avg Price | Range | Brands (5+ products) |
 |---|---|---|---|---|---|
-| Laptop | 9,162 | 358,424 | €1,712 | €52–€12,266 | 25 |
-| Phone | 4,853 | 191,987 | €338 | €9–€3,859 | 70 |
-| Smartwatch | 6,710 | 399,945 | €92 | €4–€3,399 | 239 |
-| Tablet | 1,859 | 70,351 | €568 | €31–€6,766 | 36 |
-| **Total** | **22,584** | **1,020,707** | | | |
+| Laptop | 9,186 | 360,594 | €1,714 | €52–€12,266 | 25 |
+| Phone | 4,859 | 193,077 | €338 | €9–€3,859 | 70 |
+| Smartwatch | 6,728 | 402,516 | €92 | €4–€3,399 | 239 |
+| Tablet | 1,862 | 70,813 | €569 | €31–€6,766 | 37 |
+| **Total** | **22,635** | **1,027,000** | | | |
 
-Updated daily via Task Scheduler · last pipeline run: 2026-10-29
+Updated daily via Task Scheduler · last pipeline run: 2026-10-30
 <!-- STATS:TABLE:END -->
 
 ## The AI part
