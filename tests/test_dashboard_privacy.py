@@ -15,7 +15,7 @@ class TestDashboardPrivacy(unittest.TestCase):
         data = _fixture_data()
         if extra:
             data.update(extra)
-        with patch.object(gd, "encode_chart", return_value=None):
+        with patch.object(gd, "chart_url", return_value=""):
             return gd.render_html(data)
 
     def test_template_has_no_watchlist_section(self):

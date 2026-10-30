@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script>__CHARTJS_INLINE__</script>
+<script src="__CHARTJS_SRC__"></script>
 <style>
 :root {
   --bg:        #0f1117;
@@ -306,6 +306,37 @@ tr:hover td { background: #ffffff08; }
   .hist-stats { flex-wrap: wrap; }
   .hist-stat { min-width: 45%; }
 }
+/* Freshness badge */
+.fresh { display:inline-block; margin-top:4px; padding:2px 8px; border-radius:999px; font-size:11px;
+  background:rgba(34,197,94,.12); color:var(--rise); border:1px solid rgba(34,197,94,.35); }
+.fresh.stale { background:rgba(239,68,68,.12); color:var(--drop); border-color:rgba(239,68,68,.45); font-weight:600; }
+/* Sparkline */
+.spark { display:block; }
+.btn-ghost { background:var(--surface); border:1px solid var(--border); color:var(--muted);
+  border-radius:8px; padding:7px 12px; font-size:12px; cursor:pointer; }
+/* About */
+#about { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin:20px 0 8px; }
+#about summary { cursor:pointer; font-weight:600; color:var(--accent); }
+#about p, #about li { color:var(--muted); font-size:13px; line-height:1.7; margin-top:8px; }
+#about ul { padding-left:20px; }
+
+/* Phones */
+@media (max-width: 480px) {
+  .container { padding: 14px 10px 40px; }
+  header h1 { font-size: 18px; }
+  .header-meta { text-align: left; line-height: 1.6; }
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .stat-card { padding: 10px; }
+  .stat-card .val { font-size: 18px; }
+  .stat-card .lbl { font-size: 9px; letter-spacing: .03em; }
+  .search-bar input, .search-bar select { flex: 1 1 100%; }
+  .search-bar label { flex: 1 1 30%; white-space: nowrap; justify-content: flex-start; }
+  .search-bar .price-range { flex: 1 1 100%; }
+  .stat-card .sparkline { display: none; }
+  .col-opt { display: none; }
+  th, td { padding: 6px 6px; font-size: 12px; }
+  #page-footer { position: static; font-size: 10px; }
+}
 </style>
 </head>
 <body>
@@ -315,7 +346,8 @@ tr:hover td { background: #ffffff08; }
   <h1>&#128202; Skroutz Price Tracker</h1>
   <div class="header-meta">
     Generated __GENERATED__<br>
-    __TOTAL_PRODUCTS__ products &nbsp;&middot;&nbsp; __TOTAL_SNAPSHOTS__ snapshots
+    __TOTAL_PRODUCTS__ products &nbsp;&middot;&nbsp; __TOTAL_SNAPSHOTS__ snapshots<br>
+    <span id="freshness" class="fresh"></span>
   </div>
 </header>
 <div class="header-bar"></div>
@@ -371,6 +403,7 @@ tr:hover td { background: #ffffff08; }
     <div class="drop-filter-row">
       <label>Min Drop &euro;</label>
       <input type="number" id="drop-min" min="0" placeholder="0" oninput="buildDropsTable()"/>
+      <button class="btn-ghost" onclick="exportDropsCSV()" title="Download this drops list as CSV">&#11015; CSV</button>
     </div>
     <div class="table-wrap">
       <table>
@@ -419,7 +452,8 @@ tr:hover td { background: #ffffff08; }
         <input type="checkbox" id="chk-atl" onchange="filterProducts()"> Near ATL
       </label>
       <span class="search-count" id="search-count"></span>
-      <button onclick="exportCSV()" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer">&#11015; CSV</button>
+      <button class="btn-ghost" onclick="clearFilters()" title="Reset all filters">&#10005; Clear</button>
+      <button class="btn-ghost" onclick="exportCSV()" title="Download the filtered list as CSV">&#11015; CSV</button>
     </div>
     <div class="table-wrap">
       <table>
@@ -431,10 +465,10 @@ tr:hover td { background: #ffffff08; }
             <th class="sortable" onclick="sortProducts('price')">Price &euro; <span id="sarr-price"></span></th>
             <th class="sortable" onclick="sortProducts('rating')">Rating <span id="sarr-rating"></span></th>
             <th class="sortable" onclick="sortProducts('reviews')">Reviews <span id="sarr-reviews"></span></th>
-            <th>Monthly</th>
-            <th>Color</th>
-            <th class="sortable" onclick="sortProducts('cv')">Stability <span id="sarr-cv"></span></th>
-            <th>History</th>
+            <th class="col-opt">Monthly</th>
+            <th class="col-opt">Color</th>
+            <th class="sortable col-opt" onclick="sortProducts('cv')">Stability <span id="sarr-cv"></span></th>
+            <th>30 days</th>
           </tr>
         </thead>
         <tbody id="products-body"></tbody>
@@ -464,7 +498,7 @@ tr:hover td { background: #ffffff08; }
 
   <div class="section">
     <div class="section-title">
-      &#128683; Δεν εμφανίστηκαν &gt;30 μέρες
+      &#128683; Not Seen for Over 30 Days
       <span class="count-badge" id="gone-badge"></span>
       <span class="sample-note" id="gone-note"></span>
     </div>
@@ -542,6 +576,24 @@ tr:hover td { background: #ffffff08; }
 
 </div>
 
+<details id="about">
+  <summary>How it works</summary>
+  <p>A scheduled pipeline scrapes Skroutz listings for phones, laptops, smartwatches and tablets once a day,
+     cleans them and stores one price snapshot per product per day in PostgreSQL. This page is rebuilt
+     from that database after every run.</p>
+  <ul>
+    <li><b>Price drops</b> compare each product with its previous snapshot. Drops of <span id="about-suspect">40</span>% or more are marked
+        <i>suspect</i> (usually a variant mix-up) and left out of the counts.</li>
+    <li><b>Near all-time low</b> uses the lowest price ever recorded for the product.</li>
+    <li><b>Stability</b> is the 30-day coefficient of variation of the price; the sparkline shows the last 30 days.</li>
+    <li>The badge at the top shows how old the data is and turns red if a daily run was missed.</li>
+  </ul>
+  <p>More: <a href="https://github.com/StavrosKav/skroutz-data-pipeline#readme" target="_blank">README</a> &middot;
+     <a href="https://github.com/StavrosKav/skroutz-data-pipeline#what-it-does" target="_blank">What it does</a> &middot;
+     <a href="https://github.com/StavrosKav/skroutz-data-pipeline#how-i-evaluate-the-agent" target="_blank">How the AI agent is evaluated</a> &middot;
+     <a href="https://github.com/StavrosKav/skroutz-data-pipeline#honest-notes-and-limitations" target="_blank">Limitations</a></p>
+</details>
+
 </div><!-- /container -->
 
 <!-- Sticky footer -->
@@ -565,8 +617,32 @@ tr:hover td { background: #ffffff08; }
 
 <script>
 // ── Embedded data ──────────────────────────────────────────────────────────────
+// <payload-expand>
+// Mirrors reporting/dashboard_payload.py (expand_products / expand_history).
+function expandProducts(packed) {
+  if (Array.isArray(packed)) return packed;
+  const { cols, rows, url_prefix } = packed;
+  return rows.map(row => {
+    const p = {};
+    cols.forEach((c, i) => { p[c] = row[i]; });
+    if ('name' in p && p.name == null) p.name = `${p.brand || ''} ${p.model || ''}`.trim();
+    if (typeof p.url === 'string' && p.url && !p.url.startsWith('http')) p.url = url_prefix + p.url;
+    return p;
+  });
+}
+function expandHistory(packed) {
+  const out = {};
+  for (const [pid, arr] of Object.entries(packed.series || {})) {
+    out[pid] = [];
+    arr.forEach((v, i) => { if (v != null) out[pid].push({ date: packed.dates[i], price: v }); });
+  }
+  return out;
+}
+// </payload-expand>
 const DATA    = __DATA_JSON__;
-const HISTORY = __HISTORY_JSON__;
+DATA.products = expandProducts(DATA.products);
+for (const cat of Object.keys(DATA.brand_trend || {})) DATA.brand_trend[cat] = expandHistory(DATA.brand_trend[cat]);
+const HISTORY = expandHistory(__HISTORY_JSON__);
 const CHARTS  = __CHARTS_JSON__;
 
 // ── Chart.js availability guard ─────────────────────────────────────────────────
@@ -624,7 +700,7 @@ function buildStats() {
     { val: DATA.last_updated, lbl: 'Last Updated' },
     { val: dropsToday, lbl: (dropsToday ? '&#8595; ' : '&#8594; ') + 'Drops Today', cls: dropsToday ? 'highlight' : '' },
     { val: newWeek, lbl: (newWeek ? '&#8593; ' : '&#8594; ') + 'New This Week', cls: newWeek ? 'success' : '' },
-    { val: kpi('disappeared_30d', DATA.disappeared.length), lbl: '&#8594; Δεν εμφανίστηκαν >30 μέρες' },
+    { val: kpi('disappeared_30d', DATA.disappeared.length), lbl: '&#8594; Not Seen Over 30 Days' },
   ];
   for (const [cat, info] of Object.entries(DATA.by_category)) {
     const label = (CAT_LABEL[cat]||cat);
@@ -853,10 +929,10 @@ function renderProductTable() {
       <td class="price">${priceHtml}</td>
       <td>${rating}</td>
       <td>${reviews}</td>
-      <td class="muted">${monthly}</td>
-      <td>${color}</td>
-      <td>${volBadge(p.cv)}</td>
-      <td><button onclick="showHistory(${p.id})"
+      <td class="muted col-opt">${monthly}</td>
+      <td class="col-opt">${color}</td>
+      <td class="col-opt">${volBadge(p.cv)}</td>
+      <td style="white-space:nowrap">${sparkSvg(p.spark)}<button onclick="showHistory(${p.id})"
             style="background:var(--accent);color:#fff;border:none;border-radius:6px;
                    padding:3px 10px;cursor:pointer;font-size:11px">Chart</button></td>
     </tr>`;
@@ -887,7 +963,7 @@ function buildNewGone() {
   document.getElementById('gone-note').textContent = showingNote(DATA.disappeared.length, kpi('disappeared_30d', 0));
   const gb = document.getElementById('gone-body');
   if (!DATA.disappeared.length) {
-    gb.innerHTML = '<tr><td colspan="5" class="no-data">Κανένα προϊόν δεν λείπει πάνω από 30 μέρες.</td></tr>';
+    gb.innerHTML = '<tr><td colspan="5" class="no-data">No product has been missing for more than 30 days.</td></tr>';
   } else {
     gb.innerHTML = DATA.disappeared.map(p => `<tr>
       <td>${p.brand}</td>
@@ -1458,20 +1534,76 @@ function updateTabBadges() {
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
-function exportCSV() {
-  const cols   = ['brand','model','category','price','rating','reviews','cv','trend','url'];
-  const header = ['Brand','Model','Category','Price (EUR)','Rating','Reviews','CV%','Trend','Link'];
-  const rows   = filteredProds.map(p => cols.map(c => {
-    const v = p[c] ?? '';
-    return typeof v === 'string' && (v.includes(',') || v.includes('"'))
-      ? '"' + v.replace(/"/g,'""') + '"' : v;
-  }));
-  const csv = [header, ...rows].map(r => r.join(',')).join('\n');
-  const a   = document.createElement('a');
-  a.href    = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
-  a.download = 'skroutz_products.csv';
+function csvCell(v) {
+  v = v ?? '';
+  return typeof v === 'string' && /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+function downloadCSV(filename, header, cols, items) {
+  const rows = items.map(p => cols.map(c => csvCell(p[c])));
+  // BOM so Excel opens UTF-8 (Greek names, euro sign) correctly
+  const csv  = '\ufeff' + [header, ...rows].map(r => r.join(',')).join('\n');
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = filename;
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function exportCSV() {
+  downloadCSV(`skroutz_products_${DATA.last_updated}.csv`,
+    ['Brand','Model','Category','Price (EUR)','Monthly (EUR)','Rating','Reviews','Color','CV%','Above ATL %','All-time low (EUR)','Trend','Link'],
+    ['brand','model','category','price','monthly','rating','reviews','color','cv','floor_pct','atl','trend','url'],
+    filteredProds);
+}
+function exportDropsCSV() {
+  const data = dropsView === 'today' ? DATA.drops : DATA.weekly_drops;
+  downloadCSV(`skroutz_drops_${dropsView}_${DATA.last_updated}.csv`,
+    ['Brand','Model','Category','Date','Was (EUR)','Now (EUR)','Drop (EUR)','Drop %','Suspect','Link'],
+    ['brand','model','category','drop_date','prev_price','new_price','drop_eur','drop_pct','suspect','skroutz_link'],
+    data);
+}
+
+// ── Filters: clear + "/" shortcut ──────────────────────────────────────────────
+function clearFilters() {
+  ['q','price-min','price-max'].forEach(id => { document.getElementById(id).value = ''; });
+  ['cat-filter','color-filter','trend-filter'].forEach(id => { document.getElementById(id).value = ''; });
+  ['chk-financing','chk-stable','chk-atl'].forEach(id => { document.getElementById(id).checked = false; });
+  filterProducts();
+}
+document.addEventListener('keydown', e => {
+  if (e.key !== '/' || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  e.preventDefault();
+  const btn = document.querySelector('.tab-btn[data-tab="products"]');
+  if (btn) showTab(btn);
+  document.getElementById('q').focus();
+});
+
+// ── Sparkline (last 30 days) ───────────────────────────────────────────────────
+function sparkSvg(vals) {
+  if (!vals || vals.length < 2) return '<span class="muted" style="display:inline-block;width:64px">—</span>';
+  const w = 64, h = 20, mn = Math.min(...vals), mx = Math.max(...vals), span = (mx - mn) || 1;
+  const pts = vals.map((v, i) =>
+    `${(i * (w - 2) / (vals.length - 1) + 1).toFixed(1)},${(h - 2 - (v - mn) / span * (h - 4)).toFixed(1)}`).join(' ');
+  const last = vals[vals.length - 1], first = vals[0];
+  const col = last < first ? 'var(--rise)' : last > first ? 'var(--drop)' : 'var(--muted)';
+  return `<svg class="spark" width="${w}" height="${h}" style="display:inline-block;vertical-align:middle;margin-right:6px"
+    role="img" aria-label="30-day price from €${first} to €${last}"><title>€${first} → €${last} (30 days)</title>
+    <polyline fill="none" stroke="${col}" stroke-width="1.5" points="${pts}"/></svg>`;
+}
+
+// ── Freshness badge ────────────────────────────────────────────────────────────
+function buildFreshness() {
+  const el = document.getElementById('freshness');
+  const f  = DATA.freshness;
+  const aboutPct = document.getElementById('about-suspect');
+  if (aboutPct) aboutPct.textContent = THR.suspect_pct;
+  if (!el || !f) { if (el) el.remove(); return; }
+  const built = new Date(f.generated_at);
+  const hrs   = Math.max(0, Math.round((Date.now() - built.getTime()) / 36e5));
+  const ago   = hrs < 1 ? 'less than an hour ago' : hrs < 48 ? `${hrs} h ago` : `${Math.round(hrs / 24)} days ago`;
+  const stale = f.stale_now || Date.now() > new Date(f.stale_at).getTime();
+  el.textContent = (stale ? '⚠ Data may be out of date · ' : '● ') + `prices from ${DATA.last_updated} · page built ${ago}`;
+  el.title = `Built ${f.generated_at}. A new run is expected every day; the badge turns red after ${f.stale_at}.`;
+  if (stale) el.classList.add('stale');
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
@@ -1479,6 +1611,7 @@ function safeCall(fn, name) {
   try { fn(); } catch (e) { console.error(`Chart build failed: ${name}`, e); }
 }
 
+safeCall(buildFreshness, 'buildFreshness');
 buildStats();
 buildDropsTable();
 buildHotDeals();

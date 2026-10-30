@@ -35,6 +35,12 @@ class TestCompactProducts(unittest.TestCase):
         rows = [dict(PROD, id=i) for i in range(200)]
         self.assertLess(len(json.dumps(dp.compact_products(rows))), 0.7 * len(json.dumps(rows)))
 
+    def test_name_rebuilt_from_brand_model_when_model_present(self):
+        p = dict(PROD, name="Something longer")
+        self.assertEqual(dp.expand_products(dp.compact_products([p]))[0]["name"], "Apple iPhone 15")
+        q = dict(PROD, model="", name="Only Name")
+        self.assertEqual(dp.expand_products(dp.compact_products([q]))[0]["name"], "Only Name")
+
     def test_empty(self):
         self.assertEqual(dp.expand_products(dp.compact_products([])), [])
 
