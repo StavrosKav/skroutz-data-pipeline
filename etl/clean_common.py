@@ -41,15 +41,22 @@ def clean_price(val):
 
     Skroutz uses the Greek number format where '.' is the thousands separator
     and ',' is the decimal separator (e.g. "1.800,00 €" means one thousand
-    eight hundred euros).  A value with more than one dot has the leading dots
-    stripped before the final conversion.
+    eight hundred euros). The scraper already turns ',' into '.', so "1.800,00"
+    arrives as "1.800.00" and "1.800" (no decimals) must mean 1800, not 1.8.
     """
     s = re.sub(r'[^\d.,]', '', str(val)).strip()   # remove currency symbols, spaces, etc.
-    if s.count('.') > 1:
-        # Multiple dots → all but the last are thousands separators
+    if ',' in s:
+        # Raw Greek format: every '.' is a thousands separator, ',' is the decimal
+        s = s.replace('.', '').replace(',', '.')
+    elif '.' in s:
+        # Scraper format: commas already turned into dots ("1.800,00" -> "1.800.00").
+        # Euro prices have 2 decimals, so a last group of exactly 3 digits is a
+        # thousands group ("1.800" = 1800, not 1.8); otherwise it is the decimal part.
         parts = s.split('.')
-        s = ''.join(parts[:-1]) + '.' + parts[-1]
-    s = s.replace(',', '.')   # Greek decimal comma → standard decimal point
+        if len(parts[-1]) == 3:
+            s = ''.join(parts)
+        else:
+            s = ''.join(parts[:-1]) + '.' + parts[-1]
     return pd.to_numeric(s, errors='coerce')
 
 
