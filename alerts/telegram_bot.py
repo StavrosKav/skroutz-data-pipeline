@@ -39,7 +39,7 @@ import time
 import urllib.error
 import urllib.request
 
-from core.db import get_engine
+from core.db import get_readonly_engine
 from dotenv import load_dotenv
 from sqlalchemy import text
 
@@ -155,7 +155,7 @@ def _lookup_product(url: str) -> tuple:
     """
     clean = _url_clean(url)
     try:
-        engine = get_engine()
+        engine = get_readonly_engine()
         with engine.connect() as conn:
             row = conn.execute(text(
                 "SELECT brand, model, price_eur FROM vw_latest_prices "
@@ -250,7 +250,7 @@ def _cmd_drops(args: str = "") -> str:
     label      = _CAT_LABEL.get(resolved, resolved) if resolved else "all categories"
 
     try:
-        engine = get_engine()
+        engine = get_readonly_engine()
         with engine.connect() as conn:
             rows = conn.execute(text(
                 "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
@@ -284,7 +284,7 @@ def _cmd_watchlist() -> str:
             "or use <code>/add &lt;url&gt; &lt;price&gt;</code>"
         )
     try:
-        engine = get_engine()
+        engine = get_readonly_engine()
         count  = len(items)
         lines  = [f"<b>Watchlist — {count} item{'s' if count != 1 else ''}:</b>\n"]
         urls = [item.get("url", "").strip() for item in items]
@@ -355,7 +355,7 @@ def _cmd_find(args: str) -> str:
     if not q:
         return "Usage: <code>/find &lt;name&gt;</code>\nExample: <code>/find galaxy s25</code>"
     try:
-        engine = get_engine()
+        engine = get_readonly_engine()
         with engine.connect() as conn:
             rows = conn.execute(text("""
                 SELECT lp.brand, lp.model, lp.category, lp.price_eur,
@@ -401,7 +401,7 @@ def _cmd_history(args: str) -> str:
         return "Usage: <code>/history &lt;name&gt;</code>\nExample: <code>/history iphone 16</code>"
 
     try:
-        engine = get_engine()
+        engine = get_readonly_engine()
         with engine.connect() as conn:
             meta = conn.execute(text("""
                 SELECT product_id, brand, model, category
@@ -485,7 +485,7 @@ def _cmd_best(args: str) -> str:
     params = {"cat": resolved} if resolved else {}
 
     try:
-        engine = get_engine()
+        engine = get_readonly_engine()
         with engine.connect() as conn:
             rows = conn.execute(text(f"""
                 SELECT lp.brand, lp.model, lp.category, lp.price_eur,
@@ -534,7 +534,7 @@ def _cmd_best(args: str) -> str:
 
 def _cmd_stats() -> str:
     try:
-        engine = get_engine()
+        engine = get_readonly_engine()
         with engine.connect() as conn:
             total_p  = conn.execute(text("SELECT COUNT(*) FROM products")).scalar()
             total_s  = conn.execute(text("SELECT COUNT(*) FROM price_snapshots")).scalar()
@@ -557,7 +557,7 @@ def _cmd_stats() -> str:
 def _cmd_restock() -> str:
     """Products that came back after a 3+ day stock gap, with price change."""
     try:
-        engine = get_engine()
+        engine = get_readonly_engine()
         with engine.connect() as conn:
             rows = conn.execute(text("""
                 SELECT brand, model, category, price_before, price_after,
