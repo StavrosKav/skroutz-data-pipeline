@@ -17,6 +17,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
+from urllib3.exceptions import ReadTimeoutError
 try:
     from selenium.common.exceptions import NoSuchDriverException
 except ImportError:  # selenium < 4.10
@@ -245,12 +246,21 @@ def parse_card(card, extract_memory_info=False):
     return row
 
 
+# Chrome must give up on a page before selenium's 120 s HTTP read timeout,
+# otherwise a hung load surfaces as urllib3 ReadTimeoutError (2026-10-31).
+PAGE_LOAD_TIMEOUT = 60
+
+
 def _load_page(driver, url, attempts=3, backoff=10):
+    try:
+        driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
+    except WebDriverException as e:
+        logger.warning(f"could not set page load timeout: {e}")
     for attempt in range(1, attempts + 1):
         try:
             driver.get(url)
             return
-        except WebDriverException as e:
+        except (WebDriverException, ReadTimeoutError, TimeoutError) as e:
             if attempt == attempts:
                 raise
             logger.warning(f"Page load failed (attempt {attempt}/{attempts}): {e.__class__.__name__} — retrying in {backoff * attempt}s")
