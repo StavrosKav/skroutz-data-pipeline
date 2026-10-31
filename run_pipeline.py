@@ -1001,6 +1001,18 @@ def send_success_summary(elapsed):
     except Exception as e:
         logger.warning(f"Success summary: DB query failed — {e}")
         return
+    # Per-category volume alarm: warn only, never fail the run.
+    volume_alerts = []
+    try:
+        from reporting import volume
+        with engine.connect() as conn:
+            volume_alerts = volume.category_volume_alerts(*volume.fetch(conn, d["d"]))
+    except Exception as e:
+        logger.warning(f"Volume check skipped — {e}")
+    for a in volume_alerts:
+        logger.warning(
+            f"Low volume: {a['category']} {a['today']:,} vs 7-day avg {a['avg7']:,.0f} ({a['pct']:.0f}%)"
+        )
     if yesterday_snaps > 0 and snaps < yesterday_snaps * 0.7:
         logger.warning(
             f"ANOMALY: Today {snaps:,} snapshots vs yesterday {yesterday_snaps:,} — "
@@ -1012,7 +1024,8 @@ def send_success_summary(elapsed):
             f"Coverage: <b>{100 * snaps // yesterday_snaps}%</b> — possible partial scrape"
         )
     elapsed_str = str(elapsed).split(".")[0]  # trim microseconds
-    _notif.tg_success(snaps, new_prods, drops, elapsed_str, suspect=suspect, new_week=new_week)
+    _notif.tg_success(snaps, new_prods, drops, elapsed_str, suspect=suspect, new_week=new_week,
+                      volume_alerts=volume_alerts)
     now_str     = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
     def _stat_card(value, label, color="#0d1b2a"):
