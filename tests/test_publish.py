@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import run_pipeline as rp
+import pipeline.publish as pub
 
 
 def _rm_readonly(func, path, _exc):
@@ -55,7 +56,7 @@ class TestPublishArtifacts(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         os.makedirs(os.path.join(self.tmp, "dashboard"))
         open(os.path.join(self.tmp, "dashboard", "dashboard_latest.html"), "w").close()
-        self.base = patch.object(rp, "BASE", self.tmp)
+        self.base = patch.object(pub, "BASE", self.tmp)
         self.base.start()
 
     def tearDown(self):
@@ -138,7 +139,7 @@ class TestPublishPagesRealGit(unittest.TestCase):
                          (os.path.join(work, "other.py"), "x")):
                 with open(p, "w") as f:
                     f.write(s)
-            with patch.object(rp, "BASE", work):
+            with patch.object(pub, "BASE", work):
                 self.assertTrue(rp.publish_pages_branch())
                 with open(html, "w") as f:
                     f.write("v2")

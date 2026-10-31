@@ -45,7 +45,6 @@ from core.paths import ROOT
 import html
 import subprocess
 import sys
-import tempfile
 import logging
 import datetime
 import os
@@ -59,6 +58,12 @@ from sqlalchemy import text
 
 from core.db import get_engine
 import alerts.notifications as _notif
+from pipeline.email_html import _html_shell, _pct_badge  # noqa: F401  (re-export)
+from pipeline.publish import (  # noqa: F401  (re-export)
+    PAGES_BRANCH, PAGES_PATHS, _git_run, _publish_main_artifacts,
+    publish_artifacts, publish_pages_branch,
+)
+from pipeline.readme_stats import update_readme_stats  # noqa: F401  (re-export)
 
 load_dotenv()
 
@@ -180,61 +185,8 @@ GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 
 # ── HTML email helpers ─────────────────────────────────────────────────────────
 
-def _html_shell(title: str, subtitle: str, body: str) -> str:
-    today = datetime.date.today().strftime("%B %d, %Y")
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-</head>
-<body style="margin:0;padding:0;background:#f0f2f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:32px 12px;">
-    <tr><td align="center">
-      <table cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 4px 18px rgba(0,0,0,0.11);">
-        <tr>
-          <td style="background:#0d1b2a;padding:0;">
-            <div style="border-left:4px solid #e63946;padding:22px 26px;">
-              <p style="margin:0 0 4px;font-size:10px;color:#e63946;letter-spacing:2.5px;text-transform:uppercase;font-weight:700;">Skroutz Price Tracker</p>
-              <h1 style="margin:0;font-size:19px;color:#ffffff;font-weight:700;line-height:1.3;">{title}</h1>
-              <p style="margin:5px 0 0;font-size:12px;color:#7a8fa6;">{subtitle}</p>
-            </div>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:26px 26px 18px;">
-            {body}
-          </td>
-        </tr>
-        <tr>
-          <td style="background:#f8fafc;padding:13px 26px;border-top:1px solid #e8ecf0;">
-            <p style="margin:0;font-size:11px;color:#aab0bb;">
-              Skroutz Price Tracker &nbsp;·&nbsp; {today} &nbsp;·&nbsp;
-              <a href="https://www.skroutz.gr" style="color:#aab0bb;text-decoration:none;">skroutz.gr</a>
-            </p>
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>"""
 
 
-def _pct_badge(pct: float) -> str:
-    val = abs(pct)
-    if val >= 30:
-        bg, fg = "#1a6b35", "#ffffff"
-    elif val >= 20:
-        bg, fg = "#2d9e4f", "#ffffff"
-    elif val >= 10:
-        bg, fg = "#52b87c", "#ffffff"
-    else:
-        bg, fg = "#d4edda", "#1a6b35"
-    return (
-        f'<span style="background:{bg};color:{fg};padding:3px 8px;border-radius:12px;'
-        f'font-size:11px;font-weight:700;white-space:nowrap;">&#x2193; {val:.1f}%</span>'
-    )
 
 
 def _send_html_email(subject: str, html: str, plain: str) -> None:
@@ -758,222 +710,15 @@ def run_dashboard():
         logger.info(f"=== Dashboard complete in {elapsed:.0f}s ===")
 
 
-def update_readme_stats():
-    """
-    Rewrite the auto-generated stat block(s) in README.md — product/snapshot totals,
-    per-category table, last pipeline run date. Non-fatal — pipeline result is
-    unaffected if this fails. Same simple direct-count SQL style as send_success_summary().
-    """
-    logger.info("=== README stats started ===")
-    t = datetime.datetime.now()
-    readme_path = os.path.join(BASE, "README.md")
-    try:
-        engine = get_engine()
-        with engine.connect() as conn:
-            total_products  = conn.execute(text("SELECT COUNT(*) FROM products")).scalar()
-            total_snapshots = conn.execute(text("SELECT COUNT(*) FROM price_snapshots")).scalar()
-            rows = conn.execute(text(
-                "SELECT p.category, "
-                "       COUNT(DISTINCT p.id)    AS products, "
-                "       COUNT(s.id)              AS snapshots, "
-                "       ROUND(AVG(s.price_eur))  AS avg_price, "
-                "       ROUND(MIN(s.price_eur))  AS min_price, "
-                "       ROUND(MAX(s.price_eur))  AS max_price, "
-                "       (SELECT COUNT(*) FROM (SELECT b.brand FROM products b "
-                "          WHERE b.category = p.category AND b.brand IS NOT NULL "
-                "            AND LOWER(b.brand) NOT IN ('smartwatch', 'unknown', '') "
-                "          GROUP BY b.brand HAVING COUNT(*) >= 5) bb) AS brands "
-                "FROM products p "
-                "JOIN price_snapshots s ON s.product_id = p.id "
-                "GROUP BY p.category ORDER BY p.category"
-            )).fetchall()
-    except Exception as e:
-        logger.warning(f"README stats: DB query failed — {e}")
-        return
-
-    def _abbrev(n):
-        return f"{round(n / 1000)}k" if n >= 1000 else str(n)
-
-    products_badge  = f'![Products](https://img.shields.io/badge/Products-{total_products:,}-blue?style=flat-square)'.replace(",", "%2C")
-    snapshots_badge = f'![Snapshots](https://img.shields.io/badge/Snapshots-{_abbrev(total_snapshots)}-green?style=flat-square)'
-    badges_block    = f"{products_badge}\n{snapshots_badge}"
-
-    CAT_LABELS = {"laptop": "Laptop", "phone": "Phone", "smartwatch": "Smartwatch", "tablet": "Tablet"}
-    table_rows = []
-    for r in rows:
-        label  = CAT_LABELS.get(r.category, r.category.capitalize())
-        avg_p  = f"€{int(r.avg_price):,}" if r.avg_price is not None else "—"
-        rng    = f"€{int(r.min_price):,}–€{int(r.max_price):,}" if r.min_price is not None else "—"
-        # Brands = brands with 5+ products (placeholders like "Smartwatch" excluded),
-        # so one-off junk values from listing titles do not inflate the count.
-        brands = str(r.brands) if r.brands else "n/a"
-        table_rows.append(f"| {label} | {r.products:,} | {r.snapshots:,} | {avg_p} | {rng} | {brands} |")
-    table_rows.append(f"| **Total** | **{total_products:,}** | **{total_snapshots:,}** | | | |")
-
-    today_str   = datetime.date.today().isoformat()
-    table_block = (
-        "| Category | Products | Snapshots | Avg Price | Range | Brands (5+ products) |\n"
-        "|---|---|---|---|---|---|\n"
-        + "\n".join(table_rows)
-        + f"\n\nUpdated daily via Task Scheduler · last pipeline run: {today_str}"
-    )
-
-    try:
-        with open(readme_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        content = re.sub(
-            r"(<!-- STATS:BADGES:START -->\n).*?(\n<!-- STATS:BADGES:END -->)",
-            lambda m: m.group(1) + badges_block + m.group(2),
-            content, count=1, flags=re.DOTALL,
-        )
-        content = re.sub(
-            r"(<!-- STATS:TABLE:START -->\n).*?(\n<!-- STATS:TABLE:END -->)",
-            lambda m: m.group(1) + table_block + m.group(2),
-            content, count=1, flags=re.DOTALL,
-        )
-        with open(readme_path, "w", encoding="utf-8") as f:
-            f.write(content)
-    except Exception as e:
-        logger.warning(f"README stats: could not rewrite README.md — {e}")
-        return
-
-    elapsed = (datetime.datetime.now() - t).total_seconds()
-    logger.info(
-        f"=== README stats complete in {elapsed:.0f}s — "
-        f"{total_products:,} products, {total_snapshots:,} snapshots ==="
-    )
 
 
-# Files the public GitHub Pages site needs. Published to the `gh-pages` branch
-# as ONE parentless commit, force-pushed daily, so the ~2.5 MB dashboard and
-# chart PNGs never accumulate in history. Paths are unchanged, so the public
-# URL .../dashboard/dashboard_latest.html stays the same.
-PAGES_BRANCH = "gh-pages"
-PAGES_PATHS = ("index.html", "dashboard/dashboard_latest.html", "charts", "assets")
-
-# GitHub Pages serves from the gh-pages branch (since 29 Oct 2026), so by default
-# main only gets the small README stats commit. Set PUBLISH_MAIN_ARTIFACTS=1 to
-# also commit dashboard + charts to main (old behaviour). If the gh-pages push
-# fails, publish_artifacts still falls back to committing them to main.
-def _publish_main_artifacts():
-    return os.getenv("PUBLISH_MAIN_ARTIFACTS", "0").strip() == "1"
 
 
-def _git_run(*args, timeout=120, env=None):
-    return subprocess.run(
-        ["git", "-C", BASE, *args],
-        capture_output=True, text=True, timeout=timeout, env=env,
-    )
 
 
-def publish_pages_branch(git=None):
-    """
-    Build a single parentless commit holding only PAGES_PATHS (plus .nojekyll)
-    using a throwaway index — the working tree, HEAD and the real index are
-    never touched — then force-push it to origin/gh-pages. Returns True on success.
-    """
-    git = git or _git_run
-    present = [p for p in PAGES_PATHS if os.path.exists(os.path.join(BASE, p))]
-    if "dashboard/dashboard_latest.html" not in present:
-        logger.warning("Publish pages: dashboard_latest.html missing — skipping gh-pages publish.")
-        return False
-    fd, tmp_index = tempfile.mkstemp(prefix="pages_index_")
-    os.close(fd)
-    os.remove(tmp_index)  # git wants to create it itself
-    env = {**os.environ, "GIT_INDEX_FILE": tmp_index}
-    try:
-        for args in (("read-tree", "--empty"), ("add", "-f", "--", *present)):
-            r = git(*args, env=env)
-            if r.returncode != 0:
-                logger.warning(f"Publish pages: git {args[0]} failed — {r.stderr.strip()}")
-                return False
-        # .nojekyll: serve files as-is (no Jekyll build step on Pages)
-        fd, empty = tempfile.mkstemp(prefix="nojekyll_")
-        os.close(fd)
-        try:
-            blob = git("hash-object", "-w", empty, env=env)
-        finally:
-            os.remove(empty)
-        if blob.returncode == 0 and blob.stdout.strip():
-            git("update-index", "--add", "--cacheinfo", f"100644,{blob.stdout.strip()},.nojekyll", env=env)
-        tree = git("write-tree", env=env)
-        if tree.returncode != 0:
-            logger.warning(f"Publish pages: write-tree failed — {tree.stderr.strip()}")
-            return False
-        msg = f"site: dashboard + charts from {datetime.date.today()} run"
-        commit = git("commit-tree", tree.stdout.strip(), "-m", msg, env=env)
-        if commit.returncode != 0:
-            logger.warning(f"Publish pages: commit-tree failed — {commit.stderr.strip()}")
-            return False
-        sha = commit.stdout.strip()
-        push = git("push", "--force", "origin", f"{sha}:refs/heads/{PAGES_BRANCH}", timeout=300)
-        if push.returncode != 0:
-            logger.warning(f"Publish pages: push to {PAGES_BRANCH} failed — {push.stderr.strip()}")
-            return False
-        logger.info(f"Publish pages: force-pushed {sha[:7]} to origin/{PAGES_BRANCH} (history = 1 commit)")
-        return True
-    finally:
-        if os.path.exists(tmp_index):
-            os.remove(tmp_index)
 
 
-def publish_artifacts(git=None):
-    """
-    1. Publish site files to the gh-pages branch (single commit, force-pushed).
-    2. Commit to main: README.md stats always; dashboard + charts only while
-       PUBLISH_MAIN_ARTIFACTS != "0" (transition period). Push origin main.
-    Non-fatal — pipeline result is unaffected if this fails. If the index
-    already holds unrelated staged changes, the main commit is skipped.
-    """
-    logger.info("=== Publish artifacts started ===")
-    t = datetime.datetime.now()
-    _git = git or _git_run
 
-    pages_ok = publish_pages_branch(_git)
-
-    if _git("diff", "--cached", "--quiet").returncode != 0:
-        logger.warning("Publish artifacts: index already has staged changes — skipping auto-commit.")
-        return
-    branch = _git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-    if branch != "main":
-        logger.warning(f"Publish artifacts: on branch '{branch}', not main — skipping auto-commit.")
-        return
-    paths = ["README.md"]
-    add_args = ("add", "--")
-    if not pages_ok:
-        # Site files are gitignored on main (31 Oct 2026); main is not served,
-        # so there is nothing to fall back to. README stats still go to main.
-        _notif.tg_send("⚠️ <b>gh-pages publish failed</b>\nThe public dashboard was not updated today.")
-    if _publish_main_artifacts():
-        # Legacy opt-in: force-add, because these paths are gitignored.
-        paths = ["charts/price_trend_phone.png", "charts/price_trend_laptop.png",
-                 "charts/price_trend_smartwatch.png", "charts/price_trend_tablet.png",
-                 "dashboard/dashboard_latest.html", "README.md"]
-        add_args = ("add", "-f", "--")
-    add = _git(*add_args, *paths)
-    if add.returncode != 0:
-        logger.warning(f"Publish artifacts: git add failed — {add.stderr.strip()}")
-        return
-    if _git("diff", "--cached", "--quiet").returncode == 0:
-        logger.info("Publish artifacts: no main changes to commit.")
-        return
-    what = "charts, dashboard and README stats" if len(paths) > 1 else "README stats"
-    msg = f"chore: refresh {what} from {datetime.date.today()} run"
-    commit = _git("commit", "-m", msg)
-    if commit.returncode != 0:
-        logger.warning(f"Publish artifacts: git commit failed — {commit.stderr.strip()}")
-        return
-    push = _git("push", "origin", "main", timeout=300)
-    elapsed = (datetime.datetime.now() - t).total_seconds()
-    if push.returncode != 0:
-        logger.warning(f"Publish artifacts: git push failed after {elapsed:.0f}s — {push.stderr.strip()}")
-        _notif.tg_send(
-            "⚠️ <b>Artifact push failed</b>\n"
-            "Committed locally but not pushed to main.\n"
-            f"<code>{html.escape(push.stderr.strip()[:300])}</code>"
-        )
-        return
-    logger.info(f"=== Publish artifacts complete in {elapsed:.0f}s — pushed to origin/main ===")
 
 
 def send_success_summary(elapsed):
@@ -1270,7 +1015,39 @@ def run_stage(label, script, fatal=True):
     logger.info(f"=== {label} complete in {elapsed:.0f}s ===")
 
 
-if __name__ == "__main__":
+def _check_gap():
+    """Warn on Telegram when the last loaded day is more than one day old."""
+    try:
+        with get_engine().connect() as _conn:
+            _last_date = _conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
+        if _last_date and (datetime.date.today() - _last_date).days > 1:
+            _gap = (datetime.date.today() - _last_date).days
+            logger.warning(f"Pipeline gap: last run was {_last_date} ({_gap} days ago)")
+            _notif.tg_send(
+                f"⚠️ <b>Pipeline gap detected</b>\n"
+                f"Last successful run: <b>{_last_date}</b> ({_gap} days ago)\n"
+                f"Data may be stale — check Task Scheduler."
+            )
+    except Exception:  # noqa: BLE001 — best-effort warning; never blocks the run
+        pass
+
+
+def post_stages():
+    """Steps after Load SQL, in run order. Each one is non-fatal."""
+    return [
+        (check_snapshot_coverage, "Coverage check"),
+        (refresh_matviews,        "Matview refresh"),
+        (run_charts,              "Charts"),
+        (send_drop_digest,        "Drop digest"),
+        (send_watchlist_alerts,   "Watchlist alerts"),
+        (send_disappeared_alert,  "Disappeared alert"),
+        (run_dashboard,           "Dashboard"),
+        (update_readme_stats,     "README stats"),
+        (publish_artifacts,       "Publish artifacts"),
+    ]
+
+
+def main():
     os.environ.setdefault("PIPELINE_DATE", datetime.date.today().isoformat())
     if not _acquire_lock():
         logger.warning("Another pipeline instance is already running — exiting.")
@@ -1284,38 +1061,16 @@ if __name__ == "__main__":
         _run_log_start()
         _cleanup_old_logs()
         _notif.tg_pipeline_start()
-        try:
-            with get_engine().connect() as _conn:
-                _last_date = _conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
-            if _last_date and (datetime.date.today() - _last_date).days > 1:
-                _gap = (datetime.date.today() - _last_date).days
-                logger.warning(f"Pipeline gap: last run was {_last_date} ({_gap} days ago)")
-                _notif.tg_send(
-                    f"⚠️ <b>Pipeline gap detected</b>\n"
-                    f"Last successful run: <b>{_last_date}</b> ({_gap} days ago)\n"
-                    f"Data may be stale — check Task Scheduler."
-                )
-        except Exception:
-            pass
+        _check_gap()
         for label, script, fatal in STAGES:
             run_stage(label, script, fatal)
-        for _fn, _label in [
-            (check_snapshot_coverage, "Coverage check"),
-            (refresh_matviews,        "Matview refresh"),
-            (run_charts,              "Charts"),
-            (send_drop_digest,        "Drop digest"),
-            (send_watchlist_alerts,   "Watchlist alerts"),
-            (send_disappeared_alert,  "Disappeared alert"),
-            (run_dashboard,           "Dashboard"),
-            (update_readme_stats,     "README stats"),
-            (publish_artifacts,       "Publish artifacts"),
-        ]:
+        for _fn, _label in post_stages():
             _t = time.monotonic()
             try:
                 _fn()
                 if _label != "Coverage check":   # records its own ok/warn note
                     _run_log_note(_label, "done", time.monotonic() - _t)
-            except Exception as _e:
+            except Exception as _e:  # noqa: BLE001 — observer step; one failure must not stop the rest
                 logger.error(f"{_label} raised an unhandled exception: {_e}")
                 _run_log_note(_label, "error", time.monotonic() - _t, detail=_e)
                 _notif.tg_send(f"⚠️ <b>{_label} failed</b>\n<code>{_e}</code>")
@@ -1334,3 +1089,7 @@ if __name__ == "__main__":
         raise
     finally:
         _release_lock()
+
+
+if __name__ == "__main__":
+    main()
