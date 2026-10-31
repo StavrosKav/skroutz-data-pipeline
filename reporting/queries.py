@@ -17,11 +17,12 @@ from sqlalchemy import text
 
 
 def category_snapshot(conn):
-    """Per-category product count + min/avg/max price, latest snapshot date."""
+    """Per-category product count + min/median/avg/max price, latest snapshot date."""
     query = text("""
         SELECT p.category,
                COUNT(DISTINCT p.id) AS product_count,
                AVG(s.price_eur)     AS avg_price,
+               PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY s.price_eur) AS median_price,
                MIN(s.price_eur)     AS min_price,
                MAX(s.price_eur)     AS max_price
         FROM products p
@@ -54,7 +55,10 @@ def biggest_drops(conn, days_back, categories=None, limit=100):
 
 
 def brand_trend(conn, category, top_n=6, days=90):
-    """Avg daily price for the top-N brands (by product count) in one category."""
+    """Median daily price for the top-N brands (by product count) in one category.
+
+    Computed from price_snapshots (cheapest-shop "from" price), one value per
+    brand per recorded day; the median is not moved by a few very expensive models."""
     query = text("""
         WITH top_brands AS (
             SELECT brand
@@ -63,12 +67,16 @@ def brand_trend(conn, category, top_n=6, days=90):
             ORDER BY product_count DESC
             LIMIT :n
         )
-        SELECT bt.brand, bt.date, bt.avg_price
-        FROM vw_brand_price_trend bt
-        JOIN top_brands tb ON tb.brand = bt.brand
-        WHERE bt.category = :cat
-          AND bt.date >= (SELECT MAX(date) FROM price_snapshots) - :days
-        ORDER BY bt.brand, bt.date
+        SELECT p.brand, s.date,
+               PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY s.price_eur) AS median_price
+        FROM price_snapshots s
+        JOIN products p    ON p.id = s.product_id
+        JOIN top_brands tb ON tb.brand = p.brand
+        WHERE p.category = :cat
+          AND s.price_eur IS NOT NULL
+          AND s.date >= (SELECT MAX(date) FROM price_snapshots) - :days
+        GROUP BY p.brand, s.date
+        ORDER BY p.brand, s.date
     """)
     return pd.read_sql(query, conn, params={"cat": category, "n": top_n, "days": days})
 
@@ -168,15 +176,49 @@ def brand_discount_freq(conn, category=None, limit=None):
     return pd.read_sql(query, conn, params=params)
 
 
-def market_index(conn, days=90):
-    """Daily avg price per category over the last `days` days."""
+# Fixed basket: a product enters the index if it has a price on the first
+# recorded day of the window (base day) and on at least this share of the
+# window's recorded days.
+BASKET_COVERAGE = 0.8
+
+
+def basket_index(conn, days=90):
+    """Daily fixed-basket price index per category (base day = 100).
+
+    For the same set of products every day, each product's price is divided by
+    its base-day price; the index is the geometric mean of those ratios x 100
+    (Jevons, as in consumer price indices: every product counts equally). A median
+    of ratios would sit at exactly 100 because most prices do not move on a given
+    day. Products that come and go do not move it, unlike a plain daily average."""
     query = text("""
-        SELECT category, date, avg_price
-        FROM vw_daily_market_index
-        WHERE date >= (SELECT MAX(date) FROM price_snapshots) - :days
-        ORDER BY category, date
+        WITH win AS (
+            SELECT DISTINCT date FROM price_snapshots
+            WHERE date > (SELECT MAX(date) FROM price_snapshots) - :days
+        ),
+        base_day AS (SELECT MIN(date) AS d, COUNT(*) AS n_days FROM win),
+        daily AS (
+            SELECT s.product_id, s.date, MIN(s.price_eur) AS price
+            FROM price_snapshots s JOIN win ON win.date = s.date
+            WHERE s.price_eur > 0
+            GROUP BY s.product_id, s.date
+        ),
+        basket AS (
+            SELECT d.product_id, MAX(d.price) FILTER (WHERE d.date = b.d) AS base_price
+            FROM daily d CROSS JOIN base_day b
+            GROUP BY d.product_id, b.d, b.n_days
+            HAVING COUNT(*) FILTER (WHERE d.date = b.d) = 1
+               AND COUNT(*) >= :coverage * b.n_days
+        )
+        SELECT p.category, d.date,
+               EXP(AVG(LN(d.price / k.base_price))) * 100 AS idx,
+               COUNT(*) AS products
+        FROM daily d
+        JOIN basket k   ON k.product_id = d.product_id
+        JOIN products p ON p.id = d.product_id
+        GROUP BY p.category, d.date
+        ORDER BY p.category, d.date
     """)
-    return pd.read_sql(query, conn, params={"days": days})
+    return pd.read_sql(query, conn, params={"days": days, "coverage": BASKET_COVERAGE})
 
 
 def count_drops(conn, days_back):
@@ -198,6 +240,11 @@ def count_suspect_drops(conn, days_back, suspect_pct):
     return int(conn.execute(query, {"days": days_back, "suspect": suspect_pct}).scalar() or 0)
 
 
+# The one "new product" rule (dashboard, Telegram, ask bot, eval): first seen in
+# the `days` most recent days including the latest scrape date, and listed in it.
+NEW_PRODUCTS_WHERE = "first_seen > (SELECT MAX(date) FROM price_snapshots) - :days"
+
+
 def count_new_products(conn, days=7):
     """Products first seen in the last `days` days that are in the latest scrape
     (same filter as the New Arrivals list)."""
@@ -206,7 +253,7 @@ def count_new_products(conn, days=7):
         FROM products p
         JOIN price_snapshots s ON s.product_id = p.id
           AND s.date = (SELECT MAX(date) FROM price_snapshots)
-        WHERE p.first_seen >= (SELECT MAX(date) FROM price_snapshots) - :days
+        WHERE p.""" + NEW_PRODUCTS_WHERE + """
     """)
     return int(conn.execute(query, {"days": days}).scalar() or 0)
 
@@ -218,6 +265,22 @@ def count_disappeared(conn, days=30):
         WHERE days_since_last_seen > :days
     """)
     return int(conn.execute(query, {"days": days}).scalar() or 0)
+
+
+def count_listed(conn, prev=False):
+    """Products with a price on the latest recorded date (prev=True: the recorded date before it)."""
+    day = ("(SELECT MAX(date) FROM price_snapshots WHERE date < (SELECT MAX(date) FROM price_snapshots))"
+           if prev else "(SELECT MAX(date) FROM price_snapshots)")
+    return int(conn.execute(text(f"SELECT COUNT(*) FROM price_snapshots WHERE date = {day}")).scalar() or 0)
+
+
+def count_drops_prev_day(conn):
+    """Drops (vw_drops_7d) on the recorded date before the latest one."""
+    return int(conn.execute(text("""
+        SELECT COUNT(*) FROM vw_drops_7d
+        WHERE drop_date = (SELECT MAX(date) FROM price_snapshots
+                           WHERE date < (SELECT MAX(date) FROM price_snapshots))
+    """)).scalar() or 0)
 
 
 def count_latest_products(conn):

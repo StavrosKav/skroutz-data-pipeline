@@ -25,6 +25,7 @@ import pandas as pd
 import reporting.queries as queries
 from reporting.drops import BIG_DROP_LABEL_EN, BIG_DROP_PCT
 import reporting.dashboard_payload as payload
+import reporting.buy_or_wait as buy_or_wait
 from core.db import get_engine
 
 load_dotenv()
@@ -60,9 +61,23 @@ HOT_DEAL_MIN_DROP_PCT  = 3.0
 HOT_DEAL_MIN_DROP_EUR  = 5.0
 
 
+# Words the title parser takes for a brand when a listing has none
+# ("Smartwatch ...", "Έξυπνο ρολόι ..."). Hidden on the dashboard only; the DB keeps them.
+FAKE_BRANDS = frozenset({"Smartwatch", "Έξυπνο"})
+
+
+def is_real_brand(brand):
+    return bool(brand) and brand not in FAKE_BRANDS
+
+
+def display_brand(brand):
+    """Brand as shown on the dashboard: empty for missing or fake brands."""
+    return brand if is_real_brand(brand) else ""
+
+
 def is_suspect_drop(drop_pct, threshold=SUSPECT_DROP_PCT):
     """True when a drop is threshold percent or larger. drop_pct is signed
-    (negative for a drop) as in vw_biggest_drops; None is never suspect."""
+    (negative for a drop) as in vw_drops_7d; None is never suspect."""
     if drop_pct is None:
         return False
     return abs(float(drop_pct)) >= threshold
@@ -85,6 +100,7 @@ def _coerce_drops(df):
             d[k] = round(float(d[k]), 2) if pd.notna(d[k]) else None
         d["drop_date"] = str(d["drop_date"])
         d["suspect"] = is_suspect_drop(d["drop_pct"])
+        d["brand"] = display_brand(d.get("brand"))
     return out
 
 
@@ -98,6 +114,9 @@ def fetch_counts(conn):
         "new_week":            queries.count_new_products(conn, days=7),
         "disappeared_30d":     queries.count_disappeared(conn, days=30),
         "latest_products":     queries.count_latest_products(conn),
+        "listed_today":        queries.count_listed(conn),
+        "listed_prev":         queries.count_listed(conn, prev=True),
+        "drops_prev":          queries.count_drops_prev_day(conn),
     }
 
 
@@ -116,7 +135,7 @@ def fetch_data(conn):
     by_category = {
         r.category: {
             "count":     r.product_count,
-            "avg_price": round(float(r.avg_price), 2) if pd.notna(r.avg_price) else 0.0,
+            "median_price": round(float(r.median_price), 2) if pd.notna(r.median_price) else 0.0,
             "min_price": round(float(r.min_price), 2) if pd.notna(r.min_price) else 0.0,
             "max_price": round(float(r.max_price), 2) if pd.notna(r.max_price) else 0.0,
         }
@@ -145,7 +164,7 @@ def fetch_data(conn):
         cat = r.category
         if cat not in brand_data:
             brand_data[cat] = []
-        if len(brand_data[cat]) < 10:
+        if len(brand_data[cat]) < 10 and is_real_brand(r.brand):
             brand_data[cat].append({
                 "brand":         r.brand,
                 "product_count": r.product_count,
@@ -207,7 +226,7 @@ def fetch_data(conn):
         products.append({
             "id":        r.id,
             "category":  r.category or "",
-            "brand":     r.brand or "",
+            "brand":     display_brand(r.brand),
             "model":     r.model or "",
             "name":      r.product_name or "",
             "price":     price,
@@ -246,14 +265,14 @@ def fetch_data(conn):
         FROM products p
         JOIN price_snapshots s ON s.product_id = p.id
           AND s.date = (SELECT MAX(date) FROM price_snapshots)
-        WHERE p.first_seen >= (SELECT MAX(date) FROM price_snapshots) - 7
+        WHERE p.""" + queries.NEW_PRODUCTS_WHERE + """
         ORDER BY p.first_seen DESC LIMIT :lim
-    """), {"lim": NEW_PRODUCTS_LIMIT}).fetchall()
+    """), {"lim": NEW_PRODUCTS_LIMIT, "days": 7}).fetchall()
     new_products = []
     for r in new_rows:
         new_products.append({
             "category":   r.category or "",
-            "brand":      r.brand or "",
+            "brand":      display_brand(r.brand),
             "model":      r.model or "",
             "name":       r.product_name or "",
             "first_seen": r.first_seen,
@@ -268,7 +287,7 @@ def fetch_data(conn):
     for r in dis_rows:
         disappeared.append({
             "category":  r.category or "",
-            "brand":     r.brand or "",
+            "brand":     display_brand(r.brand),
             "model":     r.model or r.product_name or "",
             "last_seen": str(r.last_seen),
             "days_gone": r.days_since_last_seen,
@@ -311,7 +330,7 @@ def fetch_data(conn):
     for r in hot_rows:
         hot_deals.append({
             "category":   r.category or "",
-            "brand":      r.brand or "",
+            "brand":      display_brand(r.brand),
             "model":      r.model or r.product_name or "",
             "price_prev": round(float(r.price_prev), 2)   if pd.notna(r.price_prev)   and r.price_prev   else None,
             "price_now":  round(float(r.price_latest), 2) if pd.notna(r.price_latest) and r.price_latest else None,
@@ -324,7 +343,7 @@ def fetch_data(conn):
             "to_date":    r.latest_date  or "",
         })
 
-    # Brand avg-price trend for comparison charts (top 8 brands/category, last 90 days)
+    # Brand median-price trend for comparison charts (top 8 brands/category, last 90 days)
     brand_trend = {}
     for cat in by_category:
         trend_df = queries.brand_trend(conn, cat, top_n=8, days=90)
@@ -332,44 +351,35 @@ def fetch_data(conn):
             continue
         brand_trend[cat] = {}
         for r in trend_df.itertuples():
+            if not is_real_brand(r.brand):
+                continue
             if r.brand not in brand_trend[cat]:
                 brand_trend[cat][r.brand] = []
-            brand_trend[cat][r.brand].append({"date": str(r.date), "price": round(float(r.avg_price), 2)})
+            brand_trend[cat][r.brand].append({"date": str(r.date), "price": round(float(r.median_price), 2)})
 
-    # Brand discount frequency — degrades gracefully if vw_brand_discount_freq is unavailable
+    # Buy or wait: today's price vs each product's own 90-day low/median/high
     try:
-        conn.execute(text("SAVEPOINT sp_disc"))
-        disc_rows = queries.brand_discount_freq(conn).itertuples()
-        discount_data = {}
-        for r in disc_rows:
-            cat = r.category
-            if cat not in discount_data:
-                discount_data[cat] = []
-            if len(discount_data[cat]) < 12:
-                discount_data[cat].append({
-                    "brand":     r.brand,
-                    "disc_days": int(r.discount_days) if pd.notna(r.discount_days) else 0,
-                    "freq_pct":  float(r.discount_freq_pct) if pd.notna(r.discount_freq_pct) else 0.0,
-                })
-        conn.execute(text("RELEASE SAVEPOINT sp_disc"))
+        conn.execute(text("SAVEPOINT sp_bow"))
+        bow = buy_or_wait.build(buy_or_wait.fetch(conn))
+        conn.execute(text("RELEASE SAVEPOINT sp_bow"))
     except Exception as e:
-        conn.execute(text("ROLLBACK TO SAVEPOINT sp_disc"))
-        logger.warning(f"vw_brand_discount_freq query failed, discount-frequency section will be empty: {e}")
-        discount_data = {}
+        conn.execute(text("ROLLBACK TO SAVEPOINT sp_bow"))
+        logger.warning(f"buy-or-wait query failed, the Buy or Wait tab will be empty: {e}")
+        bow = {}
 
     try:
         conn.execute(text("SAVEPOINT sp_market"))
-        idx_rows = queries.market_index(conn, days=90).itertuples()
+        idx_rows = queries.basket_index(conn, days=90).itertuples()
         market_index: dict = {}
         for r in idx_rows:
             cat = r.category
             if cat not in market_index:
                 market_index[cat] = []
-            market_index[cat].append({"date": str(r.date), "avg": float(r.avg_price)})
+            market_index[cat].append({"date": str(r.date), "idx": round(float(r.idx), 2), "n": int(r.products)})
         conn.execute(text("RELEASE SAVEPOINT sp_market"))
     except Exception as e:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_market"))
-        logger.warning(f"vw_daily_market_index query failed, category price index chart will be empty: {e}")
+        logger.warning(f"basket index query failed, category price index chart will be empty: {e}")
         market_index = {}
 
     return {
@@ -402,7 +412,7 @@ def fetch_data(conn):
         "new_products":    new_products,
         "disappeared":     disappeared,
         "history":          history,
-        "discount_data": discount_data,
+        "buy_or_wait":   bow,
         "market_index":  market_index,
     }
 

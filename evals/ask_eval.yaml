@@ -70,7 +70,7 @@
     {
       "id": "new_products_week",
       "question": "Πόσα νέα προϊόντα εμφανίστηκαν τις τελευταίες 7 μέρες;",
-      "reference_sql": "SELECT COUNT(*) AS n FROM products WHERE first_seen >= (SELECT MAX(date) FROM price_snapshots) - 7",
+      "reference_sql": "SELECT COUNT(*) AS n FROM products p JOIN price_snapshots s ON s.product_id = p.id AND s.date = (SELECT MAX(date) FROM price_snapshots) WHERE p.first_seen > (SELECT MAX(date) FROM price_snapshots) - 7",
       "check": {
         "type": "value",
         "key": "n"

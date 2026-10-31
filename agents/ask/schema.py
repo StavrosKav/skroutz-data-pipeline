@@ -41,7 +41,7 @@ A product asked about "today"/"now" (cheapest, history of the cheapest...) is pi
 Search for a product/model name in product_name (the full title), not in model (often short or NULL).
 When sorting by price use NULLS LAST (cheapest/most expensive must be real prices).
 When the question asks for the median (διάμεσος/διάμεση) use median_price or PERCENTILE_CONT(0.5), never AVG.
-"New this week" = first_seen >= latest date - 7.
+"New this week" = first_seen > latest date - 7 (the 7 most recent days) and listed on the latest date (has a price_snapshots row on it).
 Aggregates of prices (median, average, min, max per brand/category) describe current prices by default: compute them
 from mv_latest_prices of currently listed products. Use mv_brand_summary only when the question asks about all history
 (ever / historically / over time).

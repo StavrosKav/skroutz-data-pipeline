@@ -57,7 +57,7 @@ class TestCountQueries(unittest.TestCase):
         self.assertEqual(queries.count_new_products(conn, days=7), 137)
         sql, params = _sql_and_params(conn)
         self.assertIn("COUNT(*)", sql)
-        self.assertIn("first_seen >= (SELECT MAX(date) FROM price_snapshots) - :days", sql)
+        self.assertIn("first_seen > (SELECT MAX(date) FROM price_snapshots) - :days", sql)
         self.assertNotIn("LIMIT", sql)
         self.assertEqual(params, {"days": 7})
 
@@ -79,7 +79,8 @@ class TestCountQueries(unittest.TestCase):
             counts = gd.fetch_counts(conn)
         self.assertEqual(set(counts), {"drops_today", "drops_week", "suspect_drops_today",
                                        "suspect_drops_week", "new_week", "disappeared_30d",
-                                       "latest_products"})
+                                       "latest_products", "listed_today", "listed_prev",
+                                       "drops_prev"})
         self.assertTrue(cd.call_args_list)
         for call in cd.call_args_list:
             self.assertNotIn("exclude_suspect_pct", call.kwargs)
@@ -146,14 +147,14 @@ def _fixture_data():
     return {
         "generated": "2026-10-28", "total_products": 25873, "total_snapshots": 1000000,
         "last_updated": "2026-10-28", "window_start": "2026-01-01",
-        "by_category": {"phone": {"count": 10, "avg_price": 500.0}},
+        "by_category": {"phone": {"count": 10, "median_price": 500.0}},
         "counts": {"drops_today": 412, "drops_week": 1900, "suspect_drops_today": 3,
                    "suspect_drops_week": 9, "new_week": 137, "disappeared_30d": 88,
                    "latest_products": 25873},
         "limits": {}, "thresholds": {"suspect_pct": 40.0, "hot_min_pct": 3.0, "hot_min_eur": 5.0},
         "drops": [sus, drop], "weekly_drops": [sus, drop], "hot_deals": [],
         "brand_data": {}, "brand_trend": {}, "products": [], "new_products": [],
-        "disappeared": [], "history": {}, "discount_data": {},
+        "disappeared": [], "history": {}, "buy_or_wait": {},
         "market_index": [],
     }
 

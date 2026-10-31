@@ -7,7 +7,6 @@
 -- Views defined here:
 --   vw_latest_prices          — each product with its most recent price snapshot
 --   vw_price_history          — full daily price history with day-over-day change
---   vw_biggest_drops          — products with the largest single-day price drops
 --   vw_brand_summary          — price stats per brand per category
 --   vw_disappeared            — products not seen for more than 30 days
 --   vw_active_products        — products in the latest scrape (last_seen = latest scrape date)
@@ -22,7 +21,7 @@
 --   vw_restock_pricing        — price before vs. after a 3+ day stock gap
 --   vw_review_velocity        — products gaining the most new reviews in the last 14 days
 --
--- v4 (see bottom of file): vw_latest_prices, vw_price_history, vw_biggest_drops,
+-- v4 (see bottom of file): vw_latest_prices, vw_price_history,
 --   vw_price_floor, vw_price_volatility, vw_price_trend_direction, vw_brand_summary,
 --   vw_brand_price_trend, vw_daily_market_index, vw_restock_pricing, vw_review_velocity
 --   are backed by MATERIALIZED VIEWs (mv_*), refreshed once/day by
@@ -95,26 +94,10 @@ FROM ph
 JOIN products p ON p.id = ph.product_id;
 
 
--- ── 3. Biggest single-day price drops ────────────────────────────────────────
--- Top products by absolute price drop between any two consecutive scraped days.
--- Useful for "alert me to good deals" use-cases and pipeline demos.
-
-CREATE OR REPLACE VIEW vw_biggest_drops AS
-SELECT
-    product_id,
-    category,
-    brand,
-    model,
-    product_name,
-    date          AS drop_date,
-    prev_price,
-    price_eur     AS new_price,
-    price_change  AS drop_eur,
-    pct_change    AS drop_pct,
-    skroutz_link
-FROM vw_price_history
-WHERE price_change < 0
-ORDER BY price_change ASC;
+-- ── 3. (removed) vw_biggest_drops ─────────────────────────────────────────────
+-- Day-over-day drops had no consumer left: the dashboard, Telegram, ask bot and
+-- evals use vw_drops_7d (sql/drops_7d.sql). Dropped in the 2026-10-31 audit.
+DROP VIEW IF EXISTS vw_biggest_drops;
 
 
 -- ── 4. Brand price summary per category ──────────────────────────────────────
@@ -540,7 +523,7 @@ ORDER BY COALESCE(a.rev_now - a.rev_14d, 0) DESC;
 -- Data changes ONCE per day (the 08:00 pipeline). Every view above that GROUPs
 -- or windows (LAG/LEAD/FILTER) over the full price_snapshots table was paying
 -- that cost on every single read — including the hottest path in the whole
--- project (vw_biggest_drops, hit by the HTML dashboard, the
+-- project (the drops view, hit by the HTML dashboard, the
 -- Telegram drop digest, and /status on every call).
 --
 -- The 10 heaviest full-table aggregates below are now MATERIALIZED VIEWs,
@@ -597,7 +580,7 @@ CREATE OR REPLACE VIEW vw_latest_prices AS
 SELECT * FROM mv_latest_prices;
 
 
--- ── mv_price_history — backs vw_price_history AND vw_biggest_drops ────────────
+-- ── mv_price_history — backs vw_price_history ─────────────────────────────────
 -- The single most expensive query in the app: LAG() over all ~450k snapshot
 -- rows, previously recomputed on every dashboard/bot/digest call.
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_price_history AS
@@ -640,20 +623,6 @@ CREATE INDEX IF NOT EXISTS idx_mv_price_history_date
 
 CREATE OR REPLACE VIEW vw_price_history AS
 SELECT * FROM mv_price_history;
-
-CREATE OR REPLACE VIEW vw_biggest_drops AS
-SELECT
-    product_id, category, brand, model, product_name,
-    date          AS drop_date,
-    prev_price,
-    price_eur     AS new_price,
-    price_change  AS drop_eur,
-    pct_change    AS drop_pct,
-    skroutz_link
-FROM mv_price_history
-WHERE price_change < 0
-ORDER BY price_change ASC;
-
 
 -- ── mv_price_floor — all-time low/high per product ─────────────────────────────
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_price_floor AS
