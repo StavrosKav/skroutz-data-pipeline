@@ -167,6 +167,14 @@ Questions are cut to 500 characters. If the question is not about the data (for 
 * **383 tests** in pytest.
 * **CI on every push:** ruff, pytest, pip-audit and TruffleHog.
 
+## Dashboard notes
+
+* Prices are the cheapest shop's "from" price on Skroutz, not one fixed shop.
+* Cards and trend charts use medians. The Category Price Index follows the same products from the first day (= 100, geometric mean of price ratios).
+* "Buy or wait" compares each product's price today with its own 90-day low, median and high.
+* "New this week" means first seen in the 7 most recent days and still listed on the latest day. The dashboard, Telegram and the `/ask` bot use this one rule.
+* The daily run warns (it does not fail) when a category lists under 85% of its 7-day average.
+
 ## Price trend charts
 
 Average daily price for the 6 largest brands per category (7 day smoothed), rebuilt after every run.
@@ -231,7 +239,7 @@ docs/                  pipeline, agent and insight write ups
 ## Honest notes and limitations
 
 * It runs on my own laptop, so a day is missed if the laptop is off.
-* Smartwatch brand parsing is weak. Some rows have no brand or the brand "Smartwatch", so the table counts only brands with 5 or more products.
+* Smartwatch brand parsing is weak. Some rows have no brand or a fake brand ("Smartwatch", "Έξυπνο"). The dashboard hides these two in brand tables and charts (the data is unchanged), and counts only brands with 5 or more products.
 * Phone RAM is filled for about 68% of products.
 * The eval set is small and written by me, so the score is a sanity check, not a benchmark. The score also changes from run to run.
 * The free NIM catalog changes. Older models I used were retired, which is why there is a fallback chain.
