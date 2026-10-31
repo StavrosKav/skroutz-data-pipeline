@@ -364,7 +364,8 @@ Indexes
 |---|---|
 | `vw_latest_prices` | Most recent price + metadata per product |
 | `vw_price_history` | Full daily history with LAG-based day-over-day delta |
-| `vw_biggest_drops` | All negative price changes ordered by size |
+| `vw_biggest_drops` | Day-over-day negative price changes (used by the ask bot and its evals) |
+| `vw_drops_7d` | Drops vs a reference = LEAST(yesterday, median of previous 7 snapshots), min 3 snapshots of history; backed by `mv_drops_7d`. Used by the dashboard, Telegram and the daily digest. Drops >= 40% are counted and flagged "big drop, check" |
 | `vw_brand_summary` | Min/max/avg/median price per brand per category |
 | `vw_disappeared` | Products not seen for more than 30 days |
 | `vw_price_volatility` | 30-day coefficient of variation (stddev / avg) |
@@ -409,7 +410,7 @@ HTML email via SMTP with 30-second connection timeout. `html.escape()` applied t
 | Function | Subject | Trigger |
 |---|---|---|
 | `send_failure_alert(stage, code)` | `[Skroutz Pipeline] FAILED — {stage}` | Core stage failure |
-| `send_drop_digest()` | `[Skroutz] N price drops today` | Top 10 from `vw_biggest_drops` |
+| `send_drop_digest()` | `[Skroutz] N price drops today` | Top 10 from `vw_drops_7d` |
 | `send_watchlist_alerts()` | `[Skroutz] N price target(s) reached` | `watchlist.json` hits |
 | `send_disappeared_alert()` | `[Skroutz] N product(s) disappeared` | `last_seen` 1–2 days ago |
 | `send_success_summary(elapsed)` | `[Skroutz] Pipeline OK` | All stages passed |

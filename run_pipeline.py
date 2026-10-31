@@ -1,4 +1,4 @@
-﻿"""
+"""
 run_pipeline.py
 ---------------
 Master orchestration script for the daily Skroutz price-tracking pipeline.
@@ -325,27 +325,34 @@ MATVIEWS = [
     "mv_daily_market_index",
     "mv_restock_pricing",
     "mv_review_velocity",
+    "mv_drops_7d",   # sql/drops_7d.sql; independent of mv_price_history
 ]
 
 
 VIEWS_SQL = os.path.join(BASE, "sql", "vw_disappeared.sql")
+VIEW_FILES = (VIEWS_SQL, os.path.join(BASE, "sql", "drops_7d.sql"))
 
 
 def apply_view_definitions():
     """Re-apply idempotent CREATE OR REPLACE VIEW files (no migration step)."""
+    for path in VIEW_FILES:
+        _apply_view_file(path)
+
+
+def _apply_view_file(path):
     try:
-        with open(VIEWS_SQL, encoding="utf-8") as f:
+        with open(path, encoding="utf-8-sig") as f:
             ddl = f.read()
         with get_engine().begin() as conn:
             conn.execute(text(ddl))
     except Exception as e:
-        logger.warning(f"View definitions: could not apply {os.path.basename(VIEWS_SQL)} — {e}")
+        logger.warning(f"View definitions: could not apply {os.path.basename(path)} — {e}")
 
 
 def refresh_matviews():
     """
     Refresh the analytics materialized views so today's data shows up in
-    vw_biggest_drops, vw_latest_prices, etc. Non-fatal — pipeline result is
+    vw_drops_7d, vw_latest_prices, etc. Non-fatal — pipeline result is
     unaffected if this fails (a stale matview is a staleness bug, not data
     loss; the underlying tables Load SQL just wrote are untouched).
     """
@@ -401,7 +408,7 @@ def send_drop_digest():
         with engine.connect() as conn:
             rows = conn.execute(text(
                 "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
-                "FROM vw_biggest_drops "
+                "FROM vw_drops_7d "
                 "WHERE drop_date = CAST(:d AS date) "
                 "ORDER BY ABS(drop_eur) DESC LIMIT 10"
             ), {"d": _pipeline_date()}).fetchall()
@@ -979,13 +986,13 @@ def send_success_summary(elapsed):
             d = {"d": _pipeline_date()}
             snaps          = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CAST(:d AS date)"), d).scalar()
             new_prods      = conn.execute(text("SELECT COUNT(*) FROM products WHERE first_seen = CAST(:d AS date)"), d).scalar()
-            drops          = conn.execute(text("SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CAST(:d AS date)"), d).scalar()
+            drops          = conn.execute(text("SELECT COUNT(*) FROM vw_drops_7d WHERE drop_date = CAST(:d AS date)"), d).scalar()
             yesterday_snaps = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CAST(:d AS date) - 1"), d).scalar() or 0
-            # Same "suspect" rule as the dashboard KPI (likely scrape errors).
-            from reporting.generate_dashboard import SUSPECT_DROP_PCT
+            # Big drops (shown, flagged "check") - same threshold as the dashboard.
+            from reporting.drops import BIG_DROP_PCT
             suspect        = conn.execute(text(
-                "SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CAST(:d AS date) AND drop_pct <= -:s"
-            ), {**d, "s": SUSPECT_DROP_PCT}).scalar() or 0
+                "SELECT COUNT(*) FROM vw_drops_7d WHERE drop_date = CAST(:d AS date) AND drop_pct <= -:s"
+            ), {**d, "s": BIG_DROP_PCT}).scalar() or 0
     except Exception as e:
         logger.warning(f"Success summary: DB query failed — {e}")
         return

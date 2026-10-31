@@ -34,16 +34,16 @@ class TestCountQueries(unittest.TestCase):
         conn = _conn_returning(412)
         self.assertEqual(queries.count_drops(conn, 0), 412)
         sql, params = _sql_and_params(conn)
-        self.assertIn("SELECT COUNT(*) FROM vw_biggest_drops", sql)
+        self.assertIn("SELECT COUNT(*) FROM vw_drops_7d", sql)
         self.assertNotIn("LIMIT", sql)
         self.assertEqual(params, {"days": 0})
 
-    def test_count_drops_excludes_suspect(self):
+    def test_count_drops_counts_big_drops_too(self):
         conn = _conn_returning(5)
-        queries.count_drops(conn, 7, exclude_suspect_pct=40.0)
+        queries.count_drops(conn, 7)
         sql, params = _sql_and_params(conn)
-        self.assertIn("drop_pct > -:suspect", sql)
-        self.assertEqual(params, {"days": 7, "suspect": 40.0})
+        self.assertNotIn("drop_pct >", sql)
+        self.assertEqual(params, {"days": 7})
 
     def test_count_suspect_drops(self):
         conn = _conn_returning(3)
@@ -80,8 +80,9 @@ class TestCountQueries(unittest.TestCase):
         self.assertEqual(set(counts), {"drops_today", "drops_week", "suspect_drops_today",
                                        "suspect_drops_week", "new_week", "disappeared_30d",
                                        "latest_products"})
+        self.assertTrue(cd.call_args_list)
         for call in cd.call_args_list:
-            self.assertEqual(call.kwargs["exclude_suspect_pct"], gd.SUSPECT_DROP_PCT)
+            self.assertNotIn("exclude_suspect_pct", call.kwargs)
 
 
 class TestHotDealsQuery(unittest.TestCase):

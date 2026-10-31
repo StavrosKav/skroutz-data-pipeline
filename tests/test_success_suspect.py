@@ -15,7 +15,7 @@ class SuccessSuspectDrops(unittest.TestCase):
     def test_shows_suspect_count_and_threshold(self):
         msg = self._msg(suspect=7)
         self.assertIn("757", msg)
-        self.assertIn(f"7 πιθανά λάθη ≥{gd.SUSPECT_DROP_PCT:.0f}%", msg)
+        self.assertIn(f"7 μεγάλη πτώση, έλεγξε ≥{gd.SUSPECT_DROP_PCT:.0f}%", msg)
 
     def test_no_suspect_note_when_zero(self):
-        self.assertNotIn("πιθανά λάθη", self._msg(suspect=0))
+        self.assertNotIn("μεγάλη πτώση, έλεγξε", self._msg(suspect=0))

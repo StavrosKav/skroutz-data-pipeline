@@ -23,6 +23,7 @@ from sqlalchemy import text
 import pandas as pd
 
 import reporting.queries as queries
+from reporting.drops import BIG_DROP_LABEL_EN, BIG_DROP_PCT
 import reporting.dashboard_payload as payload
 from core.db import get_engine
 
@@ -50,9 +51,10 @@ PRODUCTS_LIMIT      = 3000   # product search / price tiers / price-vs-rating sa
 HOT_DEALS_LIMIT     = 20
 SPARK_POINTS        = 8      # points per product sparkline (last 30 days)
 
-# A drop of SUSPECT_DROP_PCT percent or more is flagged "suspect" (usually a
-# variant mix-up or a bad scrape) and kept out of KPI counts and Hot Deals.
-SUSPECT_DROP_PCT       = 40.0
+# A drop of SUSPECT_DROP_PCT percent or more is shown and counted, but flagged
+# "μεγάλη πτώση, έλεγξε" (check it). Hot Deals, which still compares only the
+# last two scrapes, keeps excluding them. One constant: reporting/drops.py.
+SUSPECT_DROP_PCT       = BIG_DROP_PCT
 # Hot Deals must fall at least this much, in percent and in euros.
 HOT_DEAL_MIN_DROP_PCT  = 3.0
 HOT_DEAL_MIN_DROP_EUR  = 5.0
@@ -89,8 +91,8 @@ def _coerce_drops(df):
 def fetch_counts(conn):
     """Real KPI totals (COUNT(*)), independent of the display-list LIMITs."""
     return {
-        "drops_today":         queries.count_drops(conn, 0, exclude_suspect_pct=SUSPECT_DROP_PCT),
-        "drops_week":          queries.count_drops(conn, 7, exclude_suspect_pct=SUSPECT_DROP_PCT),
+        "drops_today":         queries.count_drops(conn, 0),
+        "drops_week":          queries.count_drops(conn, 7),
         "suspect_drops_today": queries.count_suspect_drops(conn, 0, SUSPECT_DROP_PCT),
         "suspect_drops_week":  queries.count_suspect_drops(conn, 7, SUSPECT_DROP_PCT),
         "new_week":            queries.count_new_products(conn, days=7),
@@ -387,6 +389,7 @@ def fetch_data(conn):
         },
         "thresholds": {
             "suspect_pct": SUSPECT_DROP_PCT,
+            "big_drop_label": BIG_DROP_LABEL_EN,
             "hot_min_pct": HOT_DEAL_MIN_DROP_PCT,
             "hot_min_eur": HOT_DEAL_MIN_DROP_EUR,
         },

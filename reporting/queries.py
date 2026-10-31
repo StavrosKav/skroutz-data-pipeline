@@ -33,7 +33,7 @@ def category_snapshot(conn):
 
 
 def biggest_drops(conn, days_back, categories=None, limit=100):
-    """Price drops with drop_date >= (SELECT MAX(date) FROM price_snapshots) - days_back, most negative drop_eur first."""
+    """Price drops (7-snapshot baseline, see reporting/drops.py) with drop_date >= MAX(date) - days_back, most negative drop_eur first."""
     params = {"days": days_back, "limit": limit}
     cat_clause = ""
     if categories:
@@ -45,7 +45,7 @@ def biggest_drops(conn, days_back, categories=None, limit=100):
         SELECT brand, model, category,
                prev_price, new_price, drop_eur, drop_pct,
                drop_date, skroutz_link
-        FROM vw_biggest_drops
+        FROM vw_drops_7d
         WHERE drop_date >= (SELECT MAX(date) FROM price_snapshots) - :days
         {cat_clause}
         ORDER BY drop_eur ASC LIMIT :limit
@@ -162,26 +162,19 @@ def market_index(conn, days=90):
     return pd.read_sql(query, conn, params={"days": days})
 
 
-def count_drops(conn, days_back, exclude_suspect_pct=None):
-    """Number of price drops with drop_date >= (SELECT MAX(date) FROM price_snapshots) - days_back.
-    exclude_suspect_pct (e.g. 40.0) leaves out drops of that size or larger."""
-    params = {"days": days_back}
-    suspect_clause = ""
-    if exclude_suspect_pct is not None:
-        suspect_clause = "AND drop_pct > -:suspect"
-        params["suspect"] = exclude_suspect_pct
-    query = text(f"""
-        SELECT COUNT(*) FROM vw_biggest_drops
+def count_drops(conn, days_back):
+    """Number of price drops (vw_drops_7d, big ones included) with drop_date >= MAX(date) - days_back."""
+    query = text("""
+        SELECT COUNT(*) FROM vw_drops_7d
         WHERE drop_date >= (SELECT MAX(date) FROM price_snapshots) - :days
-        {suspect_clause}
     """)
-    return int(conn.execute(query, params).scalar() or 0)
+    return int(conn.execute(query, {"days": days_back}).scalar() or 0)
 
 
 def count_suspect_drops(conn, days_back, suspect_pct):
-    """Number of drops of suspect_pct percent or more (likely scrape errors)."""
+    """Number of drops of suspect_pct percent or more (shown, flagged "check")."""
     query = text("""
-        SELECT COUNT(*) FROM vw_biggest_drops
+        SELECT COUNT(*) FROM vw_drops_7d
         WHERE drop_date >= (SELECT MAX(date) FROM price_snapshots) - :days
           AND drop_pct <= -:suspect
     """)

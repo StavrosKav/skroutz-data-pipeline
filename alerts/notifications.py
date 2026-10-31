@@ -259,11 +259,11 @@ def tg_disappeared(rows) -> bool:
 
 
 def _suspect_note(suspect: int) -> str:
-    """' (7 πιθανά λάθη ≥40%)' using the dashboard's suspect threshold; '' when none."""
+    """' (7 μεγάλη πτώση, έλεγξε ≥40%)' using the shared big-drop threshold; '' when none."""
     if not suspect:
         return ""
-    from reporting.generate_dashboard import SUSPECT_DROP_PCT
-    return f" ({suspect} πιθανά λάθη ≥{SUSPECT_DROP_PCT:.0f}%)"
+    from reporting.drops import BIG_DROP_LABEL, BIG_DROP_PCT
+    return f" ({suspect} {BIG_DROP_LABEL} ≥{BIG_DROP_PCT:.0f}%)"
 
 
 def tg_success(snaps: int, new_prods: int, drops: int, elapsed: str, suspect: int = 0) -> bool:

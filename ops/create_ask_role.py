@@ -25,7 +25,7 @@ from core.db import get_engine
 ROLE = "skroutz_ask"
 # Views used by alerts/telegram_bot.py. They expose only products/price_snapshots data,
 # which the role can already read; /ask is still limited to ALLOWED_TABLES by its guard.
-BOT_VIEWS = ("vw_latest_prices", "vw_biggest_drops", "vw_price_floor", "vw_price_history", "vw_restock_pricing")
+BOT_VIEWS = ("vw_latest_prices", "vw_biggest_drops", "vw_price_floor", "vw_price_history", "vw_restock_pricing", "vw_drops_7d")
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 

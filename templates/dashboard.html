@@ -582,8 +582,9 @@ tr:hover td { background: #ffffff08; }
      cleans them and stores one price snapshot per product per day in PostgreSQL. This page is rebuilt
      from that database after every run.</p>
   <ul>
-    <li><b>Price drops</b> compare each product with its previous snapshot. Drops of <span id="about-suspect">40</span>% or more are marked
-        <i>suspect</i> (usually a variant mix-up) and left out of the counts.</li>
+    <li><b>Price drops</b> compare today's price with the lower of yesterday's price and the median of the previous 7 snapshots
+        (at least 3 needed), so a one-day spike that returns to normal is not a drop. Drops of <span id="about-suspect">40</span>% or more are
+        counted and marked <i>big drop, check</i>.</li>
     <li><b>Near all-time low</b> uses the lowest price ever recorded for the product.</li>
     <li><b>Stability</b> is the 30-day coefficient of variation of the price; the sparkline shows the last 30 days.</li>
     <li>The badge at the top shows how old the data is and turns red if a daily run was missed.</li>
@@ -680,7 +681,7 @@ function showingNote(shown, total) {
   return total > shown ? `showing top ${shown.toLocaleString()} of ${total.toLocaleString()}` : '';
 }
 function suspectBadge() {
-  return `<span class="suspect-badge" title="Drop of ${THR.suspect_pct}% or more: likely a scrape error or variant mix-up. Excluded from KPIs and Hot Deals.">suspect</span>`;
+  return `<span class="suspect-badge" title="Drop of ${THR.suspect_pct}% or more vs the usual price. Counted, but worth a look on Skroutz (shop change, variant or error). Not used in Hot Deals.">big drop, check</span>`;
 }
 function productsSampleNote() {
   const total = kpi('latest_products', DATA.products.length);
@@ -691,8 +692,8 @@ function productsSampleNote() {
 
 // ── Stat cards ─────────────────────────────────────────────────────────────────
 function buildStats() {
-  const bigDrop = DATA.drops.find(d => !d.suspect) || null;
-  const dropsToday = kpi('drops_today', DATA.drops.filter(d => !d.suspect).length);
+  const bigDrop = DATA.drops[0] || null;
+  const dropsToday = kpi('drops_today', DATA.drops.length);
   const newWeek    = kpi('new_week', DATA.new_products.length);
   const cards = [
     { val: DATA.total_products.toLocaleString(), lbl: '&#8594; Products Tracked' },
@@ -808,10 +809,10 @@ function buildDropsTable() {
 
   const total   = dropsView === 'today' ? kpi('drops_today', null) : kpi('drops_week', null);
   const nSusp   = sorted.filter(d => d.suspect).length;
-  const note    = [total != null ? showingNote(data.filter(d => !d.suspect).length, total) : '',
-                   nSusp ? `${nSusp} suspect (≥${THR.suspect_pct}%) not counted` : ''].filter(Boolean).join(' · ');
+  const note    = [total != null ? showingNote(data.length, total) : '',
+                   nSusp ? `${nSusp} ${THR.big_drop_label || 'big drop, check'} (≥${THR.suspect_pct}%)` : ''].filter(Boolean).join(' · ');
   document.getElementById('drops-title').innerHTML =
-    `${label} <span class="count-badge">${total != null && !dropMin ? total : sorted.filter(d => !d.suspect).length}</span>` +
+    `${label} <span class="count-badge">${total != null && !dropMin ? total : sorted.length}</span>` +
     (note ? `<span class="sample-note">${note}</span>` : '');
 
   const maxDrop = sorted.length ? Math.abs(sorted[0].drop_eur || 0) : 1;
@@ -1523,7 +1524,7 @@ function buildMarketIndex() {
 
 // ── Tab badge counts ───────────────────────────────────────────────────────────
 function updateTabBadges() {
-  const drops = kpi('drops_today', DATA.drops.filter(d => !d.suspect).length);
+  const drops = kpi('drops_today', DATA.drops.length);
   const el = document.getElementById('tc-drops');
   if (el && drops) el.textContent = drops;
   const pel = document.getElementById('tc-products');
@@ -1557,7 +1558,7 @@ function exportCSV() {
 function exportDropsCSV() {
   const data = dropsView === 'today' ? DATA.drops : DATA.weekly_drops;
   downloadCSV(`skroutz_drops_${dropsView}_${DATA.last_updated}.csv`,
-    ['Brand','Model','Category','Date','Was (EUR)','Now (EUR)','Drop (EUR)','Drop %','Suspect','Link'],
+    ['Brand','Model','Category','Date','Was (EUR)','Now (EUR)','Drop (EUR)','Drop %','Big drop (check)','Link'],
     ['brand','model','category','drop_date','prev_price','new_price','drop_eur','drop_pct','suspect','skroutz_link'],
     data);
 }
