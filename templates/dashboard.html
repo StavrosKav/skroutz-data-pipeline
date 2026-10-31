@@ -370,8 +370,8 @@ tr:hover td { background: #ffffff08; }
     <div class="charts-grid" id="trend-charts"></div>
   </div>
   <div class="section">
-    <div class="section-title">&#128202; Category Price Index &mdash; __WINDOW_START_LABEL__</div>
-    <div id="market-index-wrap" style="max-height:280px;position:relative"><canvas id="market-index-chart"></canvas></div>
+    <div class="section-title">&#128202; Category Price Index (same products, first day = 100) &mdash; __WINDOW_START_LABEL__</div>
+    <div id="market-index-wrap" style="height:280px;position:relative"><canvas id="market-index-chart"></canvas></div>
   </div>
 </div>
 
@@ -520,8 +520,8 @@ tr:hover td { background: #ffffff08; }
   <div class="section">
     <div class="section-title">&#127991; Brand Analysis</div>
     <div class="metric-toggle">
-      <button class="metric-btn active" data-metric="avg"    onclick="setBrandMetric(this)">Avg Price &euro;</button>
-      <button class="metric-btn"        data-metric="median" onclick="setBrandMetric(this)">Median Price &euro;</button>
+      <button class="metric-btn active" data-metric="median" onclick="setBrandMetric(this)">Median Price &euro;</button>
+      <button class="metric-btn"        data-metric="avg"    onclick="setBrandMetric(this)">Avg Price &euro;</button>
       <button class="metric-btn"        data-metric="count"  onclick="setBrandMetric(this)">Product Count</button>
       <button class="metric-btn"        data-metric="range"  onclick="setBrandMetric(this)">Price Range</button>
     </div>
@@ -582,6 +582,11 @@ tr:hover td { background: #ffffff08; }
     <li><b>Near all-time low</b> (Products filter) uses the lowest price ever recorded for the product.</li>
     <li><b>Buy or Wait</b> compares today's price with the product's own low, median and high over the last 90 days,
         using only the days we recorded (at least 20). It ignores products not listed in the latest scrape.</li>
+    <li><b>Category Price Index</b> (Overview) follows a fixed basket: the products of each category listed on the first
+        recorded day of the window and on at least 80% of its recorded days. Each day it shows the geometric mean of their
+        price relative to that first day (first day = 100; 102 means about 2% dearer), so new or vanished products do not move it.
+        Typical prices on the cards and trend charts are medians.</li>
+    <li>All prices are the cheapest shop's &ldquo;from&rdquo; price on Skroutz, not one fixed shop.</li>
     <li><b>Stability</b> is the 30-day coefficient of variation of the price; the sparkline shows the last 30 days.</li>
     <li>The badge at the top shows how old the data is and turns red if a daily run was missed.</li>
   </ul>
@@ -702,7 +707,7 @@ function buildStats() {
   for (const [cat, info] of Object.entries(DATA.by_category)) {
     const label = (CAT_LABEL[cat]||cat);
     cards.push({ val: info.count.toLocaleString(), lbl: '&#8594; ' + label + ' Today' });
-    cards.push({ val: '€' + info.avg_price.toFixed(0), lbl: 'Avg ' + label + ' Price' });
+    cards.push({ val: '€' + info.median_price.toFixed(0), lbl: 'Median ' + label + ' Price' });
   }
   if (bigDrop) {
     cards.push({
@@ -974,7 +979,7 @@ function buildNewGone() {
 }
 
 // ── Brand charts (Insights) ────────────────────────────────────────────────────
-let brandMetric = 'avg';
+let brandMetric = 'median';
 let brandInst   = [];
 
 function setBrandMetric(btn) {
@@ -1253,7 +1258,7 @@ function renderCompareCharts() {
 
   el.innerHTML = Object.entries(trend)
     .filter(([,brands]) => Object.keys(brands).length)
-    .map(([cat]) => `<div class="compare-card"><h4>${CAT_LABEL[cat]||cat} &mdash; Avg Price Trend</h4><canvas id="cmp-${cat}" height="160"></canvas></div>`)
+    .map(([cat]) => `<div class="compare-card"><h4>${CAT_LABEL[cat]||cat} &mdash; Median Price Trend</h4><canvas id="cmp-${cat}" height="160"></canvas></div>`)
     .join('');
 
   for (const [cat, brands] of Object.entries(trend)) {
@@ -1380,7 +1385,7 @@ function buildMarketIndex() {
   const chartCtx    = chartCanvas.getContext('2d');
 
   const datasets = Object.entries(idx).map(([cat, pts]) => {
-    const byDate = Object.fromEntries(pts.map(p => [p.date, p.avg]));
+    const byDate = Object.fromEntries(pts.map(p => [p.date, p.idx]));
     const color  = CAT_COLORS[cat] || '#3b82f6';
     const grad   = chartCtx.createLinearGradient(0, 0, 0, 240);
     grad.addColorStop(0, color + '4d');
@@ -1398,19 +1403,21 @@ function buildMarketIndex() {
       spanGaps: true,
     };
   });
+  const basketN = Object.fromEntries(Object.entries(idx).map(([c, pts]) => [CAT_LABEL[c]||c, pts.length ? pts[pts.length-1].n : 0]));
   marketIndexInst = new Chart(chartCtx, {
     type: 'line',
     data: { labels: allDates, datasets },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       interaction: { mode:'index', intersect:false },
       plugins: {
         legend: { labels:{ color:'#94a3b8', font:{size:11}, boxWidth:12 } },
-        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: €${c.raw?.toFixed(2) ?? '—'}` } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.raw?.toFixed(1) ?? '—'} (${basketN[c.dataset.label]} products)` } },
       },
       scales: {
         x: { ticks:{ color:'#64748b', maxTicksLimit:8, font:{size:11} }, grid:{ color:'#2a2d3a' } },
-        y: { ticks:{ color:'#64748b', callback: v => '€'+v }, grid:{ color:'#2a2d3a' } },
+        y: { ticks:{ color:'#64748b' }, grid:{ color:'#2a2d3a' } },
       },
     },
   });

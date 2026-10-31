@@ -146,7 +146,7 @@ def _fixture_data():
     return {
         "generated": "2026-10-28", "total_products": 25873, "total_snapshots": 1000000,
         "last_updated": "2026-10-28", "window_start": "2026-01-01",
-        "by_category": {"phone": {"count": 10, "avg_price": 500.0}},
+        "by_category": {"phone": {"count": 10, "median_price": 500.0}},
         "counts": {"drops_today": 412, "drops_week": 1900, "suspect_drops_today": 3,
                    "suspect_drops_week": 9, "new_week": 137, "disappeared_30d": 88,
                    "latest_products": 25873},

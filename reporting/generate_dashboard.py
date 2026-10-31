@@ -117,7 +117,7 @@ def fetch_data(conn):
     by_category = {
         r.category: {
             "count":     r.product_count,
-            "avg_price": round(float(r.avg_price), 2) if pd.notna(r.avg_price) else 0.0,
+            "median_price": round(float(r.median_price), 2) if pd.notna(r.median_price) else 0.0,
             "min_price": round(float(r.min_price), 2) if pd.notna(r.min_price) else 0.0,
             "max_price": round(float(r.max_price), 2) if pd.notna(r.max_price) else 0.0,
         }
@@ -325,7 +325,7 @@ def fetch_data(conn):
             "to_date":    r.latest_date  or "",
         })
 
-    # Brand avg-price trend for comparison charts (top 8 brands/category, last 90 days)
+    # Brand median-price trend for comparison charts (top 8 brands/category, last 90 days)
     brand_trend = {}
     for cat in by_category:
         trend_df = queries.brand_trend(conn, cat, top_n=8, days=90)
@@ -335,7 +335,7 @@ def fetch_data(conn):
         for r in trend_df.itertuples():
             if r.brand not in brand_trend[cat]:
                 brand_trend[cat][r.brand] = []
-            brand_trend[cat][r.brand].append({"date": str(r.date), "price": round(float(r.avg_price), 2)})
+            brand_trend[cat][r.brand].append({"date": str(r.date), "price": round(float(r.median_price), 2)})
 
     # Buy or wait: today's price vs each product's own 90-day low/median/high
     try:
@@ -349,17 +349,17 @@ def fetch_data(conn):
 
     try:
         conn.execute(text("SAVEPOINT sp_market"))
-        idx_rows = queries.market_index(conn, days=90).itertuples()
+        idx_rows = queries.basket_index(conn, days=90).itertuples()
         market_index: dict = {}
         for r in idx_rows:
             cat = r.category
             if cat not in market_index:
                 market_index[cat] = []
-            market_index[cat].append({"date": str(r.date), "avg": float(r.avg_price)})
+            market_index[cat].append({"date": str(r.date), "idx": round(float(r.idx), 2), "n": int(r.products)})
         conn.execute(text("RELEASE SAVEPOINT sp_market"))
     except Exception as e:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_market"))
-        logger.warning(f"vw_daily_market_index query failed, category price index chart will be empty: {e}")
+        logger.warning(f"basket index query failed, category price index chart will be empty: {e}")
         market_index = {}
 
     return {

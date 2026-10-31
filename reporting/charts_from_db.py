@@ -78,11 +78,11 @@ def plot_brand_trend(df, category, output_path):
     for i, brand in enumerate(brands):
         color = PALETTE[i % len(PALETTE)]
         bdf = df[df["brand"] == brand].sort_values("date").copy()
-        bdf["smooth"] = bdf["avg_price"].rolling(SMOOTH, min_periods=1, center=True).mean()
-        bdf["std"]    = bdf["avg_price"].rolling(SMOOTH, min_periods=1, center=True).std().fillna(0)
+        bdf["smooth"] = bdf["median_price"].rolling(SMOOTH, min_periods=1, center=True).mean()
+        bdf["std"]    = bdf["median_price"].rolling(SMOOTH, min_periods=1, center=True).std().fillna(0)
 
         dates  = bdf["date"].values
-        raw    = bdf["avg_price"].values
+        raw    = bdf["median_price"].values
         smooth = bdf["smooth"].values
         std    = bdf["std"].values
 
@@ -105,8 +105,8 @@ def plot_brand_trend(df, category, output_path):
                    color=color, s=40, zorder=5, linewidths=0)
 
     # ── Y-axis: frame tightly around data ─────────────────────────────────────
-    y_data_min = df["avg_price"].min()
-    y_data_max = df["avg_price"].max()
+    y_data_min = df["median_price"].min()
+    y_data_max = df["median_price"].max()
     if y_data_max / max(y_data_min, 1) > 8:
         ax.set_yscale("log")
         ax.set_ylim(max(y_data_min * 0.85, 1), y_data_max * 1.15)
@@ -173,7 +173,7 @@ def plot_brand_trend(df, category, output_path):
         loc="left", pad=30,
     )
     ax.text(0, 1.012,
-            f"Avg daily price  ·  {start_str} → {end_str}  ·  7-day smoothed",
+            f"Median daily price  ·  {start_str} → {end_str}  ·  7-day smoothed",
             transform=ax.transAxes,
             fontsize=8, color=MUTED, va="bottom")
 
