@@ -198,6 +198,11 @@ def count_suspect_drops(conn, days_back, suspect_pct):
     return int(conn.execute(query, {"days": days_back, "suspect": suspect_pct}).scalar() or 0)
 
 
+# The one "new product" rule (dashboard, Telegram, ask bot, eval): first seen in
+# the `days` most recent days including the latest scrape date, and listed in it.
+NEW_PRODUCTS_WHERE = "first_seen > (SELECT MAX(date) FROM price_snapshots) - :days"
+
+
 def count_new_products(conn, days=7):
     """Products first seen in the last `days` days that are in the latest scrape
     (same filter as the New Arrivals list)."""
@@ -206,7 +211,7 @@ def count_new_products(conn, days=7):
         FROM products p
         JOIN price_snapshots s ON s.product_id = p.id
           AND s.date = (SELECT MAX(date) FROM price_snapshots)
-        WHERE p.first_seen >= (SELECT MAX(date) FROM price_snapshots) - :days
+        WHERE p.""" + NEW_PRODUCTS_WHERE + """
     """)
     return int(conn.execute(query, {"days": days}).scalar() or 0)
 

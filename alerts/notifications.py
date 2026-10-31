@@ -266,13 +266,18 @@ def _suspect_note(suspect: int) -> str:
     return f" ({suspect} {BIG_DROP_LABEL} ≥{BIG_DROP_PCT:.0f}%)"
 
 
-def tg_success(snaps: int, new_prods: int, drops: int, elapsed: str, suspect: int = 0) -> bool:
+def tg_success(snaps: int, new_prods: int, drops: int, elapsed: str, suspect: int = 0,
+               new_week: int | None = None, volume_alerts: list | None = None) -> bool:
     """Send a daily pipeline success summary (no dedup — always send)."""
     msg = (
         f"✅ <b>Pipeline completed</b>\n\n"
         f"📊 Snapshots loaded: <b>{snaps:,}</b>\n"
-        f"🆕 New products: <b>+{new_prods:,}</b>\n"
+        f"🆕 New products: <b>+{new_prods:,}</b>"
+        + (f" (last 7 days: <b>{new_week:,}</b>)" if new_week is not None else "") + "\n"
         f"📉 Price drops: <b>{drops}</b>{_suspect_note(suspect)}\n"
         f"⏱ Duration: <code>{_e(elapsed)}</code>"
     )
+    for a in volume_alerts or []:
+        msg += (f"\n⚠️ Low volume: <b>{_e(a['category'])}</b> {a['today']:,} "
+                f"vs 7-day avg {a['avg7']:,.0f} ({a['pct']:.0f}%)")
     return tg_send(msg)

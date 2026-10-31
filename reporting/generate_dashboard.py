@@ -247,9 +247,9 @@ def fetch_data(conn):
         FROM products p
         JOIN price_snapshots s ON s.product_id = p.id
           AND s.date = (SELECT MAX(date) FROM price_snapshots)
-        WHERE p.first_seen >= (SELECT MAX(date) FROM price_snapshots) - 7
+        WHERE p.""" + queries.NEW_PRODUCTS_WHERE + """
         ORDER BY p.first_seen DESC LIMIT :lim
-    """), {"lim": NEW_PRODUCTS_LIMIT}).fetchall()
+    """), {"lim": NEW_PRODUCTS_LIMIT, "days": 7}).fetchall()
     new_products = []
     for r in new_rows:
         new_products.append({

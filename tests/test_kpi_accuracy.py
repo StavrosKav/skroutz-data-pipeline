@@ -57,7 +57,7 @@ class TestCountQueries(unittest.TestCase):
         self.assertEqual(queries.count_new_products(conn, days=7), 137)
         sql, params = _sql_and_params(conn)
         self.assertIn("COUNT(*)", sql)
-        self.assertIn("first_seen >= (SELECT MAX(date) FROM price_snapshots) - :days", sql)
+        self.assertIn("first_seen > (SELECT MAX(date) FROM price_snapshots) - :days", sql)
         self.assertNotIn("LIMIT", sql)
         self.assertEqual(params, {"days": 7})
 
