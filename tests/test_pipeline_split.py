@@ -54,3 +54,8 @@ def test_main_exits_quietly_when_locked():
             assert e.code == 0
     rs.assert_not_called()
     send.assert_called_once()
+
+
+def test_unused_brand_discount_freq_removed():
+    import reporting.queries as q
+    assert not hasattr(q, "brand_discount_freq")
