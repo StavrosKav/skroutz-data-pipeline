@@ -15,8 +15,12 @@ at least MIN_DAYS recorded days, so a few points never pass for a pattern.
 "How often it drops" = share of day-to-day steps (between recorded days) where
 the price fell by DROP_STEP_PCT percent or more.
 Prices are the cheapest shop's "from" price on Skroutz, as everywhere else.
+A gap to the median of BIG_DROP_PCT percent or more is flagged "check" (often a
+shop change or a different variant), like big drops on the Price Drops tab.
 """
 from sqlalchemy import text
+
+from reporting.drops import BIG_DROP_PCT
 
 WINDOW_DAYS = 90
 MIN_DAYS = 20
@@ -100,6 +104,7 @@ def build(rows, limit=ROW_LIMIT):
             "price": round(cur, 2), "lo": round(lo, 2), "med": round(med, 2), "hi": round(hi, 2),
             "days": int(r.n_days), "vs_median_pct": round((cur - med) / med * 100, 1),
             "drop_rate_pct": round(int(r.n_drops) / steps * 100), "url": r.skroutz_link or "",
+            "suspect": (cur - med) / med * 100 <= -BIG_DROP_PCT,
         })
     near = sorted(buckets[NEAR_LOW], key=lambda x: x["vs_median_pct"])[:limit]
     above = sorted(buckets[ABOVE], key=lambda x: -x["vs_median_pct"])[:limit]

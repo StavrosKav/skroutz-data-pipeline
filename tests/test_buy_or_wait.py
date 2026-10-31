@@ -73,6 +73,12 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(r["drop_rate_pct"], round(6 / 59 * 100))
         self.assertEqual((r["lo"], r["med"], r["hi"], r["days"]), (780.0, 850.0, 900.0, 60))
 
+    def test_big_gap_flagged_check(self):
+        out = bw.build([_row(current=400.0, lo=400.0), _row(id=2, skroutz_id=2, product_name="B", current=781.0)])
+        flags = {r["name"]: r["suspect"] for r in out["near_low"]}
+        self.assertTrue(flags["Apple iPhone 15 128GB"])
+        self.assertFalse(flags["B"])
+
     def test_near_low_sorted_by_saving_and_limited(self):
         rows = [_row(id=i, skroutz_id=i, product_name=f"P{i}", current=780.0 + i % 3, med=850.0 + i)
                 for i in range(500)]

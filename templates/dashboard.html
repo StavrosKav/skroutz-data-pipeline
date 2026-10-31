@@ -1357,7 +1357,7 @@ function buildBuyOrWaitTable() {
     const color = r.vs_median_pct < 0 ? '#22c55e' : '#ef4444';
     const sign = r.vs_median_pct > 0 ? '+' : '';
     return `<tr>
-      <td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name).slice(0, 70)}</a></td>
+      <td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name).slice(0, 70)}</a>${r.suspect ? ' ' + suspectBadge() : ''}</td>
       <td>${catBadge(r.category)}</td>
       <td class="price">&euro;${r.price.toFixed(2)}</td>
       <td class="muted">${eur(r.lo)}</td><td class="muted">${eur(r.med)}</td><td class="muted">${eur(r.hi)}</td>
