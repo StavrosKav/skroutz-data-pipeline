@@ -364,13 +364,13 @@ Indexes
 |---|---|
 | `vw_latest_prices` | Most recent price + metadata per product |
 | `vw_price_history` | Full daily history with LAG-based day-over-day delta |
-| `vw_biggest_drops` | Day-over-day negative price changes (used by the ask bot and its evals) |
+| `vw_biggest_drops` | Day-over-day negative price changes (legacy; no app consumer, the ask bot and evals use `vw_drops_7d`) |
 | `vw_drops_7d` | Drops vs a reference = LEAST(yesterday, median of previous 7 snapshots), min 3 snapshots of history; backed by `mv_drops_7d`. Used by the dashboard, Telegram and the daily digest. Drops >= 40% are counted and flagged "big drop, check" |
 | `vw_brand_summary` | Min/max/avg/median price per brand per category |
 | `vw_disappeared` | Products not seen for more than 30 days |
 | `vw_price_volatility` | 30-day coefficient of variation (stddev / avg) |
 | `vw_brand_price_trend` | Daily avg price per brand/category (for charts) |
-| `vw_hot_deals` | Price drop AND review surge vs. previous scrape |
+| `vw_hot_deals` | Price drop AND review surge vs. previous scrape (legacy; the dashboard Hot Deals now take today's drops from `mv_drops_7d` plus a review surge, big drops flagged not excluded) |
 | `vw_price_floor` | All-time low + high per product |
 | `vw_brand_discount_freq` | % of days each brand had ≥3% drop (last 90 days) |
 | `vw_near_atl` | Products within N% of their all-time low |

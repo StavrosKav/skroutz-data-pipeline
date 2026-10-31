@@ -73,14 +73,14 @@ def brand_trend(conn, category, top_n=6, days=90):
     return pd.read_sql(query, conn, params={"cat": category, "n": top_n, "days": days})
 
 
-def hot_deals(conn, limit=20, min_drop_pct=None, min_drop_eur=None, max_drop_pct=None):
-    """Price drop + review surge between the two most recent scrapes.
+def hot_deals(conn, limit=20, min_drop_pct=None, min_drop_eur=None):
+    """Latest-day price drop (same definition as the dashboard: mv_drops_7d,
+    vs LEAST(yesterday, 7-snapshot median)) + review surge vs the previous snapshot.
 
-    Optional filters (all None = unfiltered, the original behaviour):
+    Big drops (>= BIG_DROP_PCT) are kept; the caller flags them.
+    Optional filters (None = unfiltered):
       min_drop_pct — keep only drops of at least this many percent (e.g. 3.0)
       min_drop_eur — keep only drops of at least this many euros
-      max_drop_pct — drop rows whose fall is at or beyond this percent
-                     (suspect scrapes / variant mix-ups, e.g. 40.0)
     """
     clauses, params = [], {"limit": limit}
     if min_drop_pct is not None:
@@ -89,17 +89,34 @@ def hot_deals(conn, limit=20, min_drop_pct=None, min_drop_eur=None, max_drop_pct
     if min_drop_eur is not None:
         clauses.append("(price_prev - price_latest) >= :min_eur")
         params["min_eur"] = min_drop_eur
-    if max_drop_pct is not None:
-        clauses.append("price_chg_pct > -:max_pct")
-        params["max_pct"] = max_drop_pct
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     query = text(f"""
+        WITH d AS (
+            SELECT d.*, t.reviews AS reviews_latest, pr.reviews AS reviews_prev, pr.date AS prev_date
+            FROM mv_drops_7d d
+            JOIN price_snapshots t ON t.product_id = d.product_id AND t.date = d.drop_date
+            LEFT JOIN LATERAL (
+                SELECT ps.reviews, ps.date FROM price_snapshots ps
+                WHERE ps.product_id = d.product_id AND ps.date < d.drop_date
+                ORDER BY ps.date DESC LIMIT 1
+            ) pr ON TRUE
+            WHERE d.drop_date = (SELECT MAX(date) FROM price_snapshots)
+              AND COALESCE(t.reviews - pr.reviews, 0) > 0   -- review surge required, as before
+        ), h AS (
+            SELECT category, brand, model, product_name,
+                   prev_price AS price_prev, new_price AS price_latest,
+                   drop_pct AS price_chg_pct,
+                   COALESCE(reviews_latest - reviews_prev, 0) AS new_reviews,
+                   ROUND((-0.5 * drop_pct + LEAST(COALESCE(reviews_latest - reviews_prev, 0), 50))::numeric, 1) AS hot_score,
+                   skroutz_link, prev_date, drop_date AS latest_date
+            FROM d
+        )
         SELECT category, brand, model, product_name,
                price_prev, price_latest, price_chg_pct, new_reviews, hot_score,
                skroutz_link,
                prev_date::text   AS prev_date,
                latest_date::text AS latest_date
-        FROM vw_hot_deals
+        FROM h
         {where}
         ORDER BY hot_score DESC
         LIMIT :limit

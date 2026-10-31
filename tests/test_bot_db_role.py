@@ -28,7 +28,7 @@ def test_bot_commands_fail_closed_without_readonly_role(monkeypatch):
 
 def test_readonly_role_is_granted_the_bot_views():
     from ops import create_ask_role
-    for v in ("vw_latest_prices", "vw_price_floor", "vw_price_history", "vw_restock_pricing", "vw_biggest_drops"):
+    for v in ("vw_latest_prices", "vw_price_floor", "vw_price_history", "vw_restock_pricing", "vw_biggest_drops", "vw_drops_7d"):
         assert v in create_ask_role.BOT_VIEWS
 
 

@@ -41,7 +41,7 @@
     {
       "id": "biggest_drop_week_eur",
       "question": "Ποια ήταν η μεγαλύτερη πτώση τιμής σε ευρώ τις τελευταίες 7 μέρες;",
-      "reference_sql": "SELECT product_id, product_name, drop_eur FROM vw_biggest_drops WHERE drop_date > (SELECT MAX(date) FROM price_snapshots) - 7 ORDER BY drop_eur ASC LIMIT 1",
+      "reference_sql": "SELECT product_id, product_name, drop_eur FROM vw_drops_7d WHERE drop_date > (SELECT MAX(date) FROM price_snapshots) - 7 ORDER BY drop_eur ASC LIMIT 1",
       "check": {
         "type": "top1",
         "key": "product_id",
@@ -51,7 +51,7 @@
     {
       "id": "biggest_drop_pct_laptop_week",
       "question": "Ποιο laptop είχε τη μεγαλύτερη ποσοστιαία πτώση τιμής τις τελευταίες 7 μέρες;",
-      "reference_sql": "SELECT product_id, product_name, drop_pct FROM vw_biggest_drops WHERE category='laptop' AND drop_date > (SELECT MAX(date) FROM price_snapshots) - 7 ORDER BY drop_pct ASC LIMIT 1",
+      "reference_sql": "SELECT product_id, product_name, drop_pct FROM vw_drops_7d WHERE category='laptop' AND drop_date > (SELECT MAX(date) FROM price_snapshots) - 7 ORDER BY drop_pct ASC LIMIT 1",
       "check": {
         "type": "top1",
         "key": "product_id",
@@ -61,7 +61,7 @@
     {
       "id": "drops_today_count",
       "question": "Πόσα προϊόντα έπεσαν σε τιμή στο τελευταίο scrape;",
-      "reference_sql": "SELECT COUNT(*) AS n FROM vw_biggest_drops WHERE drop_date=(SELECT MAX(date) FROM price_snapshots)",
+      "reference_sql": "SELECT COUNT(*) AS n FROM vw_drops_7d WHERE drop_date=(SELECT MAX(date) FROM price_snapshots)",
       "check": {
         "type": "value",
         "key": "n"

@@ -43,12 +43,12 @@ def _queries(cat: str) -> dict[str, str]:
             "ORDER BY product_count DESC LIMIT 5"
         ),
         "drops_7d": (
-            "SELECT COUNT(*), ROUND(AVG(drop_pct)::numeric, 1) FROM vw_biggest_drops "
+            "SELECT COUNT(*), ROUND(AVG(drop_pct)::numeric, 1) FROM vw_drops_7d "
             f"WHERE category = {c} AND drop_date > {_LATEST} - 7"
         ),
         "top_drops": (
             "SELECT brand, model, ROUND(prev_price::numeric, 2), ROUND(new_price::numeric, 2), "
-            "ROUND(drop_pct::numeric, 1), drop_date FROM vw_biggest_drops "
+            "ROUND(drop_pct::numeric, 1), drop_date FROM vw_drops_7d "
             f"WHERE category = {c} AND drop_date > {_LATEST} - 7 ORDER BY drop_pct ASC LIMIT 3"
         ),
         "trend_mix": (

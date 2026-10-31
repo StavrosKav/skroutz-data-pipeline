@@ -306,7 +306,6 @@ def fetch_data(conn):
         conn, limit=HOT_DEALS_LIMIT,
         min_drop_pct=HOT_DEAL_MIN_DROP_PCT,
         min_drop_eur=HOT_DEAL_MIN_DROP_EUR,
-        max_drop_pct=SUSPECT_DROP_PCT,
     ).itertuples()
     hot_deals = []
     for r in hot_rows:
@@ -319,6 +318,7 @@ def fetch_data(conn):
             "chg_pct":    float(r.price_chg_pct) if pd.notna(r.price_chg_pct) and r.price_chg_pct else 0.0,
             "new_rev":    int(r.new_reviews) if pd.notna(r.new_reviews) else 0,
             "score":      float(r.hot_score) if pd.notna(r.hot_score) and r.hot_score else 0.0,
+            "suspect":    is_suspect_drop(r.price_chg_pct if pd.notna(r.price_chg_pct) else None),
             "url":        r.skroutz_link or "",
             "from_date":  r.prev_date    or "",
             "to_date":    r.latest_date  or "",

@@ -89,7 +89,7 @@ It works in 3 simple steps:
 
 The target is 80% (19/23).
 
-**Current result: 23/23 on two runs, 30 Oct 2026** ([rerun3](evals/results/ask_eval_2026-10-30_rerun3.md), [rerun4](evals/results/ask_eval_2026-10-30_rerun4.md)). The score is not the same every time. On the same day, with the same setup, other runs gave 22/23 and 21/23 ([rerun1](evals/results/ask_eval_2026-10-30_rerun1.md), [rerun2](evals/results/ask_eval_2026-10-30_rerun2.md)). So I report a range, not one lucky number.
+**Current result: 23/23 on two runs, 30 Oct 2026** ([rerun3](evals/results/ask_eval_2026-10-30_rerun3.md), [rerun4](evals/results/ask_eval_2026-10-30_rerun4.md)). The score is not the same every time. On the same day, with the same setup, other runs gave 22/23 and 21/23 ([rerun1](evals/results/ask_eval_2026-10-30_rerun1.md), [rerun2](evals/results/ask_eval_2026-10-30_rerun2.md)). So I report a range, not one lucky number. On 31 Oct 2026, after the drop questions moved to the 7-day definition (`vw_drops_7d`), one run scored 22/23: all 3 drop questions passed, `new_products_week` failed ([report](evals/results/ask_eval_2026-10-31_drops7d.md)).
 
 ### A passing example
 

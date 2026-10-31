@@ -18,7 +18,7 @@ def fake_exec(sql):
         return [], [("Samsung", 300, 450.0), ("Xiaomi", 250, 280.5)]
     if "COUNT(*), ROUND(AVG(drop_pct)" in s:
         return [], [(87, -6.2)]
-    if "FROM vw_biggest_drops" in s:
+    if "FROM vw_drops_7d" in s:
         return [], [("Apple", "iPhone 15", 899.0, 749.0, -16.7, dt.date(2026, 10, 27))]
     if "mv_price_trend_direction" in s:
         return [], [("falling", 40), ("stable", 900)]

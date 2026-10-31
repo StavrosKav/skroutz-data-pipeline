@@ -10,7 +10,7 @@ ALLOWED_TABLES: frozenset[str] = frozenset({
     "price_snapshots",
     "mv_latest_prices",
     "mv_price_history",
-    "vw_biggest_drops",
+    "vw_drops_7d",
     "mv_price_floor",
     "mv_brand_summary",
     "mv_daily_market_index",
@@ -23,7 +23,7 @@ products(id, category, skroutz_id BIGINT UNIQUE (Skroutz product number, stable 
 price_snapshots(product_id -> products.id, date DATE, price_eur, rating 0-5, reviews)
 mv_latest_prices(id = product id, category, brand, model, product_name, last_price_date, price_eur, rating, reviews, first_seen, last_seen, skroutz_link)  -- latest known price per product
 mv_price_history(product_id, category, brand, model, product_name, date, price_eur, prev_price, price_change, pct_change, rating, reviews)  -- day-over-day change
-vw_biggest_drops(product_id, category, brand, model, product_name, drop_date, prev_price, new_price, drop_eur NEGATIVE, drop_pct NEGATIVE, skroutz_link)  -- rows where price fell vs previous snapshot
+vw_drops_7d(product_id, category, brand, model, product_name, drop_date, prev_price, new_price, drop_eur NEGATIVE, drop_pct NEGATIVE, skroutz_link, yesterday_price, baseline_7d, n_hist)  -- price drops: prev_price = LEAST(yesterday's price, median of the previous 7 snapshots); a drop needs new_price below both and >= 3 earlier snapshots. Use this for every drop question. Drops of 40% or more are real rows (flagged 'big drop, check'), never exclude them
 mv_price_floor(product_id, all_time_low, all_time_high, snapshot_count)
 mv_brand_summary(category, brand, product_count, avg_price, min_price, max_price, median_price, total_snapshots)  -- over ALL snapshots ever (all history, weighted by days listed); for current prices aggregate mv_latest_prices of currently listed products
 mv_daily_market_index(category, date, avg_price, min_price, max_price, products_tracked)

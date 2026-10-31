@@ -94,16 +94,15 @@ class TestHotDealsQuery(unittest.TestCase):
 
     def test_unfiltered_default_unchanged(self):
         sql, params = self._run()
-        self.assertNotIn("WHERE", sql)
+        self.assertIn("FROM h ORDER BY", sql)
         self.assertEqual(params, {"limit": 20})
 
     def test_thresholds_applied(self):
-        sql, params = self._run(min_drop_pct=3.0, min_drop_eur=5.0, max_drop_pct=40.0)
+        sql, params = self._run(min_drop_pct=3.0, min_drop_eur=5.0)
         self.assertIn("price_chg_pct <= -:min_pct", sql)
         self.assertIn("(price_prev - price_latest) >= :min_eur", sql)
-        self.assertIn("price_chg_pct > -:max_pct", sql)
         self.assertIn("ORDER BY hot_score DESC", sql)
-        self.assertEqual(params, {"limit": 20, "min_pct": 3.0, "min_eur": 5.0, "max_pct": 40.0})
+        self.assertEqual(params, {"limit": 20, "min_pct": 3.0, "min_eur": 5.0})
 
 
 class TestThresholdLogic(unittest.TestCase):

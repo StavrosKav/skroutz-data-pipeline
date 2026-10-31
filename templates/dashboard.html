@@ -681,7 +681,7 @@ function showingNote(shown, total) {
   return total > shown ? `showing top ${shown.toLocaleString()} of ${total.toLocaleString()}` : '';
 }
 function suspectBadge() {
-  return `<span class="suspect-badge" title="Drop of ${THR.suspect_pct}% or more vs the usual price. Counted, but worth a look on Skroutz (shop change, variant or error). Not used in Hot Deals.">big drop, check</span>`;
+  return `<span class="suspect-badge" title="Drop of ${THR.suspect_pct}% or more vs the usual price. Counted, but worth a look on Skroutz (shop change, variant or error).">big drop, check</span>`;
 }
 function productsSampleNote() {
   const total = kpi('latest_products', DATA.products.length);
@@ -1144,7 +1144,7 @@ function buildHotDeals() {
   document.getElementById('hot-deals-section').style.display = 'block';
   document.getElementById('hot-badge').textContent = deals.length;
   if (DATA.thresholds) document.getElementById('hot-note').textContent =
-    `min -${THR.hot_min_pct}% and -€${THR.hot_min_eur}, drops ≥${THR.suspect_pct}% excluded`;
+    `min -${THR.hot_min_pct}% and -€${THR.hot_min_eur}, drops ≥${THR.suspect_pct}% flagged`;
   const maxScore = deals.reduce((m, d) => Math.max(m, d.score), 1);
   document.getElementById('hot-body').innerHTML = deals.map(d => {
     const barW = Math.round(d.score / maxScore * 60);
@@ -1154,7 +1154,7 @@ function buildHotDeals() {
       <td>${catBadge(d.category)}</td>
       <td class="price muted">€${(d.price_prev||0).toFixed(2)}</td>
       <td class="price">€${(d.price_now||0).toFixed(2)}</td>
-      <td class="drop-pct">${d.chg_pct.toFixed(1)}%</td>
+      <td class="drop-pct">${d.chg_pct.toFixed(1)}%${d.suspect ? suspectBadge() : ''}</td>
       <td style="color:var(--rise)">+${d.new_rev} &#9733;</td>
       <td><div class="score-bar-wrap"><div class="score-bar" style="width:${barW}px"></div>${d.score.toFixed(1)}</div></td>
     </tr>`;
