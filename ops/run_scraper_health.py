@@ -44,7 +44,7 @@ def load_config():
             with open(agent_config_path, 'r') as f:
                 agent_config = json.load(f)
                 config.update(agent_config)
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.warning(f"Failed to load agent config from {agent_config_path}: {e}")
 
     # Load pipeline config
@@ -54,7 +54,7 @@ def load_config():
             with open(pipeline_config_path, 'r') as f:
                 pipeline_config = json.load(f)
                 config.update(pipeline_config)
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.warning(f"Failed to load pipeline config from {pipeline_config_path}: {e}")
 
     return config

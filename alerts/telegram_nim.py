@@ -44,7 +44,7 @@ def cmd_analyze(args: str) -> str:
     try:
         executor, llm = _analyze_backend()
         return analyze(executor, llm, resolved)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — LLM/agent backend can fail in many ways; the bot replies 'unavailable'
         logger.warning(f"/analyze failed: {type(e).__name__}: {e}")
         return _UNAVAILABLE
 
@@ -61,7 +61,7 @@ def cmd_ask(args: str) -> str:
         agent = get_agent()
     except ValueError:
         return _NOT_CONFIGURED
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — LLM/agent backend can fail in many ways; the bot replies 'unavailable'
         logger.warning(f"/ask init failed: {type(e).__name__}")
         return _UNAVAILABLE
     return format_telegram(agent.ask(args))

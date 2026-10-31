@@ -45,7 +45,7 @@ def load_config():
             with open(agent_config_path, 'r') as f:
                 agent_config = json.load(f)
                 config.update(agent_config)
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.warning(f"Failed to load agent config from {agent_config_path}: {e}")
 
     # Load pipeline config
@@ -55,7 +55,7 @@ def load_config():
             with open(pipeline_config_path, 'r') as f:
                 pipeline_config = json.load(f)
                 config.update(pipeline_config)
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.warning(f"Failed to load pipeline config from {pipeline_config_path}: {e}")
 
     return config
@@ -100,7 +100,7 @@ def process_csv_file(file_path: str, agent):
             "anomalies": anomalies,
             "top_validation_errors": [{"error": e, "count": c} for e, c in top_errors],
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — per-file/category isolation; one bad file must not stop the report
         logger.error(f"Failed to process {file_path}: {e}")
         return None
 
@@ -154,7 +154,7 @@ def main():
             else:
                 report["categories"][category] = file_report
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — per-file/category isolation; one bad file must not stop the report
             logger.error(f"Error processing category {category}: {e}")
             success = False
 

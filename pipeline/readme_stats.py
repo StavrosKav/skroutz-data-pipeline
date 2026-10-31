@@ -5,6 +5,7 @@ import os
 import re
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from core.db import get_engine
 from core.paths import ROOT
@@ -42,7 +43,7 @@ def update_readme_stats():
                 "JOIN price_snapshots s ON s.product_id = p.id "
                 "GROUP BY p.category ORDER BY p.category"
             )).fetchall()
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.warning(f"README stats: DB query failed — {e}")
         return
 
@@ -88,7 +89,7 @@ def update_readme_stats():
         )
         with open(readme_path, "w", encoding="utf-8") as f:
             f.write(content)
-    except Exception as e:
+    except OSError as e:
         logger.warning(f"README stats: could not rewrite README.md — {e}")
         return
 

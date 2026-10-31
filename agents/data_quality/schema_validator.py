@@ -191,7 +191,7 @@ class SchemaValidator(BaseAgent):
                             errors.append(
                                 f"Field '{field}' length {len(value)} is less than minimum {definition['min_length']}"
                             )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — validating untrusted scraped values; any error is recorded as a validation error
                     is_valid = False
                     errors.append(
                         f"Error validating field '{field}': {str(e)}"
@@ -210,7 +210,7 @@ class SchemaValidator(BaseAgent):
                                 else f"Validation failed for {field}"
                             )
                             errors.append(f"Field '{field}': {err_msg}")
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — custom validator callables may raise anything; recorded as a validation error
                         is_valid = False
                         errors.append(
                             f"Validator for {field} raised exception: {str(e)}"

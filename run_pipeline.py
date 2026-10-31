@@ -55,6 +55,7 @@ import time
 from email.message import EmailMessage
 from dotenv import load_dotenv
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from core.db import get_engine
 import alerts.notifications as _notif
@@ -108,7 +109,7 @@ def _cleanup_old_logs(days: int = 30) -> None:
             if datetime.date.fromisoformat(m.group(1)) < cutoff:
                 os.remove(os.path.join(_log_dir, fname))
                 removed += 1
-        except Exception:
+        except (ValueError, OSError):
             pass
     if removed:
         logger.info(f"Cleaned up {removed} log file(s) older than {days} days.")
@@ -258,7 +259,7 @@ def send_failure_alert(stage, returncode):
             ),
         )
         logger.info("Failure alert email sent.")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — alert sender; email failure must never kill the run
         logger.warning(f"Could not send alert email: {e}")
 
 
@@ -297,7 +298,7 @@ def _apply_view_file(path):
             ddl = f.read()
         with get_engine().begin() as conn:
             conn.execute(text(ddl))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort DDL; any failure only logs, refresh still runs
         logger.warning(f"View definitions: could not apply {os.path.basename(path)} — {e}")
 
 
@@ -318,7 +319,7 @@ def refresh_matviews():
             try:
                 with engine.begin() as conn:
                     conn.execute(text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {name}"))
-            except Exception as e:
+            except SQLAlchemyError as e:
                 failed.append(name)
                 logger.warning(f"Matview refresh failed for {name}: {e}")
         elapsed = (datetime.datetime.now() - t).total_seconds()
@@ -329,7 +330,7 @@ def refresh_matviews():
             )
         else:
             logger.info(f"=== Materialized view refresh complete in {elapsed:.0f}s — {len(MATVIEWS)} views ===")
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.warning(f"Matview refresh: could not obtain DB engine — {e}")
 
 
@@ -364,7 +365,7 @@ def send_drop_digest():
                 "WHERE drop_date = CAST(:d AS date) "
                 "ORDER BY ABS(drop_eur) DESC LIMIT 10"
             ), {"d": _pipeline_date()}).fetchall()
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.warning(f"Drop digest: DB query failed — {e}")
         return
     if not rows:
@@ -432,7 +433,7 @@ def send_drop_digest():
             plain = plain,
         )
         logger.info(f"Drop digest sent — {len(rows)} deals.")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — alert sender; email failure must never kill the run
         logger.warning(f"Could not send drop digest: {e}")
 
 
@@ -468,7 +469,7 @@ def send_watchlist_alerts():
     try:
         with open(watchlist_path, encoding="utf-8") as f:
             items = json.load(f)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.warning(f"Watchlist: could not read watchlist.json — {e}")
         return
     if not items:
@@ -514,7 +515,7 @@ def send_watchlist_alerts():
                         "threshold": threshold,
                         "url":       row.skroutz_link,
                     })
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.warning(f"Watchlist: DB query failed — {e}")
         return
 
@@ -581,7 +582,7 @@ def send_watchlist_alerts():
             plain = plain,
         )
         logger.info(f"Watchlist alert sent — {len(hits)} hit(s).")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — alert sender; email failure must never kill the run
         logger.warning(f"Watchlist: could not send email — {e}")
 
 
@@ -615,7 +616,7 @@ def send_disappeared_alert():
         engine = get_engine()
         with engine.connect() as conn:
             rows = newly_disappeared_rows(conn, datetime.date.today())
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.warning(f"Disappeared alert: DB query failed — {e}")
         return
 
@@ -694,7 +695,7 @@ def send_disappeared_alert():
             plain = plain,
         )
         logger.info(f"Disappeared alert sent — {len(rows)} product(s).")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — alert sender; email failure must never kill the run
         logger.warning(f"Disappeared alert: could not send email — {e}")
 
 
@@ -743,7 +744,7 @@ def send_success_summary(elapsed):
                 "SELECT COUNT(*) FROM products p JOIN price_snapshots s ON s.product_id = p.id "
                 "AND s.date = CAST(:d AS date) WHERE p.first_seen > CAST(:d AS date) - 7"
             ), d).scalar()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — success summary runs outside the per-step guard; must never kill the run
         logger.warning(f"Success summary: DB query failed — {e}")
         return
     # Per-category volume alarm: warn only, never fail the run.
@@ -752,7 +753,7 @@ def send_success_summary(elapsed):
         from reporting import volume
         with engine.connect() as conn:
             volume_alerts = volume.category_volume_alerts(*volume.fetch(conn, d["d"]))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — success summary runs outside the per-step guard; must never kill the run
         logger.warning(f"Volume check skipped — {e}")
     for a in volume_alerts:
         logger.warning(
@@ -819,7 +820,7 @@ def send_success_summary(elapsed):
             ),
             plain = plain,
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — alert sender; email failure must never kill the run
         logger.warning(f"Success summary: could not send email — {e}")
         return
     logger.info(f"Success summary sent — {snaps:,} snapshots, {new_prods:,} new products, {drops} drops.")
@@ -850,7 +851,7 @@ def _abort_stale_runs():
             ).fetchall()
         if ids:
             logger.warning(f"pipeline_runs: auto-aborted stale run(s) {[r[0] for r in ids]}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — run-log bookkeeping; must never kill the run
         logger.warning(f"pipeline_runs: could not abort stale runs — {e}")
 
 
@@ -869,7 +870,7 @@ def _run_log_start():
                 "skip": _skip_scrape,
             }).scalar()
         logger.info(f"pipeline_runs: run #{_RUN_ID} started")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — run-log bookkeeping; must never kill the run
         _RUN_ID = None
         logger.warning(f"pipeline_runs: could not record run start — {e}")
 
@@ -892,7 +893,7 @@ def _run_log_note(stage, status, elapsed=None, returncode=None, detail=None):
                 "UPDATE pipeline_runs SET stage_notes = stage_notes || CAST(:n AS jsonb) "
                 "WHERE id = :id"
             ), {"n": json.dumps([note]), "id": _RUN_ID})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — run-log bookkeeping; must never kill the run
         logger.warning(f"pipeline_runs: could not record stage note — {e}")
 
 
@@ -913,7 +914,7 @@ def _run_log_finish(status, failed_stage=None, exit_code=None, error=None):
             ), {"status": status, "stage": failed_stage, "rc": exit_code,
                 "err": (str(error)[:1000] if error else None), "id": _RUN_ID})
         logger.info(f"pipeline_runs: run #{_RUN_ID} finished — {status}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — run-log bookkeeping; must never kill the run
         logger.warning(f"pipeline_runs: could not record run end — {e}")
 
 
@@ -957,7 +958,7 @@ def check_snapshot_coverage():
                 GROUP BY category
                 ORDER BY category
             """), {"d": run_date, "lookback": COVERAGE_LOOKBACK_DAYS}).fetchall()
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.warning(f"Coverage check: DB query failed — {e}")
         return
 

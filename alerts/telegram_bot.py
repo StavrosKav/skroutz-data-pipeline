@@ -31,6 +31,7 @@ from core.paths import ROOT
 
 import datetime
 import html
+import http.client
 import json
 import logging
 import os
@@ -92,7 +93,7 @@ def _post(method: str, payload: dict) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=35) as r:
             return json.loads(r.read())
-    except Exception as e:
+    except (OSError, ValueError, http.client.HTTPException) as e:
         logger.warning(f"{method} failed: {e}")
         return {}
 
@@ -164,7 +165,7 @@ def _lookup_product(url: str) -> tuple:
         if row:
             label = f"{row.brand or ''} {row.model or ''}".strip()
             return label or _url_slug_label(url), float(row.price_eur)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — bot command must always reply; any DB/config error becomes the 'DB unavailable' message
         logger.warning(f"Product lookup failed: {e}")
     return _url_slug_label(url), None
 
@@ -258,7 +259,7 @@ def _cmd_drops(args: str = "") -> str:
                 + cat_clause +
                 "ORDER BY ABS(drop_eur) DESC LIMIT 10"
             ), params).fetchall()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — bot command must always reply; any DB/config error becomes the 'DB unavailable' message
         return _db_unavailable(e)
 
     if not rows:
@@ -310,7 +311,7 @@ def _cmd_watchlist() -> str:
                 lines.append(f"{i}. ❓ <b>{_e(label)}</b>  target {threshold:.0f}€  <i>(not in DB)</i>")
         lines.append("\n<i>/remove &lt;number&gt; to delete  ·  send a URL to add</i>")
         return "\n".join(lines)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — bot command must always reply; any DB/config error becomes the 'DB unavailable' message
         return _db_unavailable(e)
 
 
@@ -369,7 +370,7 @@ def _cmd_find(args: str) -> str:
                 ORDER BY lp.price_eur
                 LIMIT 5
             """), {"q": f"%{q}%"}).fetchall()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — bot command must always reply; any DB/config error becomes the 'DB unavailable' message
         return _db_unavailable(e)
 
     if not rows:
@@ -430,7 +431,7 @@ def _cmd_history(args: str) -> str:
                 ORDER BY date DESC LIMIT 14
             """), {"pid": pid}).fetchall()
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — bot command must always reply; any DB/config error becomes the 'DB unavailable' message
         return _db_unavailable(e)
 
     if not history:
@@ -505,7 +506,7 @@ def _cmd_best(args: str) -> str:
                          (pf.all_time_high - pf.all_time_low) DESC
                 LIMIT 8
             """), params).fetchall()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — bot command must always reply; any DB/config error becomes the 'DB unavailable' message
         return _db_unavailable(e)
 
     if not rows:
@@ -541,7 +542,7 @@ def _cmd_stats() -> str:
             today_s  = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = (SELECT MAX(date) FROM price_snapshots)")).scalar()
             today_d  = conn.execute(text("SELECT COUNT(*) FROM vw_drops_7d WHERE drop_date = (SELECT MAX(date) FROM price_snapshots)")).scalar()
             last_run = conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — bot command must always reply; any DB/config error becomes the 'DB unavailable' message
         return _db_unavailable(e)
 
     return (
@@ -567,7 +568,7 @@ def _cmd_restock() -> str:
                 ORDER BY after_gap DESC, ABS(price_chg_pct) DESC
                 LIMIT 10
             """)).fetchall()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — bot command must always reply; any DB/config error becomes the 'DB unavailable' message
         return _db_unavailable(e)
 
     if not rows:
@@ -763,7 +764,7 @@ def run() -> None:
         except KeyboardInterrupt:
             logger.info("Bot stopped by user.")
             break
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — top-level polling loop; retries with backoff instead of exiting
             _err_count += 1
             wait = min(300, 5 * (2 ** min(_err_count - 1, 6)))
             logger.warning(f"Polling error: {e} — retrying in {wait}s")

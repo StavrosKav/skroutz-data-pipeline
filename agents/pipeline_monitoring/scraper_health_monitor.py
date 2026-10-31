@@ -159,7 +159,7 @@ class ScraperHealthMonitor(BaseAgent):
                     "latest_file": latest_file,
                     "row_count": row_count,
                 }
-        except Exception as e:
+        except (OSError, ValueError) as e:
             return {
                 "healthy": False,
                 "reason": f"Error reading file: {str(e)}",
@@ -174,7 +174,7 @@ class ScraperHealthMonitor(BaseAgent):
         for f in prior:
             try:
                 history.append(_row_count(os.path.join(folder_path, f)))
-            except Exception:
+            except (OSError, ValueError):
                 continue
         dev = count_deviation(row_count, history)
         if dev is not None:

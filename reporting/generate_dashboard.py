@@ -19,6 +19,7 @@ import datetime
 
 from dotenv import load_dotenv
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 import pandas as pd
 
@@ -198,7 +199,7 @@ def fetch_data(conn):
         floor_map = {r.product_id: float(r.all_time_low)
                      for r in floor_rows if r.all_time_low}
         conn.execute(text("RELEASE SAVEPOINT sp_floor"))
-    except Exception as e:
+    except SQLAlchemyError as e:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_floor"))
         logger.warning(f"vw_price_floor query failed, near-ATL data will be empty: {e}")
         floor_map = {}
@@ -210,7 +211,7 @@ def fetch_data(conn):
         )).fetchall()
         trend_map = {r.product_id: r.trend for r in trend_rows}
         conn.execute(text("RELEASE SAVEPOINT sp_trend"))
-    except Exception as e:
+    except SQLAlchemyError as e:
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_trend"))
         logger.warning(f"vw_price_trend_direction query failed, trend arrows will be empty: {e}")
         trend_map = {}
@@ -362,7 +363,7 @@ def fetch_data(conn):
         conn.execute(text("SAVEPOINT sp_bow"))
         bow = buy_or_wait.build(buy_or_wait.fetch(conn))
         conn.execute(text("RELEASE SAVEPOINT sp_bow"))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — optional section; query or build errors leave it empty instead of failing the dashboard
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_bow"))
         logger.warning(f"buy-or-wait query failed, the Buy or Wait tab will be empty: {e}")
         bow = {}
@@ -377,7 +378,7 @@ def fetch_data(conn):
                 market_index[cat] = []
             market_index[cat].append({"date": str(r.date), "idx": round(float(r.idx), 2), "n": int(r.products)})
         conn.execute(text("RELEASE SAVEPOINT sp_market"))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — optional section; query or build errors leave it empty instead of failing the dashboard
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_market"))
         logger.warning(f"basket index query failed, category price index chart will be empty: {e}")
         market_index = {}
@@ -468,7 +469,7 @@ def main():
         engine = get_engine()
         with engine.connect() as conn:
             data = fetch_data(conn)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — top-level guard; prints the error and exits 1
         print(f"Dashboard: DB connection failed — {e}", file=sys.stderr)
         sys.exit(1)
 

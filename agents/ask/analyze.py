@@ -118,7 +118,7 @@ def analyze(execute: Executor, llm: LLM | None, category: str, max_tokens: int =
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": "Facts:\n" + "\n".join(facts)},
             ], max_tokens).strip()
-        except Exception:
+        except Exception:  # noqa: BLE001 — LLM backend can fail in many ways; the facts are still returned without a summary
             summary = ""
     head = f"📊 <b>{category}</b>\n"
     if summary:
