@@ -153,7 +153,7 @@ def _fixture_data():
         "limits": {}, "thresholds": {"suspect_pct": 40.0, "hot_min_pct": 3.0, "hot_min_eur": 5.0},
         "drops": [sus, drop], "weekly_drops": [sus, drop], "hot_deals": [],
         "brand_data": {}, "brand_trend": {}, "products": [], "new_products": [],
-        "disappeared": [], "history": {}, "discount_data": {},
+        "disappeared": [], "history": {}, "buy_or_wait": {},
         "market_index": [],
     }
 

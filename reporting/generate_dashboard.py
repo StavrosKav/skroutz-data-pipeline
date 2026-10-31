@@ -25,6 +25,7 @@ import pandas as pd
 import reporting.queries as queries
 from reporting.drops import BIG_DROP_LABEL_EN, BIG_DROP_PCT
 import reporting.dashboard_payload as payload
+import reporting.buy_or_wait as buy_or_wait
 from core.db import get_engine
 
 load_dotenv()
@@ -336,26 +337,15 @@ def fetch_data(conn):
                 brand_trend[cat][r.brand] = []
             brand_trend[cat][r.brand].append({"date": str(r.date), "price": round(float(r.avg_price), 2)})
 
-    # Brand discount frequency — degrades gracefully if vw_brand_discount_freq is unavailable
+    # Buy or wait: today's price vs each product's own 90-day low/median/high
     try:
-        conn.execute(text("SAVEPOINT sp_disc"))
-        disc_rows = queries.brand_discount_freq(conn).itertuples()
-        discount_data = {}
-        for r in disc_rows:
-            cat = r.category
-            if cat not in discount_data:
-                discount_data[cat] = []
-            if len(discount_data[cat]) < 12:
-                discount_data[cat].append({
-                    "brand":     r.brand,
-                    "disc_days": int(r.discount_days) if pd.notna(r.discount_days) else 0,
-                    "freq_pct":  float(r.discount_freq_pct) if pd.notna(r.discount_freq_pct) else 0.0,
-                })
-        conn.execute(text("RELEASE SAVEPOINT sp_disc"))
+        conn.execute(text("SAVEPOINT sp_bow"))
+        bow = buy_or_wait.build(buy_or_wait.fetch(conn))
+        conn.execute(text("RELEASE SAVEPOINT sp_bow"))
     except Exception as e:
-        conn.execute(text("ROLLBACK TO SAVEPOINT sp_disc"))
-        logger.warning(f"vw_brand_discount_freq query failed, discount-frequency section will be empty: {e}")
-        discount_data = {}
+        conn.execute(text("ROLLBACK TO SAVEPOINT sp_bow"))
+        logger.warning(f"buy-or-wait query failed, the Buy or Wait tab will be empty: {e}")
+        bow = {}
 
     try:
         conn.execute(text("SAVEPOINT sp_market"))
@@ -402,7 +392,7 @@ def fetch_data(conn):
         "new_products":    new_products,
         "disappeared":     disappeared,
         "history":          history,
-        "discount_data": discount_data,
+        "buy_or_wait":   bow,
         "market_index":  market_index,
     }
 

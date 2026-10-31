@@ -360,7 +360,7 @@ tr:hover td { background: #ffffff08; }
   <button class="tab-btn"         data-tab="products"  onclick="showTab(this)">Products<span class="tab-count" id="tc-products"></span></button>
   <button class="tab-btn"         data-tab="new-gone"  onclick="showTab(this)">New &amp; Gone<span class="tab-count" id="tc-new-gone"></span></button>
   <button class="tab-btn"         data-tab="insights"     onclick="showTab(this)">Insights</button>
-  <button class="tab-btn"         data-tab="intelligence" onclick="showTab(this)">Intelligence<span class="tab-count" id="tc-intel"></span></button>
+  <button class="tab-btn"         data-tab="intelligence" onclick="showTab(this)">Buy or Wait<span class="tab-count" id="tc-intel"></span></button>
 </nav>
 
 <!-- ── Overview ─────────────────────────────────────────────────────────────── -->
@@ -544,34 +544,28 @@ tr:hover td { background: #ffffff08; }
 <div id="tab-intelligence" class="tab-content">
 
   <div class="section">
-    <div class="section-title">&#127775; Near All-Time Low &mdash; Within 10%
-      <span class="count-badge" id="atl-badge"></span>
+    <div class="section-title">&#9878;&#65039; Buy or Wait &mdash; today's price vs the product's own last 90 days
+      <span class="count-badge" id="bow-badge"></span>
+    </div>
+    <p class="muted" id="bow-explain" style="margin:0 0 12px;font-size:13px"></p>
+    <div class="stats-grid" id="bow-summary"></div>
+    <div class="sub-tabs" style="margin:12px 0">
+      <button class="sub-tab-btn bow-btn active" onclick="showBowView('near_low', this)">Near 90-day low</button>
+      <button class="sub-tab-btn bow-btn"        onclick="showBowView('above', this)">Above usual</button>
+      <select id="bow-cat" onchange="buildBuyOrWaitTable()" style="margin-left:8px">
+        <option value="">All categories</option>
+      </select>
     </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Brand</th><th>Model</th><th>Category</th>
-          <th>Current &euro;</th><th>ATL &euro;</th><th>Above ATL</th><th>Proximity</th>
+          <th>Product</th><th>Category</th><th>Today &euro;</th><th>90-day low</th><th>Median</th><th>High</th>
+          <th>vs median</th><th title="Share of day-to-day steps with a drop of 3% or more">Drops often?</th><th>Days</th>
         </tr></thead>
-        <tbody id="atl-body"></tbody>
+        <tbody id="bow-body"></tbody>
       </table>
     </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">&#127380; Brand Discount Frequency &mdash; __WINDOW_START_LABEL__</div>
-    <div class="intel-grid" id="discount-freq-charts"></div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">&#128203; Price Tier Distribution <span class="sample-note sample-products"></span></div>
-    <div class="intel-grid" id="tier-dist-charts"></div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">&#11088; Price vs Rating <span class="sample-note sample-products"></span></div>
-    <div class="scatter-legend" id="scatter-legend"></div>
-    <div id="price-rating-wrap" style="max-height:400px;position:relative"><canvas id="price-rating-chart"></canvas></div>
+    <p class="sample-note" id="bow-note" style="margin-top:8px"></p>
   </div>
 
 </div>
@@ -585,7 +579,9 @@ tr:hover td { background: #ffffff08; }
     <li><b>Price drops</b> compare today's price with the lower of yesterday's price and the median of the previous 7 snapshots
         (at least 3 needed), so a one-day spike that returns to normal is not a drop. Drops of <span id="about-suspect">40</span>% or more are
         counted and marked <i>big drop, check</i>.</li>
-    <li><b>Near all-time low</b> uses the lowest price ever recorded for the product.</li>
+    <li><b>Near all-time low</b> (Products filter) uses the lowest price ever recorded for the product.</li>
+    <li><b>Buy or Wait</b> compares today's price with the product's own low, median and high over the last 90 days,
+        using only the days we recorded (at least 20). It ignores products not listed in the latest scrape.</li>
     <li><b>Stability</b> is the 30-day coefficient of variation of the price; the sparkline shows the last 30 days.</li>
     <li>The badge at the top shows how old the data is and turns red if a daily run was missed.</li>
   </ul>
@@ -1305,173 +1301,71 @@ function renderCompareCharts() {
   }
 }
 
-// ── Intelligence tab ──────────────────────────────────────────────────────────
-let discountFreqInst = [], tierDistInst = [], priceRatingInst = null;
+// ── Buy or Wait tab ───────────────────────────────────────────────────────────
+const BOW = DATA.buy_or_wait || {};
+let bowView = 'near_low';
 
-function buildIntelligence() {
-  buildNearATL();
-  buildDiscountFreqCharts();
-  buildPriceTierDist();
-  buildPriceVsRating();
+function buildIntelligence() { buildBuyOrWait(); }
+function esc(v) { return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function buildBuyOrWait() {
+  const counts = BOW.counts || {};
+  const P = BOW.params || {};
+  const tot = k => Object.values(counts).reduce((a, c) => a + (c[k] || 0), 0);
+  document.getElementById('bow-badge').textContent = tot('near_low').toLocaleString();
+  const tc = document.getElementById('tc-intel');
+  if (tc && tot('near_low')) tc.textContent = tot('near_low');
+  document.getElementById('bow-explain').innerHTML = BOW.counts
+    ? `For each product listed today with at least ${P.min_days} recorded days in the last ${P.window_days} days:
+       <b>near 90-day low</b> = within ${P.near_low_pct}% of its lowest price and below its median;
+       <b>above usual</b> = ${P.above_pct}% or more over its median. Only days we actually scraped count.
+       Prices are the cheapest shop's "from" price.`
+    : 'Buy-or-wait data is temporarily unavailable.';
+  document.getElementById('bow-summary').innerHTML = Object.entries(counts).map(([cat, c]) =>
+    `<div class="stat-card"><div class="val">${c.near_low.toLocaleString()}</div>
+       <div class="lbl">${CAT_LABEL[cat]||cat}: near low &middot; ${c.above.toLocaleString()} above usual &middot; ${c.total.toLocaleString()} rated</div></div>`
+  ).join('');
+  const sel = document.getElementById('bow-cat');
+  Object.keys(counts).forEach(cat => {
+    const o = document.createElement('option'); o.value = cat; o.textContent = CAT_LABEL[cat]||cat; sel.appendChild(o);
+  });
+  buildBuyOrWaitTable();
 }
 
-function buildNearATL() {
-  const near = DATA.products
-    .filter(p => p.floor_pct != null && p.floor_pct <= 10 && p.price != null)
-    .sort((a, b) => a.floor_pct - b.floor_pct)
-    .slice(0, 60);
-  document.getElementById('atl-badge').textContent = near.length;
-  const el = document.getElementById('tc-intel');
-  if (el && near.length) el.textContent = near.length;
-  const tb = document.getElementById('atl-body');
-  if (!near.length) {
-    tb.innerHTML = '<tr><td colspan="7" class="no-data">No products currently within 10% of their all-time low.</td></tr>';
+function showBowView(view, btn) {
+  bowView = view;
+  document.querySelectorAll('.bow-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  buildBuyOrWaitTable();
+}
+
+function buildBuyOrWaitTable() {
+  const cat = document.getElementById('bow-cat').value;
+  const all = (BOW[bowView] || []);
+  const rows = all.filter(r => !cat || r.category === cat);
+  const total = Object.entries(BOW.counts || {})
+    .filter(([c]) => !cat || c === cat).reduce((a, [, c]) => a + (c[bowView] || 0), 0);
+  document.getElementById('bow-note').textContent = total > rows.length
+    ? `showing ${rows.length.toLocaleString()} of ${total.toLocaleString()} (biggest gap to the median first)` : '';
+  const tb = document.getElementById('bow-body');
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="9" class="no-data">No products in this group.</td></tr>';
     return;
   }
-  tb.innerHTML = near.map(p => {
-    const pct      = p.floor_pct.toFixed(1);
-    const barPct   = Math.min(100, p.floor_pct / 10 * 100);
-    const hue      = Math.round(120 - Math.min(p.floor_pct, 10) / 10 * 120);
-    const barColor = `hsl(${hue},80%,55%)`;
-    const name     = (p.model || p.name).slice(0, 44);
+  const eur = v => '&euro;' + v.toFixed(0);
+  tb.innerHTML = rows.map(r => {
+    const color = r.vs_median_pct < 0 ? '#22c55e' : '#ef4444';
+    const sign = r.vs_median_pct > 0 ? '+' : '';
     return `<tr>
-      <td>${p.brand}</td>
-      <td><a href="${p.url}" target="_blank">${name}</a></td>
-      <td>${catBadge(p.category)}</td>
-      <td class="price">&euro;${p.price.toFixed(2)}</td>
-      <td class="muted">&euro;${p.atl.toFixed(2)}</td>
-      <td style="color:${barColor};font-weight:600">+${pct}%</td>
-      <td><div class="atl-bar-wrap">
-        <div class="atl-bar-bg"><div class="atl-bar-fill" style="width:${barPct}%;background:${barColor}"></div></div>
-      </div></td>
+      <td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name).slice(0, 70)}</a></td>
+      <td>${catBadge(r.category)}</td>
+      <td class="price">&euro;${r.price.toFixed(2)}</td>
+      <td class="muted">${eur(r.lo)}</td><td class="muted">${eur(r.med)}</td><td class="muted">${eur(r.hi)}</td>
+      <td style="color:${color};font-weight:600">${sign}${r.vs_median_pct.toFixed(1)}%</td>
+      <td class="muted">${r.drop_rate_pct}% of days</td>
+      <td class="muted">${r.days}</td>
     </tr>`;
   }).join('');
-}
-
-function buildDiscountFreqCharts() {
-  if (!CHART_AVAILABLE) { chartFallbackNote('discount-freq-charts'); return; }
-  const el = document.getElementById('discount-freq-charts');
-  discountFreqInst.forEach(c => c.destroy());
-  discountFreqInst = [];
-  const data = DATA.discount_data || {};
-  if (!Object.keys(data).length) {
-    el.innerHTML = '<p class="no-data" style="padding:20px">Brand discount data is temporarily unavailable.</p>';
-    return;
-  }
-  el.innerHTML = Object.entries(data)
-    .filter(([,brands]) => brands.length)
-    .map(([cat]) =>
-      `<div class="intel-card"><h4>${CAT_LABEL[cat]||cat} &mdash; % days with &ge;3% drop</h4><canvas id="dfc-${cat}"></canvas></div>`
-    ).join('');
-  for (const [cat, brands] of Object.entries(data)) {
-    if (!brands.length) continue;
-    const ctx = document.getElementById('dfc-' + cat)?.getContext('2d');
-    if (!ctx) continue;
-    const sorted = [...brands].sort((a, b) => b.freq_pct - a.freq_pct).slice(0, 10);
-    discountFreqInst.push(new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: sorted.map(b => b.brand),
-        datasets: [{ label:'Discount Freq %', data: sorted.map(b => b.freq_pct),
-                     backgroundColor: sorted.map((_, i) => PALETTE[i % PALETTE.length]), borderRadius: 6 }],
-      },
-      options: {
-        indexAxis: 'y', responsive: true,
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: { label: c => ` ${c.raw.toFixed(1)}% of days had a drop` } },
-        },
-        scales: {
-          x: { max: 100, ticks:{ color:'#64748b', callback: v => v+'%' }, grid:{ color:'#2a2d3a' } },
-          y: { ticks:{ color:'#64748b', font:{size:10} }, grid:{ display:false } },
-        },
-      },
-    }));
-  }
-}
-
-function buildPriceTierDist() {
-  if (!CHART_AVAILABLE) { chartFallbackNote('tier-dist-charts'); return; }
-  const el = document.getElementById('tier-dist-charts');
-  tierDistInst.forEach(c => c.destroy());
-  tierDistInst = [];
-  const TIERS = [
-    { label:'<€200',     min:0,    max:200 },
-    { label:'€200–500',  min:200,  max:500 },
-    { label:'€500–1k',   min:500,  max:1000 },
-    { label:'€1k–2k',    min:1000, max:2000 },
-    { label:'>€2000',    min:2000, max:Infinity },
-  ];
-  const TIER_COLORS = ['#10b981','#3b82f6','#f59e0b','#8b5cf6','#ef4444'];
-  const cats = ['phone','laptop','smartwatch','tablet'];
-  el.innerHTML = cats.map(cat =>
-    `<div class="intel-card"><h4>${CAT_LABEL[cat]||cat}</h4><canvas id="td-${cat}"></canvas></div>`
-  ).join('');
-  for (const cat of cats) {
-    const ctx = document.getElementById('td-' + cat)?.getContext('2d');
-    if (!ctx) continue;
-    const counts = TIERS.map(t =>
-      DATA.products.filter(p => p.category === cat && p.price != null && p.price >= t.min && p.price < t.max).length
-    );
-    tierDistInst.push(new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: TIERS.map(t => t.label),
-        datasets: [{ label:'Products', data: counts, backgroundColor: TIER_COLORS, borderRadius: 6 }],
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { display:false },
-          tooltip: { callbacks: { label: c => ` ${c.raw} products` } },
-        },
-        scales: {
-          x: { ticks:{ color:'#64748b', font:{size:10} }, grid:{ color:'#2a2d3a' } },
-          y: { ticks:{ color:'#64748b' }, grid:{ color:'#2a2d3a' } },
-        },
-      },
-    }));
-  }
-}
-
-function buildPriceVsRating() {
-  if (!CHART_AVAILABLE) { chartFallbackNote('price-rating-wrap'); return; }
-  if (priceRatingInst) { priceRatingInst.destroy(); priceRatingInst = null; }
-  const catColors = { phone:'#3b82f6', laptop:'#8b5cf6', smartwatch:'#10b981', tablet:'#f59e0b' };
-  const cats = ['phone','laptop','smartwatch','tablet'];
-  document.getElementById('scatter-legend').innerHTML = cats.map(cat =>
-    `<div class="scatter-legend-item">
-       <div class="scatter-dot" style="background:${catColors[cat]}"></div>
-       ${CAT_LABEL[cat]||cat}
-     </div>`
-  ).join('');
-  const datasets = cats.map(cat => ({
-    label: (CAT_LABEL[cat]||cat),
-    data: DATA.products
-      .filter(p => p.category === cat && p.price != null && p.rating != null && p.rating > 0)
-      .map(p => ({ x: p.price, y: p.rating })),
-    backgroundColor: catColors[cat] + '99',
-    borderColor: catColors[cat],
-    borderWidth: 1, pointRadius: 4, pointHoverRadius: 6,
-    pointStyle: 'circle',
-  }));
-  priceRatingInst = new Chart(
-    document.getElementById('price-rating-chart').getContext('2d'), {
-      type: 'scatter',
-      data: { datasets },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { display:false },
-          tooltip: { callbacks: { label: c => `€${c.parsed.x.toFixed(0)} · ★${c.parsed.y.toFixed(1)}` } },
-        },
-        scales: {
-          x: { title:{ display:true, text:'Price (€)', color:'#64748b' }, ticks:{ color:'#64748b', callback:v=>'€'+v }, grid:{ color:'#2a2d3a' } },
-          y: { title:{ display:true, text:'Rating', color:'#64748b' }, ticks:{ color:'#64748b' }, grid:{ color:'#2a2d3a' }, min:0, max:5 },
-        },
-      },
-    }
-  );
 }
 
 let marketIndexInst = null;
