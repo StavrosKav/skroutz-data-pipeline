@@ -41,7 +41,7 @@ def test_success_summary_counts_pipeline_date(monkeypatch):
          patch("smtplib.SMTP"):
         rp.send_success_summary("0:01:00")
     calls = _sql_and_params(conn)
-    assert len(calls) == 4
+    assert len(calls) == 5  # snaps, new, drops, yesterday, suspect
     for sql, params in calls:
         assert "CURRENT_DATE" not in sql
         assert params.get("d") == "2026-10-08"

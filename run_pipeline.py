@@ -932,10 +932,18 @@ def publish_artifacts(git=None):
         logger.warning(f"Publish artifacts: on branch '{branch}', not main — skipping auto-commit.")
         return
     paths = ["README.md"]
-    if _publish_main_artifacts() or not pages_ok:
-        # Legacy path, and the safety net if gh-pages failed: keep main's copy fresh.
-        paths = ["charts", "dashboard/dashboard_latest.html", "README.md"]
-    add = _git("add", "--", *paths)
+    add_args = ("add", "--")
+    if not pages_ok:
+        # Site files are gitignored on main (31 Oct 2026); main is not served,
+        # so there is nothing to fall back to. README stats still go to main.
+        _notif.tg_send("⚠️ <b>gh-pages publish failed</b>\nThe public dashboard was not updated today.")
+    if _publish_main_artifacts():
+        # Legacy opt-in: force-add, because these paths are gitignored.
+        paths = ["charts/price_trend_phone.png", "charts/price_trend_laptop.png",
+                 "charts/price_trend_smartwatch.png", "charts/price_trend_tablet.png",
+                 "dashboard/dashboard_latest.html", "README.md"]
+        add_args = ("add", "-f", "--")
+    add = _git(*add_args, *paths)
     if add.returncode != 0:
         logger.warning(f"Publish artifacts: git add failed — {add.stderr.strip()}")
         return
@@ -973,6 +981,11 @@ def send_success_summary(elapsed):
             new_prods      = conn.execute(text("SELECT COUNT(*) FROM products WHERE first_seen = CAST(:d AS date)"), d).scalar()
             drops          = conn.execute(text("SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CAST(:d AS date)"), d).scalar()
             yesterday_snaps = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CAST(:d AS date) - 1"), d).scalar() or 0
+            # Same "suspect" rule as the dashboard KPI (likely scrape errors).
+            from reporting.generate_dashboard import SUSPECT_DROP_PCT
+            suspect        = conn.execute(text(
+                "SELECT COUNT(*) FROM vw_biggest_drops WHERE drop_date = CAST(:d AS date) AND drop_pct <= -:s"
+            ), {**d, "s": SUSPECT_DROP_PCT}).scalar() or 0
     except Exception as e:
         logger.warning(f"Success summary: DB query failed — {e}")
         return
@@ -987,7 +1000,7 @@ def send_success_summary(elapsed):
             f"Coverage: <b>{100 * snaps // yesterday_snaps}%</b> — possible partial scrape"
         )
     elapsed_str = str(elapsed).split(".")[0]  # trim microseconds
-    _notif.tg_success(snaps, new_prods, drops, elapsed_str)
+    _notif.tg_success(snaps, new_prods, drops, elapsed_str, suspect=suspect)
     now_str     = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
     def _stat_card(value, label, color="#0d1b2a"):

@@ -54,7 +54,6 @@ watchlist.json
 # Generated chart images (regenerated daily by charts_from_db.py)
 # Exception: the 4 pipeline trend charts are tracked so the README renders on GitHub
 charts/*.png
-!charts/price_trend_*.png
 
 # Scratch/utility scripts with _ prefix
 _*.py
@@ -84,3 +83,6 @@ backup-*/
 
 evals/last_run.json
 .coverage
+
+# Daily generated site files: published to gh-pages only (not tracked on main)
+dashboard/dashboard_latest.html

@@ -112,8 +112,8 @@ skroutz-data-pipeline/
 ├── PIPELINE.md                  # This file
 │
 ├── logs/                        # pipeline_YYYY-MM-DD.log · tg_sent_*.json (gitignored)
-├── charts/                      # price_trend_*.png (tracked)
-├── dashboard/                   # dashboard_latest.html (tracked)
+├── charts/                      # price_trend_*.png (generated, gitignored)
+├── dashboard/                   # dashboard_latest.html (generated, gitignored)
 │
 ├── Phones_skroutz/              # Raw CSVs — gitignored, regenerated daily
 ├── Laptops_skroutz/             # Raw CSVs — gitignored
@@ -616,8 +616,8 @@ Edit the Windows Task Scheduler trigger time, or update the `cron:` schedule in 
 |---|---|---|
 | Raw CSVs | `Phones_skroutz/` etc. | Stage 1; gitignored; regenerated daily |
 | Cleaned CSVs | `Clean/` | Stage 2; gitignored |
-| Price charts (PNG) | `charts/price_trend_{phone,laptop,smartwatch,tablet}.png` | Tracked in git |
-| HTML dashboard | `dashboard/dashboard_latest.html` | Tracked; dated copies gitignored |
+| Price charts (PNG) | `charts/price_trend_{phone,laptop,smartwatch,tablet}.png` | Gitignored; published to gh-pages |
+| HTML dashboard | `dashboard/dashboard_latest.html` | Gitignored (and dated copies); published to gh-pages |
 | Pipeline log | `logs/pipeline_YYYY-MM-DD.log` | Rotated at 30 days |
 | Scraper logs | `logs/<category>_YYYY-MM-DD.log` | Rotated at 30 days |
 | Telegram dedup | `logs/tg_sent_YYYY-MM-DD.json` | Rotated at 30 days |
@@ -658,5 +658,6 @@ history is always one commit. The public URL is unchanged.
 
 One-time switch: GitHub → Settings → Pages → Source: *Deploy from a branch* → `gh-pages` / `(root)`.
 The switch was done on 29 Oct 2026. Since then the default is `PUBLISH_MAIN_ARTIFACTS=0`: main only
-gets the small README stats commit. Set it to `1` in `.env` to also commit dashboard and charts to main.
-Main is always updated if the gh-pages push fails.
+gets the small README stats commit. Set it to `1` in `.env` to also commit dashboard and charts to main
+(force-added, since they are gitignored).
+If the gh-pages push fails, main still gets only README and a Telegram warning is sent.

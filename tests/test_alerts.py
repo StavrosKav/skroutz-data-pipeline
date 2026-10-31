@@ -177,7 +177,7 @@ class TestSendSuccessSummary(unittest.TestCase):
         mock_engine.connect.return_value.__enter__.return_value = mock_conn
         mock_engine.connect.return_value.__exit__.return_value  = False
         mock_conn.execute.side_effect = [
-            _scalar(snaps), _scalar(new_prods), _scalar(drops), _scalar(yesterday_snaps),
+            _scalar(snaps), _scalar(new_prods), _scalar(drops), _scalar(yesterday_snaps), _scalar(0),
         ]
         return mock_engine
 

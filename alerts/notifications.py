@@ -258,13 +258,21 @@ def tg_disappeared(rows) -> bool:
     return ok
 
 
-def tg_success(snaps: int, new_prods: int, drops: int, elapsed: str) -> bool:
+def _suspect_note(suspect: int) -> str:
+    """' (7 πιθανά λάθη ≥40%)' using the dashboard's suspect threshold; '' when none."""
+    if not suspect:
+        return ""
+    from reporting.generate_dashboard import SUSPECT_DROP_PCT
+    return f" ({suspect} πιθανά λάθη ≥{SUSPECT_DROP_PCT:.0f}%)"
+
+
+def tg_success(snaps: int, new_prods: int, drops: int, elapsed: str, suspect: int = 0) -> bool:
     """Send a daily pipeline success summary (no dedup — always send)."""
     msg = (
         f"✅ <b>Pipeline completed</b>\n\n"
         f"📊 Snapshots loaded: <b>{snaps:,}</b>\n"
         f"🆕 New products: <b>+{new_prods:,}</b>\n"
-        f"📉 Price drops: <b>{drops}</b>\n"
+        f"📉 Price drops: <b>{drops}</b>{_suspect_note(suspect)}\n"
         f"⏱ Duration: <code>{_e(elapsed)}</code>"
     )
     return tg_send(msg)

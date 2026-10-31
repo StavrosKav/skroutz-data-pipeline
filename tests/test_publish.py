@@ -81,8 +81,10 @@ class TestPublishArtifacts(unittest.TestCase):
         self.assertIn(("push", "origin", "main"), g.pushes())
 
     def test_opt_in_still_commits_site_to_main(self):
+        # Site files are gitignored on main, so the opt-in path must force-add them.
         g = self._run("1")
-        self.assertIn("dashboard/dashboard_latest.html", g.adds()[0])
+        forced = [c for c in g.calls if c[:2] == ("add", "-f") and "README.md" in c]
+        self.assertIn("dashboard/dashboard_latest.html", forced[0])
 
     def test_default_is_gh_pages_only(self):
         # Pages serves from gh-pages since 29 Oct 2026, so main gets only README stats.
@@ -92,9 +94,11 @@ class TestPublishArtifacts(unittest.TestCase):
             rp.publish_artifacts(git=g)
         self.assertEqual(g.adds(), [("add", "--", "README.md")])
 
-    def test_pages_failure_falls_back_to_main_commit(self):
+    def test_pages_failure_keeps_main_readme_only(self):
+        # main no longer serves Pages and the site files are gitignored there,
+        # so a gh-pages failure must not re-track them on main.
         g = self._run("0", fail={"write-tree"})
-        self.assertIn("dashboard/dashboard_latest.html", g.adds()[0])
+        self.assertEqual(g.adds(), [("add", "--", "README.md")])
 
     def test_not_on_main_skips_main_commit(self):
         g = self._run("0", branch="feature")
