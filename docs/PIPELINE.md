@@ -255,7 +255,7 @@ step list, before Charts/Dashboard/digests — everything downstream reads these
 Data changes once per day, but 10 of the 15 analytics views in `sql/analytics.sql`
 were recomputing full-table `GROUP BY`/`LAG`/`FILTER` aggregates over all of
 `price_snapshots` (~450k rows) on **every single call** — including
-`vw_biggest_drops`, hit by the HTML dashboard, the Telegram drop
+the drops view (then `vw_biggest_drops`, removed in the 2026-10-31 audit), hit by the HTML dashboard, the Telegram drop
 digest, and `/status`. Those 10 are now `MATERIALIZED VIEW`s (`mv_*`), and the
 original view names are kept as thin `SELECT * FROM mv_*` wrappers so no
 consumer's SQL changed:
@@ -264,7 +264,6 @@ consumer's SQL changed:
 |---|---|
 | `vw_latest_prices` | `mv_latest_prices` |
 | `vw_price_history` | `mv_price_history` |
-| `vw_biggest_drops` | `mv_price_history` (filtered) |
 | `vw_price_floor` | `mv_price_floor` |
 | `vw_price_volatility` | `mv_price_volatility` |
 | `vw_price_trend_direction` | `mv_price_trend_direction` |
@@ -292,7 +291,7 @@ data loss.
 
 | Query | Before | After |
 |---|---|---|
-| Today's drops (`vw_biggest_drops WHERE drop_date = CURRENT_DATE`) | 655 ms | 38 ms |
+| Today's drops (`vw_biggest_drops`, since removed, `WHERE drop_date = CURRENT_DATE`) | 655 ms | 38 ms |
 | Drop count (`/status`) | 404 ms | 5 ms |
 | `/find`-style ILIKE search | 662 ms | 2 ms |
 | `/history`-style ILIKE lookup | 547 ms | 2 ms |
@@ -364,7 +363,6 @@ Indexes
 |---|---|
 | `vw_latest_prices` | Most recent price + metadata per product |
 | `vw_price_history` | Full daily history with LAG-based day-over-day delta |
-| `vw_biggest_drops` | Day-over-day negative price changes (legacy; no app consumer, the ask bot and evals use `vw_drops_7d`) |
 | `vw_drops_7d` | Drops vs a reference = LEAST(yesterday, median of previous 7 snapshots), min 3 snapshots of history; backed by `mv_drops_7d`. Used by the dashboard, Telegram and the daily digest. Drops >= 40% are counted and flagged "big drop, check" |
 | `vw_brand_summary` | Min/max/avg/median price per brand per category |
 | `vw_disappeared` | Products not seen for more than 30 days |

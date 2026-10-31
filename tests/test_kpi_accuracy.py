@@ -79,7 +79,8 @@ class TestCountQueries(unittest.TestCase):
             counts = gd.fetch_counts(conn)
         self.assertEqual(set(counts), {"drops_today", "drops_week", "suspect_drops_today",
                                        "suspect_drops_week", "new_week", "disappeared_30d",
-                                       "latest_products"})
+                                       "latest_products", "listed_today", "listed_prev",
+                                       "drops_prev"})
         self.assertTrue(cd.call_args_list)
         for call in cd.call_args_list:
             self.assertNotIn("exclude_suspect_pct", call.kwargs)

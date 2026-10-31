@@ -64,6 +64,7 @@ header h1 { font-size: 22px; font-weight: 700; color: var(--accent); }
 .stat-card .val { font-size: 22px; font-weight: 700; color: var(--accent); }
 .stat-card.highlight .val { color: var(--drop); }
 .stat-card.success .val   { color: var(--rise); }
+.stat-card .lbl .vs { text-transform: none; letter-spacing: 0; opacity: .8; }
 .stat-card .lbl { font-size: 10px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .06em; }
 .sparkline { height: 18px; margin-top: 8px; opacity: 0.35; }
 
@@ -692,29 +693,25 @@ function productsSampleNote() {
 }
 
 // ── Stat cards ─────────────────────────────────────────────────────────────────
+function vsYesterday(now, prev) {
+  if (prev == null || !prev) return '';
+  const d = now - prev;
+  return ` <span class="vs" title="vs the previous scrape">${d > 0 ? '+' : ''}${d.toLocaleString()} vs yesterday</span>`;
+}
 function buildStats() {
-  const bigDrop = DATA.drops[0] || null;
   const dropsToday = kpi('drops_today', DATA.drops.length);
   const newWeek    = kpi('new_week', DATA.new_products.length);
+  const listed     = kpi('listed_today', DATA.total_products);
   const cards = [
-    { val: DATA.total_products.toLocaleString(), lbl: '&#8594; Products Tracked' },
-    { val: DATA.total_snapshots.toLocaleString(), lbl: '&#8594; Price Snapshots' },
     { val: DATA.last_updated, lbl: 'Last Updated' },
-    { val: dropsToday, lbl: (dropsToday ? '&#8595; ' : '&#8594; ') + 'Drops Today', cls: dropsToday ? 'highlight' : '' },
-    { val: newWeek, lbl: (newWeek ? '&#8593; ' : '&#8594; ') + 'New This Week', cls: newWeek ? 'success' : '' },
+    { val: listed.toLocaleString(), lbl: 'Listed Today' + vsYesterday(listed, COUNTS.listed_prev) },
+    { val: dropsToday, lbl: (dropsToday ? '&#8595; ' : '&#8594; ') + 'Drops Today' + vsYesterday(dropsToday, COUNTS.drops_prev), cls: dropsToday ? 'highlight' : '' },
+    { val: newWeek, lbl: (newWeek ? '&#8593; ' : '&#8594; ') + 'New, Last 7 Days', cls: newWeek ? 'success' : '' },
     { val: kpi('disappeared_30d', DATA.disappeared.length), lbl: '&#8594; Not Seen Over 30 Days' },
   ];
   for (const [cat, info] of Object.entries(DATA.by_category)) {
     const label = (CAT_LABEL[cat]||cat);
-    cards.push({ val: info.count.toLocaleString(), lbl: '&#8594; ' + label + ' Today' });
-    cards.push({ val: '€' + info.median_price.toFixed(0), lbl: 'Median ' + label + ' Price' });
-  }
-  if (bigDrop) {
-    cards.push({
-      val: `-€${Math.abs(bigDrop.drop_eur).toFixed(0)}`,
-      lbl: '&#8595; Biggest Drop · ' + (bigDrop.brand || ''),
-      cls: 'highlight',
-    });
+    cards.push({ val: '€' + info.median_price.toFixed(0), lbl: 'Median ' + label + ' Price &middot; ' + info.count.toLocaleString() + ' listed' });
   }
   document.getElementById('stat-cards').innerHTML = cards.map(c =>
     `<div class="stat-card ${c.cls||''}">

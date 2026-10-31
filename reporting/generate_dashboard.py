@@ -61,9 +61,23 @@ HOT_DEAL_MIN_DROP_PCT  = 3.0
 HOT_DEAL_MIN_DROP_EUR  = 5.0
 
 
+# Words the title parser takes for a brand when a listing has none
+# ("Smartwatch ...", "Έξυπνο ρολόι ..."). Hidden on the dashboard only; the DB keeps them.
+FAKE_BRANDS = frozenset({"Smartwatch", "Έξυπνο"})
+
+
+def is_real_brand(brand):
+    return bool(brand) and brand not in FAKE_BRANDS
+
+
+def display_brand(brand):
+    """Brand as shown on the dashboard: empty for missing or fake brands."""
+    return brand if is_real_brand(brand) else ""
+
+
 def is_suspect_drop(drop_pct, threshold=SUSPECT_DROP_PCT):
     """True when a drop is threshold percent or larger. drop_pct is signed
-    (negative for a drop) as in vw_biggest_drops; None is never suspect."""
+    (negative for a drop) as in vw_drops_7d; None is never suspect."""
     if drop_pct is None:
         return False
     return abs(float(drop_pct)) >= threshold
@@ -86,6 +100,7 @@ def _coerce_drops(df):
             d[k] = round(float(d[k]), 2) if pd.notna(d[k]) else None
         d["drop_date"] = str(d["drop_date"])
         d["suspect"] = is_suspect_drop(d["drop_pct"])
+        d["brand"] = display_brand(d.get("brand"))
     return out
 
 
@@ -99,6 +114,9 @@ def fetch_counts(conn):
         "new_week":            queries.count_new_products(conn, days=7),
         "disappeared_30d":     queries.count_disappeared(conn, days=30),
         "latest_products":     queries.count_latest_products(conn),
+        "listed_today":        queries.count_listed(conn),
+        "listed_prev":         queries.count_listed(conn, prev=True),
+        "drops_prev":          queries.count_drops_prev_day(conn),
     }
 
 
@@ -146,7 +164,7 @@ def fetch_data(conn):
         cat = r.category
         if cat not in brand_data:
             brand_data[cat] = []
-        if len(brand_data[cat]) < 10:
+        if len(brand_data[cat]) < 10 and is_real_brand(r.brand):
             brand_data[cat].append({
                 "brand":         r.brand,
                 "product_count": r.product_count,
@@ -208,7 +226,7 @@ def fetch_data(conn):
         products.append({
             "id":        r.id,
             "category":  r.category or "",
-            "brand":     r.brand or "",
+            "brand":     display_brand(r.brand),
             "model":     r.model or "",
             "name":      r.product_name or "",
             "price":     price,
@@ -254,7 +272,7 @@ def fetch_data(conn):
     for r in new_rows:
         new_products.append({
             "category":   r.category or "",
-            "brand":      r.brand or "",
+            "brand":      display_brand(r.brand),
             "model":      r.model or "",
             "name":       r.product_name or "",
             "first_seen": r.first_seen,
@@ -269,7 +287,7 @@ def fetch_data(conn):
     for r in dis_rows:
         disappeared.append({
             "category":  r.category or "",
-            "brand":     r.brand or "",
+            "brand":     display_brand(r.brand),
             "model":     r.model or r.product_name or "",
             "last_seen": str(r.last_seen),
             "days_gone": r.days_since_last_seen,
@@ -312,7 +330,7 @@ def fetch_data(conn):
     for r in hot_rows:
         hot_deals.append({
             "category":   r.category or "",
-            "brand":      r.brand or "",
+            "brand":      display_brand(r.brand),
             "model":      r.model or r.product_name or "",
             "price_prev": round(float(r.price_prev), 2)   if pd.notna(r.price_prev)   and r.price_prev   else None,
             "price_now":  round(float(r.price_latest), 2) if pd.notna(r.price_latest) and r.price_latest else None,
@@ -333,6 +351,8 @@ def fetch_data(conn):
             continue
         brand_trend[cat] = {}
         for r in trend_df.itertuples():
+            if not is_real_brand(r.brand):
+                continue
             if r.brand not in brand_trend[cat]:
                 brand_trend[cat][r.brand] = []
             brand_trend[cat][r.brand].append({"date": str(r.date), "price": round(float(r.median_price), 2)})

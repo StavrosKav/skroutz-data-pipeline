@@ -54,7 +54,7 @@ def test_basket_index_fixed_basket():
 
 
 def test_stat_cards_say_median():
-    assert "info.median_price" in HTML and "'Median ' + label + ' Price'" in HTML
+    assert "info.median_price" in HTML and "'Median ' + label + ' Price" in HTML
     assert "info.avg_price" not in HTML
 
 

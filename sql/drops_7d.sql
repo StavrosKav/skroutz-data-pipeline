@@ -2,7 +2,7 @@
 -- Rule (mirrored in reporting/drops.py): reference price = LEAST(yesterday,
 -- median of the previous 7 snapshots); a drop needs >= 3 earlier snapshots and
 -- today below both. prev_price is the reference price, so drop_eur/drop_pct
--- keep the same meaning as in vw_biggest_drops (which stays day-over-day).
+-- keep the same sign convention as the old day-over-day vw_biggest_drops (removed).
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_drops_7d AS
 WITH w AS (
     SELECT s.product_id, s.date, s.price_eur,

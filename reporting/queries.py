@@ -267,6 +267,22 @@ def count_disappeared(conn, days=30):
     return int(conn.execute(query, {"days": days}).scalar() or 0)
 
 
+def count_listed(conn, prev=False):
+    """Products with a price on the latest recorded date (prev=True: the recorded date before it)."""
+    day = ("(SELECT MAX(date) FROM price_snapshots WHERE date < (SELECT MAX(date) FROM price_snapshots))"
+           if prev else "(SELECT MAX(date) FROM price_snapshots)")
+    return int(conn.execute(text(f"SELECT COUNT(*) FROM price_snapshots WHERE date = {day}")).scalar() or 0)
+
+
+def count_drops_prev_day(conn):
+    """Drops (vw_drops_7d) on the recorded date before the latest one."""
+    return int(conn.execute(text("""
+        SELECT COUNT(*) FROM vw_drops_7d
+        WHERE drop_date = (SELECT MAX(date) FROM price_snapshots
+                           WHERE date < (SELECT MAX(date) FROM price_snapshots))
+    """)).scalar() or 0)
+
+
 def count_latest_products(conn):
     """Number of products in vw_latest_prices (denominator for the search sample)."""
     return int(conn.execute(text("SELECT COUNT(*) FROM vw_latest_prices")).scalar() or 0)
