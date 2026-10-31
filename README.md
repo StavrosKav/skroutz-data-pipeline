@@ -173,7 +173,7 @@ Questions are cut to 500 characters. If the question is not about the data (for 
 * Cards and trend charts use medians. The Category Price Index follows the same products from the first day (= 100, geometric mean of price ratios).
 * "Buy or wait" compares each product's price today with its own 90-day low, median and high.
 * "New this week" means first seen in the 7 most recent days and still listed on the latest day. The dashboard, Telegram and the `/ask` bot use this one rule.
-* The daily run warns (it does not fail) when a category lists under 85% of its 7-day average.
+* The daily run warns (it does not fail) when a category lists under 85% of its 7-day median, or all categories together under 80%. One rule, in `reporting/volume.py`.
 
 ## Price trend charts
 

@@ -747,18 +747,8 @@ def send_success_summary(elapsed):
     except Exception as e:  # noqa: BLE001 — success summary runs outside the per-step guard; must never kill the run
         logger.warning(f"Success summary: DB query failed — {e}")
         return
-    # Per-category volume alarm: warn only, never fail the run.
-    volume_alerts = []
-    try:
-        from reporting import volume
-        with engine.connect() as conn:
-            volume_alerts = volume.category_volume_alerts(*volume.fetch(conn, d["d"]))
-    except Exception as e:  # noqa: BLE001 — success summary runs outside the per-step guard; must never kill the run
-        logger.warning(f"Volume check skipped — {e}")
-    for a in volume_alerts:
-        logger.warning(
-            f"Low volume: {a['category']} {a['today']:,} vs 7-day avg {a['avg7']:,.0f} ({a['pct']:.0f}%)"
-        )
+    # Volume alarm: same list the coverage step computed (one rule, one query).
+    volume_alerts = list(_VOLUME_ALERTS)
     if yesterday_snaps > 0 and snaps < yesterday_snaps * 0.7:
         logger.warning(
             f"ANOMALY: Today {snaps:,} snapshots vs yesterday {yesterday_snaps:,} — "
@@ -920,71 +910,43 @@ def _run_log_finish(status, failed_stage=None, exit_code=None, error=None):
 
 # ── Snapshot coverage check ────────────────────────────────────────────────────
 # Warning-only: compares today's snapshot count (overall and per category) with
-# the median of the previous COVERAGE_LOOKBACK_DAYS loaded days. Catches partial
+# the median of the previous recorded days (reporting.volume, the one rule). Catches partial
 # scrapes like 2026-09-26 (3,935 vs ~6,600) even when yesterday was itself low,
 # which the day-over-day check in send_success_summary() can miss. Never fails
-# the pipeline and does not touch any existing threshold.
-COVERAGE_LOOKBACK_DAYS = 7
-COVERAGE_WARN_RATIO_TOTAL = 0.80
-COVERAGE_WARN_RATIO_CATEGORY = 0.70
+# the pipeline.
+_VOLUME_ALERTS: list = []   # set by check_snapshot_coverage, read by send_success_summary
 
 
 def check_snapshot_coverage():
+    """Run the one volume rule (reporting.volume) and warn on Telegram + run log.
+
+    The result is kept in _VOLUME_ALERTS so the success summary reports the
+    same list without a second query or a second rule.
+    """
+    global _VOLUME_ALERTS
+    from reporting import volume
     run_date = os.environ.get("PIPELINE_DATE") or datetime.date.today().isoformat()
     try:
         with get_engine().connect() as conn:
-            rows = conn.execute(text("""
-                WITH daily AS (
-                    SELECT s.date, p.category, COUNT(*) AS n
-                    FROM price_snapshots s
-                    JOIN products p ON p.id = s.product_id
-                    WHERE s.date BETWEEN CAST(:d AS date) - :lookback AND CAST(:d AS date)
-                    GROUP BY s.date, p.category
-                ),
-                totals AS (
-                    SELECT date, '__total__'::text AS category, SUM(n) AS n
-                    FROM daily GROUP BY date
-                ),
-                allrows AS (
-                    SELECT date, category::text, n FROM daily
-                    UNION ALL SELECT date, category, n FROM totals
-                )
-                SELECT category,
-                       COALESCE(MAX(n) FILTER (WHERE date = CAST(:d AS date)), 0) AS today_n,
-                       percentile_cont(0.5) WITHIN GROUP (ORDER BY n)
-                           FILTER (WHERE date < CAST(:d AS date)) AS median_n,
-                       COUNT(*) FILTER (WHERE date < CAST(:d AS date)) AS prior_days
-                FROM allrows
-                GROUP BY category
-                ORDER BY category
-            """), {"d": run_date, "lookback": COVERAGE_LOOKBACK_DAYS}).fetchall()
+            alerts = volume.category_volume_alerts(*volume.fetch(conn, run_date))
     except SQLAlchemyError as e:
         logger.warning(f"Coverage check: DB query failed — {e}")
         return
-
-    low = []
-    for r in rows:
-        if not r.median_n or r.prior_days < 3:
-            continue   # not enough history to judge
-        ratio = float(r.today_n) / float(r.median_n)
-        limit = COVERAGE_WARN_RATIO_TOTAL if r.category == "__total__" else COVERAGE_WARN_RATIO_CATEGORY
-        if ratio < limit:
-            low.append((r.category, int(r.today_n), int(r.median_n), ratio))
-
-    if not low:
-        logger.info(f"Coverage check: snapshot counts within normal range vs {COVERAGE_LOOKBACK_DAYS}-day median.")
+    _VOLUME_ALERTS = alerts
+    if not alerts:
+        logger.info(f"Coverage check: snapshot counts within normal range vs {volume.LOOKBACK_DAYS}-day median.")
         _run_log_note("Coverage check", "ok")
         return
     lines = [
-        f"{'TOTAL' if c == '__total__' else c}: {t:,} vs median {m:,} ({100 * ratio:.0f}%)"
-        for c, t, m, ratio in low
+        f"{volume.label(a['category'])}: {a['today']:,} vs median {a['base7']:,.0f} ({a['pct']:.0f}%)"
+        for a in alerts
     ]
     logger.warning("COVERAGE LOW: " + "; ".join(lines))
     _run_log_note("Coverage check", "warn", detail="; ".join(lines))
     _notif.tg_send(
         "⚠️ <b>Low snapshot coverage</b>\n"
         + "\n".join(html.escape(line) for line in lines)
-        + f"\nvs {COVERAGE_LOOKBACK_DAYS}-day median — possible partial scrape."
+        + f"\nvs {volume.LOOKBACK_DAYS}-day median — possible partial scrape."
     )
 
 
