@@ -567,6 +567,16 @@ tr:hover td { background: #ffffff08; }
       </table>
     </div>
     <p class="sample-note" id="bow-note" style="margin-top:8px"></p>
+    <details id="bow-check" style="margin-top:14px">
+      <summary style="cursor:pointer;font-weight:600">Needs checking <span class="count-badge" id="bow-check-badge"></span></summary>
+      <p class="muted" id="bow-check-rule" style="font-size:13px;margin:8px 0"></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Product</th><th>Category</th><th>Today &euro;</th><th>Median</th><th>vs median</th><th>Why</th></tr></thead>
+          <tbody id="bow-check-body"></tbody>
+        </table>
+      </div>
+    </details>
   </div>
 
 </div>
@@ -1335,6 +1345,31 @@ function buildBuyOrWait() {
     const o = document.createElement('option'); o.value = cat; o.textContent = CAT_LABEL[cat]||cat; sel.appendChild(o);
   });
   buildBuyOrWaitTable();
+  buildBowCheck();
+}
+
+function buildBowCheck() {
+  const rows = BOW.check || [];
+  document.getElementById('bow-check-badge').textContent = rows.length.toLocaleString();
+  document.getElementById('bow-check-rule').textContent = (BOW.params && BOW.params.check_rule)
+    ? `Left out of the lists above: ${BOW.params.check_rule}. The price may be real, but often a shop or variant changed, so open the listing before acting.`
+    : '';
+  const tb = document.getElementById('bow-check-body');
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="no-data">Nothing to check today.</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(r => {
+    const sign = r.vs_median_pct > 0 ? '+' : '';
+    return `<tr>
+      <td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name).slice(0, 70)}</a></td>
+      <td>${catBadge(r.category)}</td>
+      <td class="price">&euro;${r.price.toFixed(2)}</td>
+      <td class="muted">&euro;${r.med.toFixed(0)}</td>
+      <td class="muted">${sign}${r.vs_median_pct.toFixed(1)}%</td>
+      <td class="muted">${esc(r.reason || '')}</td>
+    </tr>`;
+  }).join('');
 }
 
 function showBowView(view, btn) {

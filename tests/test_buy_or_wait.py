@@ -64,7 +64,7 @@ class TestBuild(unittest.TestCase):
         self.assertNotEqual(names[0], names[1])
         self.assertTrue(all("111" in n or "222" in n for n in names))
         self.assertEqual([r["name"] for r in out["above"]], ["Other"])
-        self.assertEqual(out["counts"]["phone"], {"near_low": 2, "typical": 0, "above": 1, "total": 3})
+        self.assertEqual(out["counts"]["phone"], {"near_low": 2, "typical": 0, "above": 1, "check": 0, "total": 3})
 
     def test_row_fields(self):
         out = bw.build([_row(current=781.0)])
@@ -75,12 +75,12 @@ class TestBuild(unittest.TestCase):
 
     def test_big_gap_flagged_check(self):
         out = bw.build([_row(current=400.0, lo=400.0), _row(id=2, skroutz_id=2, product_name="B", current=781.0)])
-        flags = {r["name"]: r["suspect"] for r in out["near_low"]}
-        self.assertTrue(flags["Apple iPhone 15 128GB"])
-        self.assertFalse(flags["B"])
+        self.assertEqual([r["name"] for r in out["near_low"]], ["B"])
+        self.assertFalse(out["near_low"][0]["suspect"])
+        self.assertTrue(out["check"][0]["suspect"])
 
     def test_near_low_sorted_by_saving_and_limited(self):
-        rows = [_row(id=i, skroutz_id=i, product_name=f"P{i}", current=780.0 + i % 3, med=850.0 + i)
+        rows = [_row(id=i, skroutz_id=i, product_name=f"P{i}", current=780.0 + i % 3, med=850.0 + i % 50)
                 for i in range(500)]
         out = bw.build(rows, limit=50)
         self.assertEqual(len(out["near_low"]), 50)

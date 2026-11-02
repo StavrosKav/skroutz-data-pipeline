@@ -15,8 +15,13 @@ at least MIN_DAYS recorded days, so a few points never pass for a pattern.
 "How often it drops" = share of day-to-day steps (between recorded days) where
 the price fell by DROP_STEP_PCT percent or more.
 Prices are the cheapest shop's "from" price on Skroutz, as everywhere else.
-A gap to the median of BIG_DROP_PCT percent or more is flagged "check" (often a
-shop change or a different variant), like big drops on the Price Drops tab.
+Needs checking (rule): a row whose price is BIG_DROP_PCT percent or more below
+its 90-day median, or whose history may mix product versions
+(reporting.mixed_versions), is left out of the near-low / above lists and shown
+in a separate "Needs checking" list. Its reason comes from the history: the
+biggest one-day price step (date and size), or "switches between levels" when
+the window has ALTERNATE_JUMPS or more one-day jumps of JUMP_PCT percent or more
+(typically two shops taking turns as cheapest).
 """
 from sqlalchemy import text
 
@@ -28,8 +33,12 @@ NEAR_LOW_PCT = 2.0
 ABOVE_PCT = 5.0
 DROP_STEP_PCT = 3.0
 ROW_LIMIT = 150
+JUMP_PCT = 20.0
+ALTERNATE_JUMPS = 3
 
-NEAR_LOW, TYPICAL, ABOVE = "near_low", "typical", "above"
+NEAR_LOW, TYPICAL, ABOVE, CHECK = "near_low", "typical", "above", "check"
+CHECK_RULE = (f"{BIG_DROP_PCT:.0f}% or more below the 90-day median, or history may mix "
+              "product versions")
 
 SQL = """
 WITH mx AS (SELECT MAX(date) AS d FROM price_snapshots),
@@ -40,7 +49,7 @@ daily AS (
     GROUP BY s.product_id, s.date
 ),
 steps AS (
-    SELECT product_id, price,
+    SELECT product_id, date, price,
            LAG(price) OVER (PARTITION BY product_id ORDER BY date) AS prev
     FROM daily
 ),
@@ -51,12 +60,20 @@ stats AS (
            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price) AS med,
            MAX(price)                                        AS hi,
            COUNT(*) FILTER (WHERE prev IS NOT NULL
-                              AND price <= prev * (1 - :step / 100.0)) AS n_drops
+                              AND price <= prev * (1 - :step / 100.0)) AS n_drops,
+           COUNT(*) FILTER (WHERE prev IS NOT NULL
+                              AND ABS(price - prev) >= prev * :jump / 100.0) AS n_jumps,
+           (ARRAY_AGG(ROUND(((price - prev) / prev * 100)::numeric, 1)
+                      ORDER BY ABS(price - prev) / prev DESC)
+               FILTER (WHERE prev IS NOT NULL AND prev > 0))[1] AS big_step_pct,
+           (ARRAY_AGG(date ORDER BY ABS(price - prev) / prev DESC)
+               FILTER (WHERE prev IS NOT NULL AND prev > 0))[1] AS big_step_date
     FROM steps
     GROUP BY product_id
 )
 SELECT p.id, p.skroutz_id, p.category, p.brand, p.model, p.product_name, p.skroutz_link,
-       cur.price AS current, st.lo, st.med, st.hi, st.n_days, st.n_drops
+       cur.price AS current, st.lo, st.med, st.hi, st.n_days, st.n_drops,
+       st.n_jumps, st.big_step_pct, st.big_step_date
 FROM stats st
 JOIN products p ON p.id = st.product_id
 JOIN daily cur ON cur.product_id = st.product_id
@@ -78,7 +95,20 @@ def signal(current, lo, med, hi):
 
 def fetch(conn):
     return conn.execute(text(SQL), {"days": WINDOW_DAYS, "min_days": MIN_DAYS,
-                                    "step": DROP_STEP_PCT}).fetchall()
+                                    "step": DROP_STEP_PCT, "jump": JUMP_PCT}).fetchall()
+
+
+def check_reason(r, mixed):
+    """Why a flagged row needs checking, from its own price history."""
+    if mixed:
+        return "History may mix product versions"
+    jumps = int(getattr(r, "n_jumps", 0) or 0)
+    if jumps >= ALTERNATE_JUMPS:
+        return f"Price switches between levels ({jumps} one-day jumps of {JUMP_PCT:.0f}%+ in {WINDOW_DAYS} days)"
+    step, when = getattr(r, "big_step_pct", None), getattr(r, "big_step_date", None)
+    if step is not None and when is not None and abs(float(step)) >= JUMP_PCT:
+        return f"One-day step of {float(step):+.1f}% on {when}: check shop or variant"
+    return f"Far below its {WINDOW_DAYS}-day median with no single big step"
 
 
 def build(rows, limit=ROW_LIMIT, mixed=frozenset()):
@@ -89,11 +119,15 @@ def build(rows, limit=ROW_LIMIT, mixed=frozenset()):
     name_count = {}
     for r in rows:
         name_count[r.product_name] = name_count.get(r.product_name, 0) + 1
-    counts, buckets = {}, {NEAR_LOW: [], ABOVE: []}
+    counts, buckets = {}, {NEAR_LOW: [], ABOVE: [], CHECK: []}
     for r in rows:
         cur, lo, med, hi = float(r.current), float(r.lo), float(r.med), float(r.hi)
         sig = signal(cur, lo, med, hi)
-        c = counts.setdefault(r.category or "", {NEAR_LOW: 0, TYPICAL: 0, ABOVE: 0, "total": 0})
+        is_mixed = r.id in mixed
+        suspect = (cur - med) / med * 100 <= -BIG_DROP_PCT
+        if sig != TYPICAL and (suspect or is_mixed):
+            sig = CHECK
+        c = counts.setdefault(r.category or "", {NEAR_LOW: 0, TYPICAL: 0, ABOVE: 0, CHECK: 0, "total": 0})
         c[sig] += 1
         c["total"] += 1
         if sig not in buckets:
@@ -102,17 +136,20 @@ def build(rows, limit=ROW_LIMIT, mixed=frozenset()):
         if name_count.get(r.product_name, 0) > 1:
             name = f"{name} (#{r.skroutz_id})"
         steps = max(int(r.n_days) - 1, 1)
-        buckets[sig].append({
+        row = {
             "id": r.id, "category": r.category or "", "name": name,
             "price": round(cur, 2), "lo": round(lo, 2), "med": round(med, 2), "hi": round(hi, 2),
             "days": int(r.n_days), "vs_median_pct": round((cur - med) / med * 100, 1),
             "drop_rate_pct": round(int(r.n_drops) / steps * 100), "url": r.skroutz_link or "",
-            "suspect": (cur - med) / med * 100 <= -BIG_DROP_PCT,
-            "mixed": r.id in mixed,
-        })
+            "suspect": suspect, "mixed": is_mixed,
+        }
+        if sig == CHECK:
+            row["reason"] = check_reason(r, is_mixed)
+        buckets[sig].append(row)
     near = sorted(buckets[NEAR_LOW], key=lambda x: x["vs_median_pct"])[:limit]
     above = sorted(buckets[ABOVE], key=lambda x: -x["vs_median_pct"])[:limit]
-    return {"counts": counts, "near_low": near, "above": above,
+    check = sorted(buckets[CHECK], key=lambda x: x["vs_median_pct"])[:limit]
+    return {"counts": counts, "near_low": near, "above": above, "check": check,
             "params": {"window_days": WINDOW_DAYS, "min_days": MIN_DAYS,
                        "near_low_pct": NEAR_LOW_PCT, "above_pct": ABOVE_PCT,
-                       "drop_step_pct": DROP_STEP_PCT}}
+                       "drop_step_pct": DROP_STEP_PCT, "check_rule": CHECK_RULE}}
