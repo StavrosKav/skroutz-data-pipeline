@@ -44,6 +44,8 @@ from core.db import get_readonly_engine
 from dotenv import load_dotenv
 from sqlalchemy import text
 
+from reporting.drops import MEANINGFUL_DROP_SQL
+
 # Optional NIM-powered commands (requires NIM_API_KEY in .env)
 try:
     from alerts.telegram_nim import register_nim_commands
@@ -256,6 +258,7 @@ def _cmd_drops(args: str = "") -> str:
             rows = conn.execute(text(
                 "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
                 "FROM vw_drops_7d WHERE drop_date = (SELECT MAX(date) FROM price_snapshots) "
+                f"AND {MEANINGFUL_DROP_SQL} "
                 + cat_clause +
                 "ORDER BY ABS(drop_eur) DESC LIMIT 10"
             ), params).fetchall()
@@ -540,7 +543,8 @@ def _cmd_stats() -> str:
             total_p  = conn.execute(text("SELECT COUNT(*) FROM products")).scalar()
             total_s  = conn.execute(text("SELECT COUNT(*) FROM price_snapshots")).scalar()
             today_s  = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = (SELECT MAX(date) FROM price_snapshots)")).scalar()
-            today_d  = conn.execute(text("SELECT COUNT(*) FROM vw_drops_7d WHERE drop_date = (SELECT MAX(date) FROM price_snapshots)")).scalar()
+            today_d  = conn.execute(text("SELECT COUNT(*) FROM vw_drops_7d WHERE drop_date = (SELECT MAX(date) FROM price_snapshots)"
+                                         f" AND {MEANINGFUL_DROP_SQL}")).scalar()
             last_run = conn.execute(text("SELECT MAX(date) FROM price_snapshots")).scalar()
     except Exception as e:  # noqa: BLE001 — bot command must always reply; any DB/config error becomes the 'DB unavailable' message
         return _db_unavailable(e)

@@ -360,7 +360,6 @@ tr:hover td { background: #ffffff08; }
   <button class="tab-btn"         data-tab="drops"     onclick="showTab(this)">Price Drops<span class="tab-count" id="tc-drops"></span></button>
   <button class="tab-btn"         data-tab="products"  onclick="showTab(this)">Products<span class="tab-count" id="tc-products"></span></button>
   <button class="tab-btn"         data-tab="new-gone"  onclick="showTab(this)">New &amp; Gone<span class="tab-count" id="tc-new-gone"></span></button>
-  <button class="tab-btn"         data-tab="insights"     onclick="showTab(this)">Insights</button>
   <button class="tab-btn"         data-tab="intelligence" onclick="showTab(this)">Buy or Wait<span class="tab-count" id="tc-intel"></span></button>
 </nav>
 
@@ -372,7 +371,29 @@ tr:hover td { background: #ffffff08; }
   </div>
   <div class="section">
     <div class="section-title">&#128202; Category Price Index (same products, first day = 100) &mdash; __WINDOW_START_LABEL__</div>
+    <p class="muted" id="index-takeaway" style="margin:0 0 10px;font-size:14px">__INDEX_TAKEAWAY__</p>
     <div id="market-index-wrap" style="height:280px;position:relative"><canvas id="market-index-chart"></canvas></div>
+  </div>
+  <div class="section">
+    <div class="section-title">&#127991; Brand Analysis</div>
+    <div class="metric-toggle">
+      <button class="metric-btn active" data-metric="median" onclick="setBrandMetric(this)">Median Price &euro;</button>
+      <button class="metric-btn"        data-metric="avg"    onclick="setBrandMetric(this)">Avg Price &euro;</button>
+      <button class="metric-btn"        data-metric="count"  onclick="setBrandMetric(this)">Product Count</button>
+      <button class="metric-btn"        data-metric="range"  onclick="setBrandMetric(this)">Price Range</button>
+    </div>
+    <div class="brand-grid" id="brand-charts"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#127381; Products Listed by Brand</div>
+    <div class="donut-grid" id="donut-charts"></div>
+  </div>
+
+  <div class="section" id="compare-section" style="display:none">
+    <div class="section-title">&#128202; Brand Price Trends &mdash; Compare Over Time</div>
+    <div id="compare-selectors"></div>
+    <div class="compare-grid" id="compare-charts"></div>
   </div>
 </div>
 
@@ -406,6 +427,7 @@ tr:hover td { background: #ffffff08; }
       <input type="number" id="drop-min" min="0" placeholder="0" oninput="buildDropsTable()"/>
       <button class="btn-ghost" onclick="exportDropsCSV()" title="Download this drops list as CSV">&#11015; CSV</button>
     </div>
+    <p class="sample-note" id="drops-rule" style="margin:4px 0 8px"></p>
     <div class="table-wrap">
       <table>
         <thead><tr id="drops-thead"></tr></thead>
@@ -499,7 +521,7 @@ tr:hover td { background: #ffffff08; }
 
   <div class="section">
     <div class="section-title">
-      &#128683; Not Seen for Over 30 Days
+      &#128683; Stopped Appearing in the Last 30 Days
       <span class="count-badge" id="gone-badge"></span>
       <span class="sample-note" id="gone-note"></span>
     </div>
@@ -512,33 +534,11 @@ tr:hover td { background: #ffffff08; }
         <tbody id="gone-body"></tbody>
       </table>
     </div>
+    <p class="sample-note" style="margin-top:8px">Products that were last seen 31 to 60 days ago, so they passed
+      30 days unseen during the last 30 days. The daily scrape reads only part of Skroutz, so this means
+      "no longer where we look", not a confirmed withdrawal. Older gaps are left out.</p>
   </div>
 
-</div>
-
-<!-- ── Insights ──────────────────────────────────────────────────────────────── -->
-<div id="tab-insights" class="tab-content">
-  <div class="section">
-    <div class="section-title">&#127991; Brand Analysis</div>
-    <div class="metric-toggle">
-      <button class="metric-btn active" data-metric="median" onclick="setBrandMetric(this)">Median Price &euro;</button>
-      <button class="metric-btn"        data-metric="avg"    onclick="setBrandMetric(this)">Avg Price &euro;</button>
-      <button class="metric-btn"        data-metric="count"  onclick="setBrandMetric(this)">Product Count</button>
-      <button class="metric-btn"        data-metric="range"  onclick="setBrandMetric(this)">Price Range</button>
-    </div>
-    <div class="brand-grid" id="brand-charts"></div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">&#127381; Market Share &mdash; Products by Brand</div>
-    <div class="donut-grid" id="donut-charts"></div>
-  </div>
-
-  <div class="section" id="compare-section" style="display:none">
-    <div class="section-title">&#128202; Brand Price Trends &mdash; Compare Over Time</div>
-    <div id="compare-selectors"></div>
-    <div class="compare-grid" id="compare-charts"></div>
-  </div>
 </div>
 
 <!-- ── Intelligence ──────────────────────────────────────────────────────────── -->
@@ -567,6 +567,16 @@ tr:hover td { background: #ffffff08; }
       </table>
     </div>
     <p class="sample-note" id="bow-note" style="margin-top:8px"></p>
+    <details id="bow-check" style="margin-top:14px">
+      <summary style="cursor:pointer;font-weight:600">Needs checking <span class="count-badge" id="bow-check-badge"></span></summary>
+      <p class="muted" id="bow-check-rule" style="font-size:13px;margin:8px 0"></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Product</th><th>Category</th><th>Today &euro;</th><th>Median</th><th>vs median</th><th>Why</th></tr></thead>
+          <tbody id="bow-check-body"></tbody>
+        </table>
+      </div>
+    </details>
   </div>
 
 </div>
@@ -587,6 +597,12 @@ tr:hover td { background: #ffffff08; }
         recorded day of the window and on at least 80% of its recorded days. Each day it shows the geometric mean of their
         price relative to that first day (first day = 100; 102 means about 2% dearer), so new or vanished products do not move it.
         Typical prices on the cards and trend charts are medians.</li>
+    <li><b>Price drop minimum</b>: a drop counts only if it is at least <span id="about-min-pct">5</span>% and &euro;5.
+        When <span id="about-bulk">5</span> or more products of one brand and category fall by the same percentage on the same day,
+        they are shown as one <i>bulk repricing</i> line.</li>
+    <li><b>Needs checking</b> (Buy or Wait) collects products whose price looks wrong rather than cheap: far below their
+        own median, mixed versions under one listing, or prices that switch between levels.</li>
+    <li><b>Stopped appearing</b> (New &amp; Gone) lists products that passed 30 days unseen during the last 30 days.</li>
     <li>All prices are the cheapest shop's &ldquo;from&rdquo; price on Skroutz, not one fixed shop.</li>
     <li><b>Stability</b> is the 30-day coefficient of variation of the price; the sparkline shows the last 30 days.</li>
     <li>The badge at the top shows how old the data is and turns red if a daily run was missed.</li>
@@ -710,7 +726,7 @@ function buildStats() {
     { val: listed.toLocaleString(), lbl: 'Listed Today' + vsYesterday(listed, COUNTS.listed_prev) },
     { val: dropsToday, lbl: (dropsToday ? '&#8595; ' : '&#8594; ') + 'Drops Today' + vsYesterday(dropsToday, COUNTS.drops_prev), cls: dropsToday ? 'highlight' : '' },
     { val: newWeek, lbl: (newWeek ? '&#8593; ' : '&#8594; ') + 'New, Last 7 Days', cls: newWeek ? 'success' : '' },
-    { val: kpi('disappeared_30d', DATA.disappeared.length), lbl: '&#8594; Not Seen Over 30 Days' },
+    { val: kpi('gone_30d', DATA.disappeared.length), lbl: '&#8594; Stopped Appearing, Last 30 Days' },
   ];
   for (const [cat, info] of Object.entries(DATA.by_category)) {
     const label = (CAT_LABEL[cat]||cat);
@@ -778,6 +794,10 @@ function sortDropsBy(col) {
 }
 
 function buildDropsTable() {
+  const ruleEl = document.getElementById('drops-rule');
+  if (ruleEl && THR.min_drop_pct != null) ruleEl.textContent =
+    `Only drops of at least ${THR.min_drop_pct}% and at least \u20ac${THR.min_drop_eur} count. ` +
+    `${THR.bulk_min} or more products in one category falling by the same % on the same day are shown as one bulk repricing line.`;
   const data     = dropsView === 'today' ? DATA.drops : DATA.weekly_drops;
   const showDate = dropsView === 'week';
   const label    = dropsView === 'today' ? "🔻 Today's Price Drops" : "🗓️ This Week's Best Deals";
@@ -826,7 +846,8 @@ function buildDropsTable() {
     const barW = Math.round(Math.min(56, Math.abs(d.drop_eur || 0) / maxDrop * 56));
     return `<tr>
       <td>${d.brand||''}</td>
-      <td><a href="${d.skroutz_link}" target="_blank">${(d.model||d.brand||'').slice(0,44)}</a></td>
+      <td>${d.bulk ? `<span class="muted" title="${esc((d.brands||[]).join(', '))}">${esc(d.model)}</span>`
+                   : `<a href="${d.skroutz_link}" target="_blank">${(d.model||d.brand||'').slice(0,44)}</a>`}</td>
       <td>${catBadge(d.category)}</td>
       <td class="price muted">€${(d.prev_price||0).toFixed(2)}</td>
       <td class="price">€${(d.new_price||0).toFixed(2)}</td>
@@ -961,11 +982,11 @@ function buildNewGone() {
   }
 
   // Disappeared
-  document.getElementById('gone-badge').textContent = kpi('disappeared_30d', DATA.disappeared.length);
-  document.getElementById('gone-note').textContent = showingNote(DATA.disappeared.length, kpi('disappeared_30d', 0));
+  document.getElementById('gone-badge').textContent = kpi('gone_30d', DATA.disappeared.length);
+  document.getElementById('gone-note').textContent = showingNote(DATA.disappeared.length, kpi('gone_30d', 0));
   const gb = document.getElementById('gone-body');
   if (!DATA.disappeared.length) {
-    gb.innerHTML = '<tr><td colspan="5" class="no-data">No product has been missing for more than 30 days.</td></tr>';
+    gb.innerHTML = '<tr><td colspan="5" class="no-data">No product stopped appearing in the last 30 days.</td></tr>';
   } else {
     gb.innerHTML = DATA.disappeared.map(p => `<tr>
       <td>${p.brand}</td>
@@ -1134,7 +1155,7 @@ function closeModal() { document.getElementById('modal').classList.remove('open'
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeModal();
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  const tabMap = {'1':'overview','2':'drops','3':'products','4':'new-gone','5':'insights','6':'intelligence'};
+  const tabMap = {'1':'overview','2':'drops','3':'products','4':'new-gone','5':'intelligence'};
   if (tabMap[e.key]) { const btn = document.querySelector(`.tab-btn[data-tab="${tabMap[e.key]}"]`); if (btn) showTab(btn); }
 });
 
@@ -1335,6 +1356,31 @@ function buildBuyOrWait() {
     const o = document.createElement('option'); o.value = cat; o.textContent = CAT_LABEL[cat]||cat; sel.appendChild(o);
   });
   buildBuyOrWaitTable();
+  buildBowCheck();
+}
+
+function buildBowCheck() {
+  const rows = BOW.check || [];
+  document.getElementById('bow-check-badge').textContent = rows.length.toLocaleString();
+  document.getElementById('bow-check-rule').textContent = (BOW.params && BOW.params.check_rule)
+    ? `Left out of the lists above: ${BOW.params.check_rule}. The price may be real, but often a shop or variant changed, so open the listing before acting.`
+    : '';
+  const tb = document.getElementById('bow-check-body');
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="no-data">Nothing to check today.</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(r => {
+    const sign = r.vs_median_pct > 0 ? '+' : '';
+    return `<tr>
+      <td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name).slice(0, 70)}</a></td>
+      <td>${catBadge(r.category)}</td>
+      <td class="price">&euro;${r.price.toFixed(2)}</td>
+      <td class="muted">&euro;${r.med.toFixed(0)}</td>
+      <td class="muted">${sign}${r.vs_median_pct.toFixed(1)}%</td>
+      <td class="muted">${esc(r.reason || '')}</td>
+    </tr>`;
+  }).join('');
 }
 
 function showBowView(view, btn) {
@@ -1431,8 +1477,11 @@ function updateTabBadges() {
   const pel = document.getElementById('tc-products');
   if (pel) pel.textContent = DATA.products.length.toLocaleString();
   const nel = document.getElementById('tc-new-gone');
-  const newGone = kpi('new_week', DATA.new_products.length) + kpi('disappeared_30d', DATA.disappeared.length);
-  if (nel && newGone) nel.textContent = newGone;
+  const nNew = kpi('new_week', DATA.new_products.length), nGone = kpi('gone_30d', DATA.disappeared.length);
+  if (nel && (nNew || nGone)) {
+    nel.textContent = `+${nNew.toLocaleString()} / -${nGone.toLocaleString()}`;
+    nel.title = 'New in the last 7 days / stopped appearing in the last 30 days';
+  }
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
@@ -1498,6 +1547,10 @@ function buildFreshness() {
   const f  = DATA.freshness;
   const aboutPct = document.getElementById('about-suspect');
   if (aboutPct) aboutPct.textContent = THR.suspect_pct;
+  const aboutMin = document.getElementById('about-min-pct');
+  if (aboutMin && THR.min_drop_pct != null) aboutMin.textContent = THR.min_drop_pct;
+  const aboutBulk = document.getElementById('about-bulk');
+  if (aboutBulk && THR.bulk_min != null) aboutBulk.textContent = THR.bulk_min;
   if (!el || !f) { if (el) el.remove(); return; }
   const built = new Date(f.generated_at);
   const hrs   = Math.max(0, Math.round((Date.now() - built.getTime()) / 36e5));
@@ -1528,7 +1581,8 @@ safeCall(buildMarketShare,     'buildMarketShare');
 safeCall(buildBrandComparison, 'buildBrandComparison');
 safeCall(buildIntelligence,    'buildIntelligence');
 (function restoreTab() {
-  const hash = location.hash.slice(1);
+  const moved = {insights: 'overview'};  // old Insights tab now lives in Overview
+  const hash = moved[location.hash.slice(1)] || location.hash.slice(1);
   if (hash) { const btn = document.querySelector(`.tab-btn[data-tab="${hash}"]`); if (btn) showTab(btn); }
 })();
 </script>

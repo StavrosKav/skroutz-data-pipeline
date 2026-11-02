@@ -183,7 +183,10 @@ Questions are cut to 500 characters. If the question is not about the data (for 
 
 * Prices are the cheapest shop's "from" price on Skroutz, not one fixed shop.
 * Cards and trend charts use medians. The Category Price Index follows the same products from the first day (= 100, geometric mean of price ratios).
-* "Buy or wait" compares each product's price today with its own 90-day low, median and high.
+* The Overview tab opens with one sentence on how the Category Price Index moved per category, then the index, brand trends, brand analysis and products listed by brand (the old Insights tab was merged into Overview; `#insights` links open Overview).
+* "Buy or wait" compares each product's price today with its own 90-day low, median and high. Products whose price looks wrong rather than cheap (far below their own median, mixed versions, or switching between price levels) go to a separate "Needs checking" list.
+* A price drop counts only if it is at least 5% and €5 (`MEANINGFUL_DROP_SQL` in `reporting/drops.py`). The dashboard, the daily digest and Telegram use this rule; the `vw_drops_7d` view itself is unfiltered. When 5 or more products of one brand and category fall by the same percentage on the same day, the dashboard shows one "bulk repricing" line.
+* "Stopped appearing" (New & Gone) counts products that passed 30 days unseen during the last 30 days, not every product ever lost.
 * "New this week" means first seen in the 7 most recent days and still listed on the latest day. The dashboard, Telegram and the `/ask` bot use this one rule.
 * The daily run warns (it does not fail) when a category lists under 85% of its 7-day median, or all categories together under 80%. One rule, in `reporting/volume.py`.
 

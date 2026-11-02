@@ -59,6 +59,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from core.db import get_engine
 import alerts.notifications as _notif
+from reporting.drops import MEANINGFUL_DROP_SQL
 from pipeline.email_html import _html_shell, _pct_badge  # noqa: F401  (re-export)
 from pipeline.publish import (  # noqa: F401  (re-export)
     PAGES_BRANCH, PAGES_PATHS, _git_run, _publish_main_artifacts,
@@ -362,7 +363,7 @@ def send_drop_digest():
             rows = conn.execute(text(
                 "SELECT brand, model, category, prev_price, new_price, drop_eur, drop_pct "
                 "FROM vw_drops_7d "
-                "WHERE drop_date = CAST(:d AS date) "
+                f"WHERE drop_date = CAST(:d AS date) AND {MEANINGFUL_DROP_SQL} "
                 "ORDER BY ABS(drop_eur) DESC LIMIT 10"
             ), {"d": _pipeline_date()}).fetchall()
     except SQLAlchemyError as e:
@@ -732,12 +733,14 @@ def send_success_summary(elapsed):
             d = {"d": _pipeline_date()}
             snaps          = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CAST(:d AS date)"), d).scalar()
             new_prods      = conn.execute(text("SELECT COUNT(*) FROM products WHERE first_seen = CAST(:d AS date)"), d).scalar()
-            drops          = conn.execute(text("SELECT COUNT(*) FROM vw_drops_7d WHERE drop_date = CAST(:d AS date)"), d).scalar()
+            drops          = conn.execute(text("SELECT COUNT(*) FROM vw_drops_7d WHERE drop_date = CAST(:d AS date)"
+                                               f" AND {MEANINGFUL_DROP_SQL}"), d).scalar()
             yesterday_snaps = conn.execute(text("SELECT COUNT(*) FROM price_snapshots WHERE date = CAST(:d AS date) - 1"), d).scalar() or 0
             # Big drops (shown, flagged "check") - same threshold as the dashboard.
             from reporting.drops import BIG_DROP_PCT
             suspect        = conn.execute(text(
                 "SELECT COUNT(*) FROM vw_drops_7d WHERE drop_date = CAST(:d AS date) AND drop_pct <= -:s"
+                f" AND {MEANINGFUL_DROP_SQL}"
             ), {**d, "s": BIG_DROP_PCT}).scalar() or 0
             # Same rule as queries.NEW_PRODUCTS_WHERE, anchored on the run date.
             new_week       = conn.execute(text(

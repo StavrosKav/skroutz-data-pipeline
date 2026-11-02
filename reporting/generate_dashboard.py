@@ -16,6 +16,7 @@ import sys
 import json
 import logging
 import datetime
+import html as html_lib
 
 from dotenv import load_dotenv
 from sqlalchemy import text
@@ -24,7 +25,8 @@ from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 
 import reporting.queries as queries
-from reporting.drops import BIG_DROP_LABEL_EN, BIG_DROP_PCT
+from reporting.drops import (BIG_DROP_LABEL_EN, BIG_DROP_PCT, BULK_MIN_PRODUCTS, MIN_DROP_EUR,
+                             MIN_DROP_PCT, group_bulk)
 import reporting.dashboard_payload as payload
 import reporting.buy_or_wait as buy_or_wait
 import reporting.mixed_versions as mixed_versions
@@ -48,8 +50,13 @@ OUT_DIR.mkdir(exist_ok=True)
 # Lists are truncated for display; KPIs come from COUNT(*) queries instead.
 DROPS_TODAY_LIMIT   = 25
 DROPS_WEEK_LIMIT    = 30
+# All meaningful drops are fetched so bulk repricings can be grouped before the cut.
+DROPS_FETCH_LIMIT   = 5000
 NEW_PRODUCTS_LIMIT  = 50
 DISAPPEARED_LIMIT   = 50
+# New & Gone: products that crossed the >30-day unseen line in the last
+# GONE_WINDOW_DAYS days (the same crossing the daily Telegram alert reports).
+GONE_WINDOW_DAYS    = 30
 PRODUCTS_LIMIT      = 3000   # product search / price tiers / price-vs-rating sample
 HOT_DEALS_LIMIT     = 20
 SPARK_POINTS        = 8      # points per product sparkline (last 30 days)
@@ -106,6 +113,12 @@ def _coerce_drops(df):
     return out
 
 
+def _drop_lines(conn, days_back, limit):
+    """Meaningful drops, bulk repricings grouped into one line, biggest euro drop first."""
+    rows = group_bulk(_coerce_drops(queries.biggest_drops(conn, days_back=days_back, limit=DROPS_FETCH_LIMIT)))
+    return sorted(rows, key=lambda d: d["drop_eur"])[:limit]
+
+
 def fetch_counts(conn):
     """Real KPI totals (COUNT(*)), independent of the display-list LIMITs."""
     return {
@@ -114,7 +127,7 @@ def fetch_counts(conn):
         "suspect_drops_today": queries.count_suspect_drops(conn, 0, SUSPECT_DROP_PCT),
         "suspect_drops_week":  queries.count_suspect_drops(conn, 7, SUSPECT_DROP_PCT),
         "new_week":            queries.count_new_products(conn, days=7),
-        "disappeared_30d":     queries.count_disappeared(conn, days=30),
+        "gone_30d":            queries.count_disappeared(conn, days=30, window=GONE_WINDOW_DAYS),
         "latest_products":     queries.count_latest_products(conn),
         "listed_today":        queries.count_listed(conn),
         "listed_prev":         queries.count_listed(conn, prev=True),
@@ -145,10 +158,10 @@ def fetch_data(conn):
     }
 
     # Today's drops
-    drops = _coerce_drops(queries.biggest_drops(conn, days_back=0, limit=DROPS_TODAY_LIMIT))
+    drops = _drop_lines(conn, 0, DROPS_TODAY_LIMIT)
 
     # This week's drops
-    weekly_drops = _coerce_drops(queries.biggest_drops(conn, days_back=7, limit=DROPS_WEEK_LIMIT))
+    weekly_drops = _drop_lines(conn, 7, DROPS_WEEK_LIMIT)
 
     # Brand summary — top 10 per category with median
     brand_rows = conn.execute(text("""
@@ -294,7 +307,8 @@ def fetch_data(conn):
         })
 
     # Not seen for >30 days
-    dis_rows = queries.disappeared(conn, days=30, limit=DISAPPEARED_LIMIT).itertuples()
+    dis_rows = queries.disappeared(conn, days=30, limit=DISAPPEARED_LIMIT,
+                                   window=GONE_WINDOW_DAYS).itertuples()
     disappeared = []
     for r in dis_rows:
         disappeared.append({
@@ -414,6 +428,9 @@ def fetch_data(conn):
             "big_drop_label": BIG_DROP_LABEL_EN,
             "hot_min_pct": HOT_DEAL_MIN_DROP_PCT,
             "hot_min_eur": HOT_DEAL_MIN_DROP_EUR,
+            "min_drop_pct": MIN_DROP_PCT,
+            "min_drop_eur": MIN_DROP_EUR,
+            "bulk_min": BULK_MIN_PRODUCTS,
         },
         "drops":           drops,
         "weekly_drops":    weekly_drops,
@@ -443,6 +460,26 @@ HTML_TEMPLATE = HTML_TEMPLATE_PATH.read_text(encoding="utf-8")
 CHARTJS_SRC = "../assets/chart.umd.min.js"
 
 
+def index_takeaway(market_index):
+    """One plain sentence from the basket index: change since the first recorded
+    day per category, biggest rise first. '' when there is nothing to compare."""
+    if not isinstance(market_index, dict):
+        return ""
+    moves, start = [], None
+    for cat, pts in market_index.items():
+        if len(pts) < 2 or not pts[0]["idx"]:
+            continue
+        moves.append((pts[-1]["idx"] / pts[0]["idx"] * 100 - 100, cat))
+        start = min(start or pts[0]["date"], pts[0]["date"])
+    if not moves:
+        return ""
+    moves.sort(reverse=True)
+    d = datetime.date.fromisoformat(start)
+    parts = ", ".join(f"{cat} {pct:+.1f}%" for pct, cat in moves)
+    return (f"Since {d.day} {d.strftime('%b %Y')}, the same products changed in price: "
+            f"{parts}.")
+
+
 def render_html(data):
     """Fill the HTML template from a fetch_data() dict. Pops data["history"]."""
     charts_json = {
@@ -467,6 +504,7 @@ def render_html(data):
         .replace("__TOTAL_PRODUCTS__",     f"{data['total_products']:,}")
         .replace("__TOTAL_SNAPSHOTS__",    f"{data['total_snapshots']:,}")
         .replace("__WINDOW_START_LABEL__", window_start_label)
+        .replace("__INDEX_TAKEAWAY__",     html_lib.escape(index_takeaway(data.get("market_index"))))
         .replace("__DATA_JSON__",        json.dumps(data,        ensure_ascii=False, separators=(",", ":")))
         .replace("__HISTORY_JSON__",     json.dumps(history,     ensure_ascii=False, separators=(",", ":")))
         .replace("__CHARTS_JSON__",      json.dumps(charts_json, ensure_ascii=False, separators=(",", ":")))

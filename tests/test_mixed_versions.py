@@ -24,7 +24,8 @@ class TestBuyOrWaitFlag(unittest.TestCase):
     def test_mixed_flag_on_rows(self):
         rows = [_row(id=1, skroutz_id=111, current=781.0), _row(id=2, skroutz_id=222, current=899.0)]
         out = bw.build(rows, mixed={1})
-        self.assertTrue(out["near_low"][0]["mixed"])
+        self.assertEqual(out["near_low"], [])
+        self.assertTrue(out["check"][0]["mixed"])
         self.assertFalse(out["above"][0]["mixed"])
 
     def test_default_no_mixed(self):
