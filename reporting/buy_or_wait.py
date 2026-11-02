@@ -81,8 +81,11 @@ def fetch(conn):
                                     "step": DROP_STEP_PCT}).fetchall()
 
 
-def build(rows, limit=ROW_LIMIT):
-    """Rows -> {"counts": {cat: {...}}, "near_low": [...], "above": [...], params}."""
+def build(rows, limit=ROW_LIMIT, mixed=frozenset()):
+    """Rows -> {"counts": {cat: {...}}, "near_low": [...], "above": [...], params}.
+
+    `mixed`: product ids whose history may combine variants (reporting.mixed_versions).
+    """
     name_count = {}
     for r in rows:
         name_count[r.product_name] = name_count.get(r.product_name, 0) + 1
@@ -105,6 +108,7 @@ def build(rows, limit=ROW_LIMIT):
             "days": int(r.n_days), "vs_median_pct": round((cur - med) / med * 100, 1),
             "drop_rate_pct": round(int(r.n_drops) / steps * 100), "url": r.skroutz_link or "",
             "suspect": (cur - med) / med * 100 <= -BIG_DROP_PCT,
+            "mixed": r.id in mixed,
         })
     near = sorted(buckets[NEAR_LOW], key=lambda x: x["vs_median_pct"])[:limit]
     above = sorted(buckets[ABOVE], key=lambda x: -x["vs_median_pct"])[:limit]

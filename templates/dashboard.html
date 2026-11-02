@@ -682,6 +682,9 @@ function kpi(key, fallback) { return COUNTS[key] != null ? COUNTS[key] : fallbac
 function showingNote(shown, total) {
   return total > shown ? `showing top ${shown.toLocaleString()} of ${total.toLocaleString()}` : '';
 }
+function mixedBadge() {
+  return `<span class="suspect-badge" title="Mixed versions: Skroutz reused this product id for another variant (RAM/storage), so the price history may combine variants.">mixed versions</span>`;
+}
 function suspectBadge() {
   return `<span class="suspect-badge" title="Drop of ${THR.suspect_pct}% or more vs the usual price. Counted, but worth a look on Skroutz (shop change, variant or error).">big drop, check</span>`;
 }
@@ -923,7 +926,7 @@ function renderProductTable() {
     }
     return `<tr>
       <td>${p.brand}</td>
-      <td><a href="${p.url}" target="_blank">${name}</a></td>
+      <td><a href="${p.url}" target="_blank">${name}</a>${p.mixed ? mixedBadge() : ''}</td>
       <td>${catBadge(p.category)}</td>
       <td class="price">${priceHtml}</td>
       <td>${rating}</td>
@@ -1359,7 +1362,7 @@ function buildBuyOrWaitTable() {
     const color = r.vs_median_pct < 0 ? '#22c55e' : '#ef4444';
     const sign = r.vs_median_pct > 0 ? '+' : '';
     return `<tr>
-      <td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name).slice(0, 70)}</a>${r.suspect ? ' ' + suspectBadge() : ''}</td>
+      <td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name).slice(0, 70)}</a>${r.suspect ? ' ' + suspectBadge() : ''}${r.mixed ? ' ' + mixedBadge() : ''}</td>
       <td>${catBadge(r.category)}</td>
       <td class="price">&euro;${r.price.toFixed(2)}</td>
       <td class="muted">${eur(r.lo)}</td><td class="muted">${eur(r.med)}</td><td class="muted">${eur(r.hi)}</td>
