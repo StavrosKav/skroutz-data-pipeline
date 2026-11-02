@@ -406,6 +406,7 @@ tr:hover td { background: #ffffff08; }
       <input type="number" id="drop-min" min="0" placeholder="0" oninput="buildDropsTable()"/>
       <button class="btn-ghost" onclick="exportDropsCSV()" title="Download this drops list as CSV">&#11015; CSV</button>
     </div>
+    <p class="sample-note" id="drops-rule" style="margin:4px 0 8px"></p>
     <div class="table-wrap">
       <table>
         <thead><tr id="drops-thead"></tr></thead>
@@ -514,7 +515,7 @@ tr:hover td { background: #ffffff08; }
     </div>
     <p class="sample-note" style="margin-top:8px">Products that were last seen 31 to 60 days ago, so they passed
       30 days unseen during the last 30 days. The daily scrape reads only part of Skroutz, so this means
-      "no longer where we look", not a confirmed withdrawal. Older gaps are not counted.</p>
+      "no longer where we look", not a confirmed withdrawal. Older gaps are left out.</p>
   </div>
 
 </div>
@@ -791,6 +792,10 @@ function sortDropsBy(col) {
 }
 
 function buildDropsTable() {
+  const ruleEl = document.getElementById('drops-rule');
+  if (ruleEl && THR.min_drop_pct != null) ruleEl.textContent =
+    `Only drops of at least ${THR.min_drop_pct}% and at least \u20ac${THR.min_drop_eur} count. ` +
+    `${THR.bulk_min} or more products in one category falling by the same % on the same day are shown as one bulk repricing line.`;
   const data     = dropsView === 'today' ? DATA.drops : DATA.weekly_drops;
   const showDate = dropsView === 'week';
   const label    = dropsView === 'today' ? "🔻 Today's Price Drops" : "🗓️ This Week's Best Deals";
@@ -839,7 +844,8 @@ function buildDropsTable() {
     const barW = Math.round(Math.min(56, Math.abs(d.drop_eur || 0) / maxDrop * 56));
     return `<tr>
       <td>${d.brand||''}</td>
-      <td><a href="${d.skroutz_link}" target="_blank">${(d.model||d.brand||'').slice(0,44)}</a></td>
+      <td>${d.bulk ? `<span class="muted" title="${esc((d.brands||[]).join(', '))}">${esc(d.model)}</span>`
+                   : `<a href="${d.skroutz_link}" target="_blank">${(d.model||d.brand||'').slice(0,44)}</a>`}</td>
       <td>${catBadge(d.category)}</td>
       <td class="price muted">€${(d.prev_price||0).toFixed(2)}</td>
       <td class="price">€${(d.new_price||0).toFixed(2)}</td>

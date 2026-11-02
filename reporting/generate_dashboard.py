@@ -24,7 +24,8 @@ from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 
 import reporting.queries as queries
-from reporting.drops import BIG_DROP_LABEL_EN, BIG_DROP_PCT
+from reporting.drops import (BIG_DROP_LABEL_EN, BIG_DROP_PCT, BULK_MIN_PRODUCTS, MIN_DROP_EUR,
+                             MIN_DROP_PCT, group_bulk)
 import reporting.dashboard_payload as payload
 import reporting.buy_or_wait as buy_or_wait
 import reporting.mixed_versions as mixed_versions
@@ -48,6 +49,8 @@ OUT_DIR.mkdir(exist_ok=True)
 # Lists are truncated for display; KPIs come from COUNT(*) queries instead.
 DROPS_TODAY_LIMIT   = 25
 DROPS_WEEK_LIMIT    = 30
+# All meaningful drops are fetched so bulk repricings can be grouped before the cut.
+DROPS_FETCH_LIMIT   = 5000
 NEW_PRODUCTS_LIMIT  = 50
 DISAPPEARED_LIMIT   = 50
 # New & Gone: products that crossed the >30-day unseen line in the last
@@ -109,6 +112,12 @@ def _coerce_drops(df):
     return out
 
 
+def _drop_lines(conn, days_back, limit):
+    """Meaningful drops, bulk repricings grouped into one line, biggest euro drop first."""
+    rows = group_bulk(_coerce_drops(queries.biggest_drops(conn, days_back=days_back, limit=DROPS_FETCH_LIMIT)))
+    return sorted(rows, key=lambda d: d["drop_eur"])[:limit]
+
+
 def fetch_counts(conn):
     """Real KPI totals (COUNT(*)), independent of the display-list LIMITs."""
     return {
@@ -148,10 +157,10 @@ def fetch_data(conn):
     }
 
     # Today's drops
-    drops = _coerce_drops(queries.biggest_drops(conn, days_back=0, limit=DROPS_TODAY_LIMIT))
+    drops = _drop_lines(conn, 0, DROPS_TODAY_LIMIT)
 
     # This week's drops
-    weekly_drops = _coerce_drops(queries.biggest_drops(conn, days_back=7, limit=DROPS_WEEK_LIMIT))
+    weekly_drops = _drop_lines(conn, 7, DROPS_WEEK_LIMIT)
 
     # Brand summary — top 10 per category with median
     brand_rows = conn.execute(text("""
@@ -418,6 +427,9 @@ def fetch_data(conn):
             "big_drop_label": BIG_DROP_LABEL_EN,
             "hot_min_pct": HOT_DEAL_MIN_DROP_PCT,
             "hot_min_eur": HOT_DEAL_MIN_DROP_EUR,
+            "min_drop_pct": MIN_DROP_PCT,
+            "min_drop_eur": MIN_DROP_EUR,
+            "bulk_min": BULK_MIN_PRODUCTS,
         },
         "drops":           drops,
         "weekly_drops":    weekly_drops,

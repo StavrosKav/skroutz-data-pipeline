@@ -15,6 +15,8 @@ changing behavior.
 import pandas as pd
 from sqlalchemy import text
 
+from reporting.drops import MEANINGFUL_DROP_SQL
+
 
 def category_snapshot(conn):
     """Per-category product count + min/median/avg/max price, latest snapshot date."""
@@ -48,6 +50,7 @@ def biggest_drops(conn, days_back, categories=None, limit=100):
                drop_date, skroutz_link
         FROM vw_drops_7d
         WHERE drop_date >= (SELECT MAX(date) FROM price_snapshots) - :days
+          AND {MEANINGFUL_DROP_SQL}
         {cat_clause}
         ORDER BY drop_eur ASC LIMIT :limit
     """)
@@ -208,19 +211,22 @@ def basket_index(conn, days=90):
 
 
 def count_drops(conn, days_back):
-    """Number of price drops (vw_drops_7d, big ones included) with drop_date >= MAX(date) - days_back."""
-    query = text("""
+    """Number of meaningful price drops (vw_drops_7d + MEANINGFUL_DROP_SQL, big ones
+    included) with drop_date >= MAX(date) - days_back."""
+    query = text(f"""
         SELECT COUNT(*) FROM vw_drops_7d
         WHERE drop_date >= (SELECT MAX(date) FROM price_snapshots) - :days
+          AND {MEANINGFUL_DROP_SQL}
     """)
     return int(conn.execute(query, {"days": days_back}).scalar() or 0)
 
 
 def count_suspect_drops(conn, days_back, suspect_pct):
     """Number of drops of suspect_pct percent or more (shown, flagged "check")."""
-    query = text("""
+    query = text(f"""
         SELECT COUNT(*) FROM vw_drops_7d
         WHERE drop_date >= (SELECT MAX(date) FROM price_snapshots) - :days
+          AND {MEANINGFUL_DROP_SQL}
           AND drop_pct <= -:suspect
     """)
     return int(conn.execute(query, {"days": days_back, "suspect": suspect_pct}).scalar() or 0)
@@ -264,9 +270,10 @@ def count_listed(conn, prev=False):
 
 def count_drops_prev_day(conn):
     """Drops (vw_drops_7d) on the recorded date before the latest one."""
-    return int(conn.execute(text("""
+    return int(conn.execute(text(f"""
         SELECT COUNT(*) FROM vw_drops_7d
-        WHERE drop_date = (SELECT MAX(date) FROM price_snapshots
+        WHERE {MEANINGFUL_DROP_SQL}
+          AND drop_date = (SELECT MAX(date) FROM price_snapshots
                            WHERE date < (SELECT MAX(date) FROM price_snapshots))
     """)).scalar() or 0)
 
