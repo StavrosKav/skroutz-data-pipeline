@@ -47,6 +47,11 @@ try {
 }
 
 if ($exitCode -eq 0) {
+    # Daily DB backup right after a successful run (the 10:40 task is only a fallback;
+    # backup_db skips if today's dump exists). A backup failure never fails the pipeline.
+    try {
+        & $Python -m ops.backup_db *>> (Join-Path $Project "logs\backup_db.log")
+    } catch { }
     exit 0
 }
 
