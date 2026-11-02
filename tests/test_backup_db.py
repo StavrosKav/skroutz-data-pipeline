@@ -74,3 +74,14 @@ def test_drive_copy_missing_drive_skips(tmp_path):
     (tmp_path / "skroutz_daily_20261102.dump").write_text("x")
     assert drive_copy(tmp_path, None, dt.date(2026, 11, 2)) is None
     assert drive_copy(tmp_path, tmp_path / "nope" / "x", dt.date(2026, 11, 2), require_parent=True) is None
+
+
+def test_main_skip_path_still_copies_to_drive(tmp_path, monkeypatch):
+    import ops.backup_db as b
+    (tmp_path / f"skroutz_daily_{dt.date.today():%Y%m%d}.dump").write_text("x")
+    calls = []
+    monkeypatch.setattr(b, "BACKUP_DIR", tmp_path)
+    monkeypatch.setattr(b, "drive_copy", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(b.sys, "argv", ["backup_db"])
+    assert b.main() == 0
+    assert len(calls) == 1

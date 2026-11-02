@@ -127,6 +127,7 @@ def main() -> int:
         return 0
     if already_done(BACKUP_DIR, today) and "--force" not in sys.argv:
         print(f"backup skip: today's dump already exists in {BACKUP_DIR}")
+        drive_copy(BACKUP_DIR, drive_dir(), today)
         return 0
     out = BACKUP_DIR / f"skroutz_daily_{today:%Y%m%d}.dump"
     env = dict(os.environ, PGPASSWORD=os.environ.get("DB_PASSWORD", ""))
@@ -149,6 +150,7 @@ def main() -> int:
     manual = prune_manual(BACKUP_DIR, dt.datetime.now())
     print(f"backup ok: {out} ({out.stat().st_size / 1e6:.1f} MB), pruned {len(removed)} daily, "
           f"{len(manual)} manual")
+    drive_copy(BACKUP_DIR, drive_dir(), today)
     return 0
 
 
