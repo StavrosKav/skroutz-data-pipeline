@@ -46,3 +46,31 @@ def test_already_done_today(tmp_path):
     assert not already_done(tmp_path, today)
     (tmp_path / "skroutz_daily_20261102.dump").write_text("x")
     assert already_done(tmp_path, today)
+
+
+def test_drive_copy_weekly_and_prune(tmp_path):
+    from ops.backup_db import drive_copy
+    src, drv = tmp_path / "src", tmp_path / "drive"
+    src.mkdir()
+    today = dt.date(2026, 11, 2)
+    (src / "skroutz_daily_20261102.dump").write_bytes(b"abc")
+    # none in drive -> copy
+    assert drive_copy(src, drv, today) == drv / "skroutz_daily_20261102.dump"
+    assert (drv / "skroutz_daily_20261102.dump").read_bytes() == b"abc"
+    # newest is 3 days old -> skip
+    assert drive_copy(src, drv, today + dt.timedelta(days=3)) is None
+    # old copies pruned after 56 days, others untouched
+    (drv / "skroutz_daily_20260901.dump").write_text("x")
+    (drv / "notes.txt").write_text("x")
+    later = dt.date(2026, 11, 9)
+    (src / "skroutz_daily_20261109.dump").write_bytes(b"de")
+    assert drive_copy(src, drv, later) is not None
+    names = sorted(p.name for p in drv.iterdir())
+    assert names == ["notes.txt", "skroutz_daily_20261102.dump", "skroutz_daily_20261109.dump"]
+
+
+def test_drive_copy_missing_drive_skips(tmp_path):
+    from ops.backup_db import drive_copy
+    (tmp_path / "skroutz_daily_20261102.dump").write_text("x")
+    assert drive_copy(tmp_path, None, dt.date(2026, 11, 2)) is None
+    assert drive_copy(tmp_path, tmp_path / "nope" / "x", dt.date(2026, 11, 2), require_parent=True) is None

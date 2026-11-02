@@ -4,6 +4,7 @@ python -m ops.backup_db [--dry-run] [--force]
 Runs right after a successful pipeline (run_pipeline_wrapper.ps1); the 10:40 task is a
 fallback and skips if today's dump already exists (one per day, idempotent).
 Also deletes manual skroutz_pre_*.dump and *.bundle files older than MANUAL_KEEP_DAYS (by mtime).
+Weekly copy to Google Drive (DRIVE_BACKUP_DIR or G:/My Drive/skroutz_backups), kept 56 days.
 Writes <BACKUP_DIR>/skroutz_daily_YYYYMMDD.dump (custom format), checks it with
 pg_restore --list, then deletes only skroutz_daily_*.dump files older than KEEP_DAYS.
 The password goes to pg_dump via PGPASSWORD in the child env and is never printed.
@@ -14,6 +15,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +27,19 @@ BACKUP_DIR = Path(os.environ.get("BACKUP_DIR", ROOT.parent / "db_backups"))
 PG_BIN = Path(os.environ.get("PG_BIN", r"C:\Program Files\PostgreSQL\17\bin"))
 KEEP_DAYS = 7
 MANUAL_KEEP_DAYS = 14
+DRIVE_KEEP_DAYS = 56
+DRIVE_EVERY_DAYS = 7
+
+
+def drive_dir() -> Path | None:
+    """DRIVE_BACKUP_DIR env var, else G:/My Drive/skroutz_backups if Drive for Desktop is mounted."""
+    env = os.environ.get("DRIVE_BACKUP_DIR")
+    if env:
+        return Path(env)
+    mydrive = Path(r"G:\My Drive")
+    return mydrive / "skroutz_backups" if mydrive.is_dir() else None
+
+
 NAME_RE = re.compile(r"^skroutz_daily_(\d{8})\.dump$")
 
 
@@ -54,6 +69,40 @@ def prune_manual(folder: Path, now: dt.datetime, keep: int = MANUAL_KEEP_DAYS,
             if not dry_run:
                 f.unlink()
             out.append(f)
+    return out
+
+
+def _day(f: Path) -> dt.date | None:
+    m = NAME_RE.match(f.name)
+    return dt.datetime.strptime(m.group(1), "%Y%m%d").date() if m else None
+
+
+def drive_copy(src: Path, dest: Path | None, today: dt.date,
+               require_parent: bool = True) -> Path | None:
+    """Weekly copy of today's dump to the Drive folder; deletes Drive copies older than 56 days.
+    Missing Drive (dest None or its parent missing) -> log and skip, never fail."""
+    if dest is None or (require_parent and not dest.parent.is_dir()):
+        print("drive copy skip: Drive folder not found")
+        return None
+    dest.mkdir(exist_ok=True)
+    for f in dest.iterdir():
+        d = _day(f)
+        if d and (today - d).days >= DRIVE_KEEP_DAYS:
+            f.unlink()
+    days = [d for f in dest.iterdir() if (d := _day(f))]
+    if days and (today - max(days)).days < DRIVE_EVERY_DAYS:
+        print(f"drive copy skip: newest copy is {max(days)}")
+        return None
+    s = src / f"skroutz_daily_{today:%Y%m%d}.dump"
+    if not s.exists():
+        print("drive copy skip: no dump for today")
+        return None
+    out = dest / s.name
+    shutil.copy2(s, out)
+    if out.stat().st_size != s.stat().st_size:
+        print("drive copy size mismatch", file=sys.stderr)
+        return None
+    print(f"drive copy ok: {out}")
     return out
 
 
