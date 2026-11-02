@@ -138,7 +138,7 @@ def _chrome_major():
             text=True, stderr=subprocess.DEVNULL, timeout=5,
         ).strip()
         return int(v.split(".")[0])
-    except Exception:
+    except (OSError, subprocess.SubprocessError, ValueError):
         return 0
 
 
@@ -158,14 +158,14 @@ def parse_card(card, extract_memory_info=False):
         # Some hrefs are relative paths; ensure we always store a full URL
         full = href if href.startswith("http") else "https://www.skroutz.gr" + href
         link = full.split("?")[0]   # strip tracking params before storing
-    except Exception as e:
+    except (WebDriverException, ReadTimeoutError, AttributeError) as e:
         logger.debug(f"Selector failed \"{NAME_LINK_SELECTOR}\": {e.__class__.__name__}: {e}")
         name = link = "N/A"
 
     # --- Short spec summary shown on the card ---
     try:
         specs = card.find_element(By.CSS_SELECTOR, SPECS_SELECTOR).text.strip()
-    except Exception as e:
+    except (WebDriverException, ReadTimeoutError) as e:
         logger.debug(f"Selector failed \"{SPECS_SELECTOR}\": {e.__class__.__name__}: {e}")
         specs = "N/A"
 
@@ -180,14 +180,14 @@ def parse_card(card, extract_memory_info=False):
                 if "Μνήμη:" in el.text:
                     memory_info = el.text.strip()
                     break
-        except Exception as e:
+        except (WebDriverException, ReadTimeoutError) as e:
             logger.debug(f"Selector failed \"{memory_xpath}\": {e.__class__.__name__}: {e}")
         if memory_info == "N/A":
             try:
                 match = re.search(r"Μνήμη:\s*([^\n]+)", card.text)
                 if match:
                     memory_info = match.group(0).strip()
-            except Exception as e:
+            except (WebDriverException, ReadTimeoutError) as e:
                 logger.debug(f"Memory_Info regex fallback failed: {e.__class__.__name__}: {e}")
 
     # --- Price ---
@@ -197,7 +197,7 @@ def parse_card(card, extract_memory_info=False):
         price = (price_el.text.strip()
                  .replace(" ", "").replace(",", ".")
                  .replace("€", "").replace("από", "").strip())
-    except Exception as e:
+    except (WebDriverException, ReadTimeoutError) as e:
         logger.debug(f"Selector failed \"{PRICE_SELECTOR}\": {e.__class__.__name__}: {e}")
         price = "N/A"
 
@@ -212,13 +212,13 @@ def parse_card(card, extract_memory_info=False):
         if match:
             per_month = match.group(1)
             all_installments = match.group(2)
-    except Exception as e:
+    except (WebDriverException, ReadTimeoutError) as e:
         logger.debug(f"Selector failed \"{INSTALLMENTS_SELECTOR}\": {e.__class__.__name__}: {e}")
 
     # --- User rating & review count ---
     try:
         rating = card.find_element(By.CSS_SELECTOR, RATING_SELECTOR).text.strip()
-    except Exception as e:
+    except (WebDriverException, ReadTimeoutError) as e:
         logger.debug(f"Selector failed \"{RATING_SELECTOR}\": {e.__class__.__name__}: {e}")
         rating = "N/A"
 
@@ -228,7 +228,7 @@ def parse_card(card, extract_memory_info=False):
         reviews_text = card.find_element(By.CSS_SELECTOR, REVIEWS_SELECTOR).text.strip()
         m = re.search(r"\d+", reviews_text)
         reviews = m.group(0) if m else "N/A"
-    except Exception as e:
+    except (WebDriverException, ReadTimeoutError) as e:
         logger.debug(f"Selector failed \"{REVIEWS_SELECTOR}\": {e.__class__.__name__}: {e}")
         reviews = "N/A"
 
@@ -254,7 +254,7 @@ PAGE_LOAD_TIMEOUT = 60
 def _load_page(driver, url, attempts=3, backoff=10):
     try:
         driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
-    except WebDriverException as e:
+    except (WebDriverException, ReadTimeoutError) as e:
         logger.warning(f"could not set page load timeout: {e}")
     for attempt in range(1, attempts + 1):
         try:
@@ -275,13 +275,13 @@ def _save_debug_artifacts(driver, category=None):
         os.makedirs(os.path.dirname(base), exist_ok=True)
         try:
             driver.save_screenshot(base + ".png")
-        except Exception as e:
+        except (WebDriverException, ReadTimeoutError) as e:
             logger.warning(f"debug screenshot failed: {e}")
         with open(base + ".html", "w", encoding="utf-8") as f:
             f.write(f"<!-- url: {getattr(driver, 'current_url', '?')} -->\n")
             f.write(driver.page_source or "")
         logger.error(f"No product cards - saved {base}.png/.html")
-    except Exception as e:
+    except (OSError, WebDriverException, ReadTimeoutError) as e:
         logger.warning(f"could not save debug artifacts: {e}")
 
 
@@ -298,7 +298,7 @@ def _lazy_load_nudge(driver):
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, CARD_SELECTOR))
         )
         return driver.find_elements(By.CSS_SELECTOR, CARD_SELECTOR)
-    except Exception:
+    except (WebDriverException, ReadTimeoutError):
         return None
 
 
@@ -340,7 +340,7 @@ def _dismiss_overlays(driver):
                 el.click()
                 time.sleep(0.4)
                 return
-            except WebDriverException:
+            except (WebDriverException, ReadTimeoutError):
                 continue
 
 
@@ -378,7 +378,7 @@ def _goto_next_page(driver, attempts=3):
             time.sleep(1.2)
             driver.execute_script("arguments[0].click();", next_btn)
             return True
-        except WebDriverException as e:
+        except (WebDriverException, ReadTimeoutError) as e:
             if attempt == attempts:
                 raise
             logger.warning(f"Next-page advance failed (attempt {attempt}/{attempts}): {e.__class__.__name__} — retrying")
@@ -412,7 +412,7 @@ def _listing_total(driver):
     """Total product count Skroutz shows on the listing (best effort, else None)."""
     try:
         text = driver.find_element(By.TAG_NAME, "body").text or ""
-    except Exception:
+    except (WebDriverException, ReadTimeoutError):
         return None
     m = _TOTAL_RE.search(text if isinstance(text, str) else "")
     return int(m.group(1).replace(".", "")) if m else None
@@ -429,7 +429,7 @@ def _card_links(driver):
                 href = "https://www.skroutz.gr" + href
             if href:
                 links.append(href)
-        except Exception:
+        except (WebDriverException, ReadTimeoutError):
             continue
     return links
 

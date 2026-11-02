@@ -49,8 +49,10 @@ class TestPaths(unittest.TestCase):
         self.assertIn("dashboard/dashboard_latest.html", text)
 
     def test_auto_commit_targets_unchanged(self):
-        import run_pipeline
-        src = Path(run_pipeline.__file__).read_text(encoding="utf-8")
+        import pipeline.publish
+        import pipeline.readme_stats
+        src = "".join(Path(m.__file__).read_text(encoding="utf-8")
+                      for m in (pipeline.publish, pipeline.readme_stats))
         # publish_artifacts must still git-add these exact paths
         self.assertIn('"charts"', src)
         self.assertIn('"dashboard/dashboard_latest.html"', src)

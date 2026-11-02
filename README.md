@@ -89,7 +89,19 @@ It works in 3 simple steps:
 
 The target is 80% (19/23).
 
-**Current result: 23/23 on two runs, 30 Oct 2026** ([rerun3](evals/results/ask_eval_2026-10-30_rerun3.md), [rerun4](evals/results/ask_eval_2026-10-30_rerun4.md)). The score is not the same every time. On the same day, with the same setup, other runs gave 22/23 and 21/23 ([rerun1](evals/results/ask_eval_2026-10-30_rerun1.md), [rerun2](evals/results/ask_eval_2026-10-30_rerun2.md)). So I report a range, not one lucky number. On 31 Oct 2026, after the drop questions moved to the 7-day definition (`vw_drops_7d`), one run scored 22/23: all 3 drop questions passed, `new_products_week` failed ([report](evals/results/ask_eval_2026-10-31_drops7d.md)). After the Oct 31 changes (one "new this week" rule, PR #1), the latest single run with `nvidia/nemotron-3-ultra-550b-a55b` scored 23/23 ([report](evals/results/ask_eval_2026-10-31.md)). One run is not a range, so the 21–23 range above still stands.
+**Latest result: 23/23 on 31 Oct 2026** ([report](evals/results/ask_eval_2026-10-31.md)). The score changes from run to run: after the eval fix, runs scored between 21/23 and 23/23, so I report a range, not one lucky number.
+
+| Date | Run | Score | Report |
+|---|---|---|---|
+| 30 Oct 2026 | first run (before eval fix) | 20/23 | [report](evals/results/ask_eval_2026-10-30.md) |
+| 30 Oct 2026 | rerun1 | 22/23 | [report](evals/results/ask_eval_2026-10-30_rerun1.md) |
+| 30 Oct 2026 | rerun2 | 21/23 | [report](evals/results/ask_eval_2026-10-30_rerun2.md) |
+| 30 Oct 2026 | rerun3 | 23/23 | [report](evals/results/ask_eval_2026-10-30_rerun3.md) |
+| 30 Oct 2026 | rerun4 | 23/23 | [report](evals/results/ask_eval_2026-10-30_rerun4.md) |
+| 31 Oct 2026 | drops on 7-day view | 22/23 | [report](evals/results/ask_eval_2026-10-31_drops7d.md) |
+| 31 Oct 2026 | after PR #1 | 23/23 | [report](evals/results/ask_eval_2026-10-31.md) |
+
+All runs used `nvidia/nemotron-3-ultra-550b-a55b`.
 
 ### A passing example
 
@@ -164,7 +176,7 @@ Questions are cut to 500 characters. If the question is not about the data (for 
 * **Latest scrape date, not today's date:** the bot commands, the dashboard queries and all date based views count from the last scrape day (`MAX(date)` in `price_snapshots`). So if the laptop misses a day, "today" still means the last real data.
 * **Stuck runs close by themselves:** a run still marked `running` after 6 hours is closed as `aborted_stale` at the next start.
 * **Daily database backup:** a dump is checked with `pg_restore --list`, and dumps older than 7 days are deleted.
-* **383 tests** in pytest.
+* **482 tests** in pytest.
 * **CI on every push:** ruff, pytest, pip-audit and TruffleHog.
 
 ## Dashboard notes
@@ -173,7 +185,7 @@ Questions are cut to 500 characters. If the question is not about the data (for 
 * Cards and trend charts use medians. The Category Price Index follows the same products from the first day (= 100, geometric mean of price ratios).
 * "Buy or wait" compares each product's price today with its own 90-day low, median and high.
 * "New this week" means first seen in the 7 most recent days and still listed on the latest day. The dashboard, Telegram and the `/ask` bot use this one rule.
-* The daily run warns (it does not fail) when a category lists under 85% of its 7-day average.
+* The daily run warns (it does not fail) when a category lists under 85% of its 7-day median, or all categories together under 80%. One rule, in `reporting/volume.py`.
 
 ## Price trend charts
 

@@ -155,27 +155,6 @@ def disappeared(conn, days=30, limit=50):
     return pd.read_sql(query, conn, params={"days": days, "limit": limit})
 
 
-def brand_discount_freq(conn, category=None, limit=None):
-    """How often each brand has a price drop (last 90 days per analytics.sql)."""
-    params = {}
-    cat_clause = "WHERE brand IS NOT NULL "
-    if category is not None:
-        cat_clause = "WHERE category = :cat AND brand IS NOT NULL "
-        params["cat"] = category
-    limit_clause = ""
-    if limit is not None:
-        limit_clause = "LIMIT :limit"
-        params["limit"] = limit
-    query = text(f"""
-        SELECT category, brand, discount_days, tracked_days, discount_freq_pct
-        FROM vw_brand_discount_freq
-        {cat_clause}
-        ORDER BY category, discount_freq_pct DESC NULLS LAST
-        {limit_clause}
-    """)
-    return pd.read_sql(query, conn, params=params)
-
-
 # Fixed basket: a product enters the index if it has a price on the first
 # recorded day of the window (base day) and on at least this share of the
 # window's recorded days.

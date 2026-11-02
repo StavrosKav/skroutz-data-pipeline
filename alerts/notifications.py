@@ -279,5 +279,5 @@ def tg_success(snaps: int, new_prods: int, drops: int, elapsed: str, suspect: in
     )
     for a in volume_alerts or []:
         msg += (f"\n⚠️ Low volume: <b>{_e(a['category'])}</b> {a['today']:,} "
-                f"vs 7-day avg {a['avg7']:,.0f} ({a['pct']:.0f}%)")
+                f"vs 7-day median {a['base7']:,.0f} ({a['pct']:.0f}%)")
     return tg_send(msg)

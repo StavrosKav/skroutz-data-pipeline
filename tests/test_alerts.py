@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+from sqlalchemy.exc import OperationalError
+
 
 
 # ── Notification deduplication
@@ -155,7 +157,7 @@ class TestSendDropDigest(unittest.TestCase):
     def test_db_error_skips_smtp(self):
         import run_pipeline
         with patch("run_pipeline.GMAIL_APP_PASSWORD", "test-pw"), \
-             patch("run_pipeline.get_engine", side_effect=Exception("DB down")), \
+             patch("run_pipeline.get_engine", side_effect=OperationalError("SELECT", {}, Exception("DB down"))), \
              patch("smtplib.SMTP") as mock_smtp:
             run_pipeline.send_drop_digest()
         mock_smtp.assert_not_called()
@@ -367,8 +369,8 @@ class TestUpdateReadmeStats(unittest.TestCase):
             readme_path = os.path.join(tmp, "README.md")
             with open(readme_path, "w", encoding="utf-8") as f:
                 f.write(self.README_TEMPLATE)
-            with patch("run_pipeline.BASE", tmp), \
-                 patch("run_pipeline.get_engine", return_value=self._mock_engine(rows)):
+            with patch("pipeline.readme_stats.BASE", tmp), \
+                 patch("pipeline.readme_stats.get_engine", return_value=self._mock_engine(rows)):
                 run_pipeline.update_readme_stats()
             with open(readme_path, "r", encoding="utf-8") as f:
                 return f.read()
@@ -401,9 +403,9 @@ class TestUpdateReadmeStats(unittest.TestCase):
             with open(readme_path, "w", encoding="utf-8") as f:
                 f.write(self.README_TEMPLATE)
             broken_engine = MagicMock()
-            broken_engine.connect.side_effect = Exception("db down")
-            with patch("run_pipeline.BASE", tmp), \
-                 patch("run_pipeline.get_engine", return_value=broken_engine):
+            broken_engine.connect.side_effect = OperationalError("SELECT", {}, Exception("db down"))
+            with patch("pipeline.readme_stats.BASE", tmp), \
+                 patch("pipeline.readme_stats.get_engine", return_value=broken_engine):
                 run_pipeline.update_readme_stats()
             with open(readme_path, "r", encoding="utf-8") as f:
                 content = f.read()

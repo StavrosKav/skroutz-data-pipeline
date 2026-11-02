@@ -63,6 +63,6 @@ def test_template_no_longer_hides_big_drops():
 
 
 def test_consumers_read_7d_view():
-    for f in ("run_pipeline.py", "alerts/telegram_bot.py", "reporting/queries.py"):
+    for f in ("run_pipeline.py", "pipeline/publish.py", "pipeline/readme_stats.py", "alerts/telegram_bot.py", "reporting/queries.py"):
         src = pathlib.Path(f).read_text(encoding="utf-8")
         assert "vw_biggest_drops" not in src, f

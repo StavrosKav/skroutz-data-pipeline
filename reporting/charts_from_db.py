@@ -195,7 +195,7 @@ def main():
                 df["date"] = pd.to_datetime(df["date"])
                 out = os.path.join(CHARTS_DIR, f"price_trend_{category}.png")
                 plot_brand_trend(df, category, out)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — per-category isolation; one failing chart must not stop the others
                 logger.warning(f"  Chart failed for {category}: {e}")
 
     logger.info(f"All charts saved to: {CHARTS_DIR}")
