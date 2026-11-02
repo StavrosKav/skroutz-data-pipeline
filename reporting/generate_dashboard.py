@@ -27,6 +27,7 @@ import reporting.queries as queries
 from reporting.drops import BIG_DROP_LABEL_EN, BIG_DROP_PCT
 import reporting.dashboard_payload as payload
 import reporting.buy_or_wait as buy_or_wait
+import reporting.mixed_versions as mixed_versions
 from core.db import get_engine
 
 load_dotenv()
@@ -216,6 +217,15 @@ def fetch_data(conn):
         logger.warning(f"vw_price_trend_direction query failed, trend arrows will be empty: {e}")
         trend_map = {}
 
+    try:
+        conn.execute(text("SAVEPOINT sp_mixed"))
+        mixed_ids = mixed_versions.fetch(conn)
+        conn.execute(text("RELEASE SAVEPOINT sp_mixed"))
+    except SQLAlchemyError as e:
+        conn.execute(text("ROLLBACK TO SAVEPOINT sp_mixed"))
+        logger.warning(f"dedup_review query failed, mixed-version badges will be empty: {e}")
+        mixed_ids = set()
+
     products = []
     for r in lp_rows:
         price = float(r.price_eur) if r.price_eur else None
@@ -240,6 +250,7 @@ def fetch_data(conn):
             "floor_pct": floor_pct,
             "atl":       atl,
             "trend":     trend_map.get(r.id, ""),
+            "mixed":     r.id in mixed_ids,
         })
 
     # Sparkline: last 30 days of prices per listed product, a few points each
@@ -361,7 +372,7 @@ def fetch_data(conn):
     # Buy or wait: today's price vs each product's own 90-day low/median/high
     try:
         conn.execute(text("SAVEPOINT sp_bow"))
-        bow = buy_or_wait.build(buy_or_wait.fetch(conn))
+        bow = buy_or_wait.build(buy_or_wait.fetch(conn), mixed=mixed_ids)
         conn.execute(text("RELEASE SAVEPOINT sp_bow"))
     except Exception as e:  # noqa: BLE001 — optional section; query or build errors leave it empty instead of failing the dashboard
         conn.execute(text("ROLLBACK TO SAVEPOINT sp_bow"))
