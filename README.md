@@ -6,8 +6,8 @@ A daily data pipeline and an AI agent that tracks every phone, laptop, tablet an
 
 [![CI](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml)
 <!-- STATS:BADGES:START -->
-![Products](https://img.shields.io/badge/Products-22%2C685-blue?style=flat-square)
-![Snapshots](https://img.shields.io/badge/Snapshots-1033k-green?style=flat-square)
+![Products](https://img.shields.io/badge/Products-22%2C701-blue?style=flat-square)
+![Snapshots](https://img.shields.io/badge/Snapshots-1046k-green?style=flat-square)
 <!-- STATS:BADGES:END -->
 ![Ask eval](https://img.shields.io/badge/ask_eval-23%2F23_(2_runs%2C_varies)-blueviolet?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
@@ -58,13 +58,13 @@ Products are counted once per `skroutz_id`, after merging duplicates created by 
 <!-- STATS:TABLE:START -->
 | Category | Products | Snapshots | Avg Price | Range | Brands (5+ products) |
 |---|---|---|---|---|---|
-| Laptop | 9,192 | 362,849 | €1,715 | €52–€12,266 | 25 |
-| Phone | 4,864 | 194,168 | €338 | €9–€3,859 | 70 |
-| Smartwatch | 6,764 | 405,125 | €92 | €4–€3,399 | 241 |
-| Tablet | 1,865 | 71,282 | €569 | €31–€6,766 | 37 |
-| **Total** | **22,685** | **1,033,424** | | | |
+| Laptop | 9,200 | 367,342 | €1,718 | €52–€12,266 | 25 |
+| Phone | 4,869 | 196,335 | €338 | €9–€3,859 | 70 |
+| Smartwatch | 6,766 | 410,339 | €92 | €4–€3,399 | 241 |
+| Tablet | 1,866 | 72,216 | €570 | €31–€6,766 | 37 |
+| **Total** | **22,701** | **1,046,232** | | | |
 
-Updated daily via Task Scheduler · last pipeline run: 2026-10-31
+Updated daily via Task Scheduler · last pipeline run: 2026-11-02
 <!-- STATS:TABLE:END -->
 
 ## The AI part: an agent you can check
@@ -89,7 +89,7 @@ It works in 3 simple steps:
 
 The target is 80% (19/23).
 
-**Current result: 23/23 on two runs, 30 Oct 2026** ([rerun3](evals/results/ask_eval_2026-10-30_rerun3.md), [rerun4](evals/results/ask_eval_2026-10-30_rerun4.md)). The score is not the same every time. On the same day, with the same setup, other runs gave 22/23 and 21/23 ([rerun1](evals/results/ask_eval_2026-10-30_rerun1.md), [rerun2](evals/results/ask_eval_2026-10-30_rerun2.md)). So I report a range, not one lucky number. On 31 Oct 2026, after the drop questions moved to the 7-day definition (`vw_drops_7d`), one run scored 22/23: all 3 drop questions passed, `new_products_week` failed ([report](evals/results/ask_eval_2026-10-31_drops7d.md)).
+**Current result: 23/23 on two runs, 30 Oct 2026** ([rerun3](evals/results/ask_eval_2026-10-30_rerun3.md), [rerun4](evals/results/ask_eval_2026-10-30_rerun4.md)). The score is not the same every time. On the same day, with the same setup, other runs gave 22/23 and 21/23 ([rerun1](evals/results/ask_eval_2026-10-30_rerun1.md), [rerun2](evals/results/ask_eval_2026-10-30_rerun2.md)). So I report a range, not one lucky number. On 31 Oct 2026, after the drop questions moved to the 7-day definition (`vw_drops_7d`), one run scored 22/23: all 3 drop questions passed, `new_products_week` failed ([report](evals/results/ask_eval_2026-10-31_drops7d.md)). After the Oct 31 changes (one "new this week" rule, PR #1), the latest single run with `nvidia/nemotron-3-ultra-550b-a55b` scored 23/23 ([report](evals/results/ask_eval_2026-10-31.md)). One run is not a range, so the 21–23 range above still stands.
 
 ### A passing example
 
@@ -239,6 +239,8 @@ docs/                  pipeline, agent and insight write ups
 ## Honest notes and limitations
 
 * It runs on my own laptop, so a day is missed if the laptop is off.
+* The price history has gaps: the database has prices on 150 of the 509 calendar days from 10 June 2025 to 31 October 2026. Charts and the 90-day "Buy or wait" use only days that were actually scraped.
+* Every price is the cheapest shop's "from" price on the listing card, so a "drop" can be a cheaper shop appearing, not a shop cutting its price.
 * Smartwatch brand parsing is weak. Some rows have no brand or a fake brand ("Smartwatch", "Έξυπνο"). The dashboard hides these two in brand tables and charts (the data is unchanged), and counts only brands with 5 or more products.
 * Phone RAM is filled for about 68% of products.
 * The eval set is small and written by me, so the score is a sanity check, not a benchmark. The score also changes from run to run.
