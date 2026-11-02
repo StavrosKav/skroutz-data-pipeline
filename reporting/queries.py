@@ -132,7 +132,7 @@ def hot_deals(conn, limit=20, min_drop_pct=None, min_drop_eur=None):
     return pd.read_sql(query, conn, params=params)
 
 
-def disappeared(conn, days=30, limit=50):
+def disappeared(conn, days=30, limit=50, window=None):
     """Products not seen for MORE than `days` days, most recently seen first.
 
     The daily scrape sees only part of the catalog, so a product missing for
@@ -144,15 +144,22 @@ def disappeared(conn, days=30, limit=50):
     rows sharing the same last_seen date, and without a secondary sort key
     Postgres's tie order depends on the query plan (observed to differ
     between a parameterized LIMIT and a literal one) — not stable.
+
+    window: only products that crossed the line in the last `window` days
+    (unseen for more than `days` but at most `days + window` days).
     """
-    query = text("""
+    upper = "AND days_since_last_seen <= :days + :window" if window else ""
+    query = text(f"""
         SELECT category, brand, model, product_name,
                last_seen, days_since_last_seen, skroutz_link
         FROM vw_disappeared
-        WHERE days_since_last_seen > :days
+        WHERE days_since_last_seen > :days {upper}
         ORDER BY last_seen DESC, skroutz_link LIMIT :limit
     """)
-    return pd.read_sql(query, conn, params={"days": days, "limit": limit})
+    params = {"days": days, "limit": limit}
+    if window:
+        params["window"] = window
+    return pd.read_sql(query, conn, params=params)
 
 
 # Fixed basket: a product enters the index if it has a price on the first
@@ -237,13 +244,15 @@ def count_new_products(conn, days=7):
     return int(conn.execute(query, {"days": days}).scalar() or 0)
 
 
-def count_disappeared(conn, days=30):
-    """Products not seen for more than `days` days (same filter as disappeared())."""
-    query = text("""
+def count_disappeared(conn, days=30, window=None):
+    """Products not seen for more than `days` days (same filters as disappeared())."""
+    upper = "AND days_since_last_seen <= :days + :window" if window else ""
+    query = text(f"""
         SELECT COUNT(*) FROM vw_disappeared
-        WHERE days_since_last_seen > :days
+        WHERE days_since_last_seen > :days {upper}
     """)
-    return int(conn.execute(query, {"days": days}).scalar() or 0)
+    params = {"days": days, "window": window} if window else {"days": days}
+    return int(conn.execute(query, params).scalar() or 0)
 
 
 def count_listed(conn, prev=False):

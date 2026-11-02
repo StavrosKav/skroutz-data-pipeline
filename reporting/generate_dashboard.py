@@ -50,6 +50,9 @@ DROPS_TODAY_LIMIT   = 25
 DROPS_WEEK_LIMIT    = 30
 NEW_PRODUCTS_LIMIT  = 50
 DISAPPEARED_LIMIT   = 50
+# New & Gone: products that crossed the >30-day unseen line in the last
+# GONE_WINDOW_DAYS days (the same crossing the daily Telegram alert reports).
+GONE_WINDOW_DAYS    = 30
 PRODUCTS_LIMIT      = 3000   # product search / price tiers / price-vs-rating sample
 HOT_DEALS_LIMIT     = 20
 SPARK_POINTS        = 8      # points per product sparkline (last 30 days)
@@ -114,7 +117,7 @@ def fetch_counts(conn):
         "suspect_drops_today": queries.count_suspect_drops(conn, 0, SUSPECT_DROP_PCT),
         "suspect_drops_week":  queries.count_suspect_drops(conn, 7, SUSPECT_DROP_PCT),
         "new_week":            queries.count_new_products(conn, days=7),
-        "disappeared_30d":     queries.count_disappeared(conn, days=30),
+        "gone_30d":            queries.count_disappeared(conn, days=30, window=GONE_WINDOW_DAYS),
         "latest_products":     queries.count_latest_products(conn),
         "listed_today":        queries.count_listed(conn),
         "listed_prev":         queries.count_listed(conn, prev=True),
@@ -294,7 +297,8 @@ def fetch_data(conn):
         })
 
     # Not seen for >30 days
-    dis_rows = queries.disappeared(conn, days=30, limit=DISAPPEARED_LIMIT).itertuples()
+    dis_rows = queries.disappeared(conn, days=30, limit=DISAPPEARED_LIMIT,
+                                   window=GONE_WINDOW_DAYS).itertuples()
     disappeared = []
     for r in dis_rows:
         disappeared.append({

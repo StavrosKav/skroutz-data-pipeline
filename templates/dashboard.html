@@ -499,7 +499,7 @@ tr:hover td { background: #ffffff08; }
 
   <div class="section">
     <div class="section-title">
-      &#128683; Not Seen for Over 30 Days
+      &#128683; Stopped Appearing in the Last 30 Days
       <span class="count-badge" id="gone-badge"></span>
       <span class="sample-note" id="gone-note"></span>
     </div>
@@ -512,6 +512,9 @@ tr:hover td { background: #ffffff08; }
         <tbody id="gone-body"></tbody>
       </table>
     </div>
+    <p class="sample-note" style="margin-top:8px">Products that were last seen 31 to 60 days ago, so they passed
+      30 days unseen during the last 30 days. The daily scrape reads only part of Skroutz, so this means
+      "no longer where we look", not a confirmed withdrawal. Older gaps are not counted.</p>
   </div>
 
 </div>
@@ -720,7 +723,7 @@ function buildStats() {
     { val: listed.toLocaleString(), lbl: 'Listed Today' + vsYesterday(listed, COUNTS.listed_prev) },
     { val: dropsToday, lbl: (dropsToday ? '&#8595; ' : '&#8594; ') + 'Drops Today' + vsYesterday(dropsToday, COUNTS.drops_prev), cls: dropsToday ? 'highlight' : '' },
     { val: newWeek, lbl: (newWeek ? '&#8593; ' : '&#8594; ') + 'New, Last 7 Days', cls: newWeek ? 'success' : '' },
-    { val: kpi('disappeared_30d', DATA.disappeared.length), lbl: '&#8594; Not Seen Over 30 Days' },
+    { val: kpi('gone_30d', DATA.disappeared.length), lbl: '&#8594; Stopped Appearing, Last 30 Days' },
   ];
   for (const [cat, info] of Object.entries(DATA.by_category)) {
     const label = (CAT_LABEL[cat]||cat);
@@ -971,11 +974,11 @@ function buildNewGone() {
   }
 
   // Disappeared
-  document.getElementById('gone-badge').textContent = kpi('disappeared_30d', DATA.disappeared.length);
-  document.getElementById('gone-note').textContent = showingNote(DATA.disappeared.length, kpi('disappeared_30d', 0));
+  document.getElementById('gone-badge').textContent = kpi('gone_30d', DATA.disappeared.length);
+  document.getElementById('gone-note').textContent = showingNote(DATA.disappeared.length, kpi('gone_30d', 0));
   const gb = document.getElementById('gone-body');
   if (!DATA.disappeared.length) {
-    gb.innerHTML = '<tr><td colspan="5" class="no-data">No product has been missing for more than 30 days.</td></tr>';
+    gb.innerHTML = '<tr><td colspan="5" class="no-data">No product stopped appearing in the last 30 days.</td></tr>';
   } else {
     gb.innerHTML = DATA.disappeared.map(p => `<tr>
       <td>${p.brand}</td>
@@ -1466,8 +1469,11 @@ function updateTabBadges() {
   const pel = document.getElementById('tc-products');
   if (pel) pel.textContent = DATA.products.length.toLocaleString();
   const nel = document.getElementById('tc-new-gone');
-  const newGone = kpi('new_week', DATA.new_products.length) + kpi('disappeared_30d', DATA.disappeared.length);
-  if (nel && newGone) nel.textContent = newGone;
+  const nNew = kpi('new_week', DATA.new_products.length), nGone = kpi('gone_30d', DATA.disappeared.length);
+  if (nel && (nNew || nGone)) {
+    nel.textContent = `+${nNew.toLocaleString()} / -${nGone.toLocaleString()}`;
+    nel.title = 'New in the last 7 days / stopped appearing in the last 30 days';
+  }
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────────

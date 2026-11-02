@@ -78,7 +78,7 @@ class TestCountQueries(unittest.TestCase):
         with patch.object(queries, "count_drops", wraps=queries.count_drops) as cd:
             counts = gd.fetch_counts(conn)
         self.assertEqual(set(counts), {"drops_today", "drops_week", "suspect_drops_today",
-                                       "suspect_drops_week", "new_week", "disappeared_30d",
+                                       "suspect_drops_week", "new_week", "gone_30d",
                                        "latest_products", "listed_today", "listed_prev",
                                        "drops_prev"})
         self.assertTrue(cd.call_args_list)
@@ -149,7 +149,7 @@ def _fixture_data():
         "last_updated": "2026-10-28", "window_start": "2026-01-01",
         "by_category": {"phone": {"count": 10, "median_price": 500.0}},
         "counts": {"drops_today": 412, "drops_week": 1900, "suspect_drops_today": 3,
-                   "suspect_drops_week": 9, "new_week": 137, "disappeared_30d": 88,
+                   "suspect_drops_week": 9, "new_week": 137, "gone_30d": 88,
                    "latest_products": 25873},
         "limits": {}, "thresholds": {"suspect_pct": 40.0, "hot_min_pct": 3.0, "hot_min_eur": 5.0},
         "drops": [sus, drop], "weekly_drops": [sus, drop], "hot_deals": [],
@@ -208,5 +208,5 @@ class TestNotSeen30d(unittest.TestCase):
         # Page is English only (lang="en"); label keeps the "> 30 days" meaning.
         from core.paths import ROOT
         tpl = (ROOT / "templates" / "dashboard.html").read_text(encoding="utf-8")
-        self.assertIn("Not Seen for Over 30 Days", tpl)
+        self.assertIn("Stopped Appearing in the Last 30 Days", tpl)
         self.assertNotIn("Disappeared (30d)", tpl)
