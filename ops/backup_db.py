@@ -1,6 +1,9 @@
 """Daily pg_dump of the pipeline DB, keeping the last 7 daily dumps.
 
-python -m ops.backup_db   (scheduled at 10:40, after the 10:00 pipeline)
+python -m ops.backup_db [--dry-run] [--force]
+Runs right after a successful pipeline (run_pipeline_wrapper.ps1); the 10:40 task is a
+fallback and skips if today's dump already exists (one per day, idempotent).
+Also deletes manual skroutz_pre_*.dump and *.bundle files older than MANUAL_KEEP_DAYS (by mtime).
 Writes <BACKUP_DIR>/skroutz_daily_YYYYMMDD.dump (custom format), checks it with
 pg_restore --list, then deletes only skroutz_daily_*.dump files older than KEEP_DAYS.
 The password goes to pg_dump via PGPASSWORD in the child env and is never printed.
@@ -21,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BACKUP_DIR = Path(os.environ.get("BACKUP_DIR", ROOT.parent / "db_backups"))
 PG_BIN = Path(os.environ.get("PG_BIN", r"C:\Program Files\PostgreSQL\17\bin"))
 KEEP_DAYS = 7
+MANUAL_KEEP_DAYS = 14
 NAME_RE = re.compile(r"^skroutz_daily_(\d{8})\.dump$")
 
 
@@ -38,6 +42,25 @@ def prune(folder: Path, today: dt.date, keep: int = KEEP_DAYS) -> list[Path]:
     return removed
 
 
+def prune_manual(folder: Path, now: dt.datetime, keep: int = MANUAL_KEEP_DAYS,
+                 dry_run: bool = False) -> list[Path]:
+    """Delete skroutz_pre_*.dump and *.bundle older than `keep` days (mtime). Nothing else."""
+    out = []
+    for f in sorted(folder.iterdir()):
+        if not (f.is_file() and ((f.name.startswith("skroutz_pre_") and f.suffix == ".dump")
+                                 or f.suffix == ".bundle")):
+            continue
+        if now - dt.datetime.fromtimestamp(f.stat().st_mtime) >= dt.timedelta(days=keep):
+            if not dry_run:
+                f.unlink()
+            out.append(f)
+    return out
+
+
+def already_done(folder: Path, today: dt.date) -> bool:
+    return (folder / f"skroutz_daily_{today:%Y%m%d}.dump").exists()
+
+
 def _exe(name: str) -> str:
     p = PG_BIN / (name + (".exe" if os.name == "nt" else ""))
     return str(p) if p.exists() else name
@@ -47,6 +70,15 @@ def main() -> int:
     load_dotenv(ROOT / ".env")
     today = dt.date.today()
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    if "--dry-run" in sys.argv:
+        old = prune_manual(BACKUP_DIR, dt.datetime.now(), dry_run=True)
+        print(f"dry-run: today done={already_done(BACKUP_DIR, today)}, manual files to delete={len(old)}")
+        for f in old:
+            print("  would delete", f.name)
+        return 0
+    if already_done(BACKUP_DIR, today) and "--force" not in sys.argv:
+        print(f"backup skip: today's dump already exists in {BACKUP_DIR}")
+        return 0
     out = BACKUP_DIR / f"skroutz_daily_{today:%Y%m%d}.dump"
     env = dict(os.environ, PGPASSWORD=os.environ.get("DB_PASSWORD", ""))
     args = ["-h", os.environ.get("DB_HOST", "localhost"), "-p", os.environ.get("DB_PORT", "5432"),
@@ -65,7 +97,9 @@ def main() -> int:
         return 1
     tmp.replace(out)
     removed = prune(BACKUP_DIR, today)
-    print(f"backup ok: {out} ({out.stat().st_size / 1e6:.1f} MB), pruned {len(removed)}")
+    manual = prune_manual(BACKUP_DIR, dt.datetime.now())
+    print(f"backup ok: {out} ({out.stat().st_size / 1e6:.1f} MB), pruned {len(removed)} daily, "
+          f"{len(manual)} manual")
     return 0
 
 
