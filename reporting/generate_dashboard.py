@@ -16,6 +16,7 @@ import sys
 import json
 import logging
 import datetime
+import html as html_lib
 
 from dotenv import load_dotenv
 from sqlalchemy import text
@@ -459,6 +460,26 @@ HTML_TEMPLATE = HTML_TEMPLATE_PATH.read_text(encoding="utf-8")
 CHARTJS_SRC = "../assets/chart.umd.min.js"
 
 
+def index_takeaway(market_index):
+    """One plain sentence from the basket index: change since the first recorded
+    day per category, biggest rise first. '' when there is nothing to compare."""
+    if not isinstance(market_index, dict):
+        return ""
+    moves, start = [], None
+    for cat, pts in market_index.items():
+        if len(pts) < 2 or not pts[0]["idx"]:
+            continue
+        moves.append((pts[-1]["idx"] / pts[0]["idx"] * 100 - 100, cat))
+        start = min(start or pts[0]["date"], pts[0]["date"])
+    if not moves:
+        return ""
+    moves.sort(reverse=True)
+    d = datetime.date.fromisoformat(start)
+    parts = ", ".join(f"{cat} {pct:+.1f}%" for pct, cat in moves)
+    return (f"Since {d.day} {d.strftime('%b %Y')}, the same products changed in price: "
+            f"{parts}.")
+
+
 def render_html(data):
     """Fill the HTML template from a fetch_data() dict. Pops data["history"]."""
     charts_json = {
@@ -483,6 +504,7 @@ def render_html(data):
         .replace("__TOTAL_PRODUCTS__",     f"{data['total_products']:,}")
         .replace("__TOTAL_SNAPSHOTS__",    f"{data['total_snapshots']:,}")
         .replace("__WINDOW_START_LABEL__", window_start_label)
+        .replace("__INDEX_TAKEAWAY__",     html_lib.escape(index_takeaway(data.get("market_index"))))
         .replace("__DATA_JSON__",        json.dumps(data,        ensure_ascii=False, separators=(",", ":")))
         .replace("__HISTORY_JSON__",     json.dumps(history,     ensure_ascii=False, separators=(",", ":")))
         .replace("__CHARTS_JSON__",      json.dumps(charts_json, ensure_ascii=False, separators=(",", ":")))

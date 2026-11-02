@@ -26,7 +26,7 @@ flowchart TD
         CH["run_charts()\ncharts_from_db.py\nprice_trend_*.png"]
         DD["send_drop_digest()\ntop 10 drops → Gmail + Telegram"]
         WL["send_watchlist_alerts()\nwatchlist.json → Gmail + Telegram"]
-        DA["send_disappeared_alert()\ngone 1-2 days → Gmail + Telegram"]
+        DA["send_disappeared_alert()\ncrossed 30 days unseen today → Gmail + Telegram"]
         DB["run_dashboard()\ngenerate_dashboard.py\ndashboard_latest.html"]
         OK["send_success_summary()\nstats → Gmail + Telegram"]
     end
@@ -363,7 +363,7 @@ Indexes
 |---|---|
 | `vw_latest_prices` | Most recent price + metadata per product |
 | `vw_price_history` | Full daily history with LAG-based day-over-day delta |
-| `vw_drops_7d` | Drops vs a reference = LEAST(yesterday, median of previous 7 snapshots), min 3 snapshots of history; backed by `mv_drops_7d`. Used by the dashboard, Telegram and the daily digest. Drops >= 40% are counted and flagged "big drop, check" |
+| `vw_drops_7d` | Drops vs a reference = LEAST(yesterday, median of previous 7 snapshots), min 3 snapshots of history; backed by `mv_drops_7d`. Used by the dashboard, Telegram and the daily digest, which keep only drops of at least 5% and €5 (`MEANINGFUL_DROP_SQL`); the view itself is unfiltered. Drops >= 40% are counted and flagged "big drop, check" |
 | `vw_brand_summary` | Min/max/avg/median price per brand per category |
 | `vw_disappeared` | Products not seen for more than 30 days |
 | `vw_price_volatility` | 30-day coefficient of variation (stddev / avg) |
@@ -399,7 +399,7 @@ Failed sends use **exponential backoff** (5s → 10s → 20s … capped at 300s)
 | `tg_failure(stage, code, log)` | Any core stage fails |
 | `tg_drops(rows)` | Top 10 price drops today |
 | `tg_watchlist(hits)` | Watchlist threshold crossed |
-| `tg_disappeared(rows)` | Products gone 1–2 days |
+| `tg_disappeared(rows)` | Products that crossed 30 days unseen today |
 | `tg_success(snaps, new, drops, elapsed)` | Pipeline complete |
 
 ### Gmail  (`run_pipeline.py`)
@@ -410,7 +410,7 @@ HTML email via SMTP with 30-second connection timeout. `html.escape()` applied t
 | `send_failure_alert(stage, code)` | `[Skroutz Pipeline] FAILED — {stage}` | Core stage failure |
 | `send_drop_digest()` | `[Skroutz] N price drops today` | Top 10 from `vw_drops_7d` |
 | `send_watchlist_alerts()` | `[Skroutz] N price target(s) reached` | `watchlist.json` hits |
-| `send_disappeared_alert()` | `[Skroutz] N product(s) disappeared` | `last_seen` 1–2 days ago |
+| `send_disappeared_alert()` | `[Skroutz] N product(s) disappeared` | crossed the 30-day unseen line today |
 | `send_success_summary(elapsed)` | `[Skroutz] Pipeline OK` | All stages passed |
 
 `send_success_summary()` logs a **WARNING** if today's snapshot count is < 50% of yesterday's (partial scrape anomaly detection).

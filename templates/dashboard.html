@@ -360,7 +360,6 @@ tr:hover td { background: #ffffff08; }
   <button class="tab-btn"         data-tab="drops"     onclick="showTab(this)">Price Drops<span class="tab-count" id="tc-drops"></span></button>
   <button class="tab-btn"         data-tab="products"  onclick="showTab(this)">Products<span class="tab-count" id="tc-products"></span></button>
   <button class="tab-btn"         data-tab="new-gone"  onclick="showTab(this)">New &amp; Gone<span class="tab-count" id="tc-new-gone"></span></button>
-  <button class="tab-btn"         data-tab="insights"     onclick="showTab(this)">Insights</button>
   <button class="tab-btn"         data-tab="intelligence" onclick="showTab(this)">Buy or Wait<span class="tab-count" id="tc-intel"></span></button>
 </nav>
 
@@ -372,7 +371,29 @@ tr:hover td { background: #ffffff08; }
   </div>
   <div class="section">
     <div class="section-title">&#128202; Category Price Index (same products, first day = 100) &mdash; __WINDOW_START_LABEL__</div>
+    <p class="muted" id="index-takeaway" style="margin:0 0 10px;font-size:14px">__INDEX_TAKEAWAY__</p>
     <div id="market-index-wrap" style="height:280px;position:relative"><canvas id="market-index-chart"></canvas></div>
+  </div>
+  <div class="section">
+    <div class="section-title">&#127991; Brand Analysis</div>
+    <div class="metric-toggle">
+      <button class="metric-btn active" data-metric="median" onclick="setBrandMetric(this)">Median Price &euro;</button>
+      <button class="metric-btn"        data-metric="avg"    onclick="setBrandMetric(this)">Avg Price &euro;</button>
+      <button class="metric-btn"        data-metric="count"  onclick="setBrandMetric(this)">Product Count</button>
+      <button class="metric-btn"        data-metric="range"  onclick="setBrandMetric(this)">Price Range</button>
+    </div>
+    <div class="brand-grid" id="brand-charts"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">&#127381; Products Listed by Brand</div>
+    <div class="donut-grid" id="donut-charts"></div>
+  </div>
+
+  <div class="section" id="compare-section" style="display:none">
+    <div class="section-title">&#128202; Brand Price Trends &mdash; Compare Over Time</div>
+    <div id="compare-selectors"></div>
+    <div class="compare-grid" id="compare-charts"></div>
   </div>
 </div>
 
@@ -520,31 +541,6 @@ tr:hover td { background: #ffffff08; }
 
 </div>
 
-<!-- ── Insights ──────────────────────────────────────────────────────────────── -->
-<div id="tab-insights" class="tab-content">
-  <div class="section">
-    <div class="section-title">&#127991; Brand Analysis</div>
-    <div class="metric-toggle">
-      <button class="metric-btn active" data-metric="median" onclick="setBrandMetric(this)">Median Price &euro;</button>
-      <button class="metric-btn"        data-metric="avg"    onclick="setBrandMetric(this)">Avg Price &euro;</button>
-      <button class="metric-btn"        data-metric="count"  onclick="setBrandMetric(this)">Product Count</button>
-      <button class="metric-btn"        data-metric="range"  onclick="setBrandMetric(this)">Price Range</button>
-    </div>
-    <div class="brand-grid" id="brand-charts"></div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">&#127381; Market Share &mdash; Products by Brand</div>
-    <div class="donut-grid" id="donut-charts"></div>
-  </div>
-
-  <div class="section" id="compare-section" style="display:none">
-    <div class="section-title">&#128202; Brand Price Trends &mdash; Compare Over Time</div>
-    <div id="compare-selectors"></div>
-    <div class="compare-grid" id="compare-charts"></div>
-  </div>
-</div>
-
 <!-- ── Intelligence ──────────────────────────────────────────────────────────── -->
 <div id="tab-intelligence" class="tab-content">
 
@@ -601,6 +597,12 @@ tr:hover td { background: #ffffff08; }
         recorded day of the window and on at least 80% of its recorded days. Each day it shows the geometric mean of their
         price relative to that first day (first day = 100; 102 means about 2% dearer), so new or vanished products do not move it.
         Typical prices on the cards and trend charts are medians.</li>
+    <li><b>Price drop minimum</b>: a drop counts only if it is at least <span id="about-min-pct">5</span>% and &euro;5.
+        When <span id="about-bulk">5</span> or more products of one brand and category fall by the same percentage on the same day,
+        they are shown as one <i>bulk repricing</i> line.</li>
+    <li><b>Needs checking</b> (Buy or Wait) collects products whose price looks wrong rather than cheap: far below their
+        own median, mixed versions under one listing, or prices that switch between levels.</li>
+    <li><b>Stopped appearing</b> (New &amp; Gone) lists products that passed 30 days unseen during the last 30 days.</li>
     <li>All prices are the cheapest shop's &ldquo;from&rdquo; price on Skroutz, not one fixed shop.</li>
     <li><b>Stability</b> is the 30-day coefficient of variation of the price; the sparkline shows the last 30 days.</li>
     <li>The badge at the top shows how old the data is and turns red if a daily run was missed.</li>
@@ -1153,7 +1155,7 @@ function closeModal() { document.getElementById('modal').classList.remove('open'
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeModal();
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  const tabMap = {'1':'overview','2':'drops','3':'products','4':'new-gone','5':'insights','6':'intelligence'};
+  const tabMap = {'1':'overview','2':'drops','3':'products','4':'new-gone','5':'intelligence'};
   if (tabMap[e.key]) { const btn = document.querySelector(`.tab-btn[data-tab="${tabMap[e.key]}"]`); if (btn) showTab(btn); }
 });
 
@@ -1545,6 +1547,10 @@ function buildFreshness() {
   const f  = DATA.freshness;
   const aboutPct = document.getElementById('about-suspect');
   if (aboutPct) aboutPct.textContent = THR.suspect_pct;
+  const aboutMin = document.getElementById('about-min-pct');
+  if (aboutMin && THR.min_drop_pct != null) aboutMin.textContent = THR.min_drop_pct;
+  const aboutBulk = document.getElementById('about-bulk');
+  if (aboutBulk && THR.bulk_min != null) aboutBulk.textContent = THR.bulk_min;
   if (!el || !f) { if (el) el.remove(); return; }
   const built = new Date(f.generated_at);
   const hrs   = Math.max(0, Math.round((Date.now() - built.getTime()) / 36e5));
@@ -1575,7 +1581,8 @@ safeCall(buildMarketShare,     'buildMarketShare');
 safeCall(buildBrandComparison, 'buildBrandComparison');
 safeCall(buildIntelligence,    'buildIntelligence');
 (function restoreTab() {
-  const hash = location.hash.slice(1);
+  const moved = {insights: 'overview'};  // old Insights tab now lives in Overview
+  const hash = moved[location.hash.slice(1)] || location.hash.slice(1);
   if (hash) { const btn = document.querySelector(`.tab-btn[data-tab="${hash}"]`); if (btn) showTab(btn); }
 })();
 </script>
