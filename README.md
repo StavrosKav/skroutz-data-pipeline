@@ -4,14 +4,9 @@ A daily data pipeline and an AI agent that tracks every phone, laptop, tablet an
 
 **Live dashboard:** [https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html](https://stavroskav.github.io/skroutz-data-pipeline/dashboard/dashboard_latest.html)
 
-**90 second demo** (click to play, [subtitles](docs/video/skroutz_demo.srt)):
-
+**90 second demo** ([subtitles](docs/video/skroutz_demo.srt), [mp4 file](docs/video/skroutz_demo.mp4)):
 
 https://github.com/user-attachments/assets/2b7e3638-a83b-4ccc-987e-8aa1f9bd9045
-
-
-
-[![Skroutz Price Intelligence demo video](docs/video/skroutz_demo_thumbnail.png)](docs/video/skroutz_demo.mp4)
 
 [![CI](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml)
 <!-- STATS:BADGES:START -->
@@ -185,7 +180,7 @@ Questions are cut to 500 characters. If the question is not about the data (for 
 * **Latest scrape date, not today's date:** the bot commands, the dashboard queries and all date based views count from the last scrape day (`MAX(date)` in `price_snapshots`). So if the laptop misses a day, "today" still means the last real data.
 * **Stuck runs close by themselves:** a run still marked `running` after 6 hours is closed as `aborted_stale` at the next start.
 * **Daily database backup:** a dump is checked with `pg_restore --list`, and dumps older than 7 days are deleted.
-* **525 tests** in pytest.
+* **526 tests** in pytest.
 * **CI on every push:** ruff, pytest, pip-audit and TruffleHog.
 
 ## Dashboard notes
