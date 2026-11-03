@@ -7,7 +7,8 @@ A daily data pipeline and an AI agent that tracks every phone, laptop, tablet an
 **90 second demo** (click to play, [subtitles](docs/video/skroutz_demo.srt)):
 
 
-https://github.com/user-attachments/assets/07b26da1-2775-43fb-8c81-bfcdeca62c99
+https://github.com/user-attachments/assets/2b7e3638-a83b-4ccc-987e-8aa1f9bd9045
+
 
 
 [![Skroutz Price Intelligence demo video](docs/video/skroutz_demo_thumbnail.png)](docs/video/skroutz_demo.mp4)
