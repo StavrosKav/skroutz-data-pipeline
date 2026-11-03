@@ -460,23 +460,37 @@ HTML_TEMPLATE = HTML_TEMPLATE_PATH.read_text(encoding="utf-8")
 CHARTJS_SRC = "../assets/chart.umd.min.js"
 
 
+def since_label(iso_date):
+    """'Since 6 Aug 2026' from an ISO date string."""
+    d = datetime.date.fromisoformat(iso_date)
+    return f"Since {d.day} {d.strftime('%b %Y')}"
+
+
+def index_start(market_index):
+    """Base day of the fixed-basket index (earliest first point with a change
+    to report), or None. Heading and takeaway both use this date."""
+    if not isinstance(market_index, dict):
+        return None
+    starts = [pts[0]["date"] for pts in market_index.values()
+              if len(pts) >= 2 and pts[0]["idx"]]
+    return min(starts) if starts else None
+
+
 def index_takeaway(market_index):
     """One plain sentence from the basket index: change since the first recorded
     day per category, biggest rise first. '' when there is nothing to compare."""
     if not isinstance(market_index, dict):
         return ""
-    moves, start = [], None
+    moves = []
     for cat, pts in market_index.items():
         if len(pts) < 2 or not pts[0]["idx"]:
             continue
         moves.append((pts[-1]["idx"] / pts[0]["idx"] * 100 - 100, cat))
-        start = min(start or pts[0]["date"], pts[0]["date"])
     if not moves:
         return ""
     moves.sort(reverse=True)
-    d = datetime.date.fromisoformat(start)
     parts = ", ".join(f"{cat} {pct:+.1f}%" for pct, cat in moves)
-    return (f"Since {d.day} {d.strftime('%b %Y')}, the same products changed in price: "
+    return (f"{since_label(index_start(market_index))}, the same products changed in price: "
             f"{parts}.")
 
 
@@ -495,8 +509,9 @@ def render_html(data):
     # Public page: never publish the personal watchlist / target prices.
     data.pop("watchlist", None)
 
-    window_start_date  = datetime.date.fromisoformat(data["window_start"])
-    window_start_label = f"Since {window_start_date.day} {window_start_date.strftime('%b %Y')}"
+    # The heading sits on the index chart, so it uses the index base day (same
+    # as the takeaway); the 90-day snapshot window start is only the fallback.
+    window_start_label = since_label(index_start(data.get("market_index")) or data["window_start"])
 
     html = (HTML_TEMPLATE
         .replace("__CHARTJS_SRC__",        f"{CHARTJS_SRC}?v={data['generated']}")

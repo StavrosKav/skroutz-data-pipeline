@@ -176,7 +176,7 @@ Questions are cut to 500 characters. If the question is not about the data (for 
 * **Latest scrape date, not today's date:** the bot commands, the dashboard queries and all date based views count from the last scrape day (`MAX(date)` in `price_snapshots`). So if the laptop misses a day, "today" still means the last real data.
 * **Stuck runs close by themselves:** a run still marked `running` after 6 hours is closed as `aborted_stale` at the next start.
 * **Daily database backup:** a dump is checked with `pg_restore --list`, and dumps older than 7 days are deleted.
-* **482 tests** in pytest.
+* **517 tests** in pytest.
 * **CI on every push:** ruff, pytest, pip-audit and TruffleHog.
 
 ## Dashboard notes
