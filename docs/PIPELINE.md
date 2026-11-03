@@ -447,8 +447,8 @@ source of truth; this section is a summary, not a copy, so it can't drift out of
 **What CI checks:**
 - **Ruff** (`[tool.ruff]` in `pyproject.toml`) — linting and code style (replaces flake8 + isort + pyupgrade).
   Per-file-ignores exist for `ops/run_data_quality.py`/`ops/run_scraper_health.py`'s
-  intentional `sys.path.insert()`-before-import convention (see `AGENTS.md`'s "All scripts
-  resolve BASE ..." rule) — not an oversight. Tests don't need it: pytest's `pythonpath = ["."]`
+  intentional `sys.path.insert()`-before-import convention (every script resolves `BASE` from its own file path with
+  `os.path.dirname(os.path.abspath(__file__))`) — not an oversight. Tests don't need it: pytest's `pythonpath = ["."]`
   (also in `pyproject.toml`) puts the project root on `sys.path` before collection.
 - **pytest** — the full suite in `tests/` (see the Testing section above for current count)
 - **pip-audit** — CVE scan of all pinned dependencies in `requirements.txt`

@@ -9,7 +9,7 @@ A daily data pipeline and an AI agent that tracks every phone, laptop, tablet an
 ![Products](https://img.shields.io/badge/Products-22%2C753-blue?style=flat-square)
 ![Snapshots](https://img.shields.io/badge/Snapshots-1053k-green?style=flat-square)
 <!-- STATS:BADGES:END -->
-![Ask eval](https://img.shields.io/badge/ask_eval-23%2F23_(2_runs%2C_varies)-blueviolet?style=flat-square)
+![Ask eval](https://img.shields.io/badge/ask_eval-21%E2%80%9323%2F23-blueviolet?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-336791?logo=postgresql&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -176,7 +176,7 @@ Questions are cut to 500 characters. If the question is not about the data (for 
 * **Latest scrape date, not today's date:** the bot commands, the dashboard queries and all date based views count from the last scrape day (`MAX(date)` in `price_snapshots`). So if the laptop misses a day, "today" still means the last real data.
 * **Stuck runs close by themselves:** a run still marked `running` after 6 hours is closed as `aborted_stale` at the next start.
 * **Daily database backup:** a dump is checked with `pg_restore --list`, and dumps older than 7 days are deleted.
-* **517 tests** in pytest.
+* **522 tests** in pytest.
 * **CI on every push:** ruff, pytest, pip-audit and TruffleHog.
 
 ## Dashboard notes
