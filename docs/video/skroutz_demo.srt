@@ -1,0 +1,52 @@
+1
+00:00:00,300 --> 00:00:05,000
+I track 22,753 electronics on Skroutz. Every day.
+
+2
+00:00:05,500 --> 00:00:11,800
+Is this price really a deal?
+Shops change prices daily.
+
+3
+00:00:12,300 --> 00:00:25,000
+Python + Selenium scrape 4 categories at 10:00.
+Data goes to PostgreSQL.
+
+4
+00:00:25,300 --> 00:00:33,000
+Over 1 million price snapshots since May 2026
+
+5
+00:00:33,300 --> 00:00:45,000
+Since 6 Aug: tablets +4.4%, laptops +2.8%, phones +1.2%
+
+6
+00:00:45,300 --> 00:00:55,000
+Real drops: a watch €120 to €75, a laptop €982 to €659.
+
+7
+00:00:55,300 --> 00:01:02,000
+Buy or Wait advice. Bad data gets flagged, not hidden.
+
+8
+00:01:02,300 --> 00:01:05,600
+[Telegram, Greek] /ask Which is the newest Apple phone?
+
+9
+00:01:05,600 --> 00:01:10,200
+The newest Apple model in the data is the Apple iPhone 18 Pro Max
+(12/512GB) Glacier, at €1,985.92 (first seen 2 Nov 2026).
+
+10
+00:01:10,200 --> 00:01:15,000
+SQL (1 row)
+Ask in plain language. The AI writes the SQL.
+
+11
+00:01:15,300 --> 00:01:23,000
+522 tests. 35 attack queries blocked. Eval 21 to 23 of 23.
+
+12
+00:01:23,300 --> 00:01:29,500
+Stavros Kavieris · Data Analyst
+stavroskav.github.io/skroutz-data-pipeline
