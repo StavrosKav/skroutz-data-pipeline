@@ -86,3 +86,7 @@ evals/last_run.json
 
 # Daily generated site files: published to gh-pages only (not tracked on main)
 dashboard/dashboard_latest.html
+
+# Local AI assistant instructions (kept on the laptop, never committed)
+CLAUDE.md
+AGENTS.md
