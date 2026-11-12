@@ -10,8 +10,8 @@ https://github.com/user-attachments/assets/2b7e3638-a83b-4ccc-987e-8aa1f9bd9045
 
 [![CI](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/StavrosKav/skroutz-data-pipeline/actions/workflows/ci.yml)
 <!-- STATS:BADGES:START -->
-![Products](https://img.shields.io/badge/Products-23%2C207-blue?style=flat-square)
-![Snapshots](https://img.shields.io/badge/Snapshots-1106k-green?style=flat-square)
+![Products](https://img.shields.io/badge/Products-23%2C258-blue?style=flat-square)
+![Snapshots](https://img.shields.io/badge/Snapshots-1112k-green?style=flat-square)
 <!-- STATS:BADGES:END -->
 ![Ask eval](https://img.shields.io/badge/ask_eval-21%E2%80%9323%2F23-blueviolet?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
@@ -62,13 +62,13 @@ Products are counted once per `skroutz_id`, after merging duplicates created by 
 <!-- STATS:TABLE:START -->
 | Category | Products | Snapshots | Avg Price | Range | Brands (5+ products) |
 |---|---|---|---|---|---|
-| Laptop | 9,507 | 387,642 | €1,729 | €52–€12,266 | 25 |
-| Phone | 4,938 | 206,097 | €339 | €9–€3,859 | 71 |
-| Smartwatch | 6,856 | 435,376 | €92 | €4–€3,399 | 245 |
-| Tablet | 1,906 | 76,409 | €573 | €31–€7,892 | 37 |
-| **Total** | **23,207** | **1,105,524** | | | |
+| Laptop | 9,542 | 389,860 | €1,730 | €52–€12,266 | 25 |
+| Phone | 4,945 | 207,139 | €339 | €9–€3,859 | 71 |
+| Smartwatch | 6,859 | 437,979 | €92 | €4–€3,399 | 245 |
+| Tablet | 1,912 | 76,870 | €574 | €31–€7,892 | 37 |
+| **Total** | **23,258** | **1,111,848** | | | |
 
-Updated daily via Task Scheduler · last pipeline run: 2026-11-11
+Updated daily via Task Scheduler · last pipeline run: 2026-11-12
 <!-- STATS:TABLE:END -->
 
 ## The AI part: an agent you can check
