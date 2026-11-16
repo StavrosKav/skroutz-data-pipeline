@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
 from agents.ask.guard import SQLGuardError, validate_sql
-from agents.ask.output_guard import fallback_answer, is_degenerate
+from agents.ask.output_guard import degenerate_reason, fallback_answer, strip_reasoning
 from agents.ask.retry import call_with_retry
 from agents.ask.schema import SCHEMA_CONTEXT
 
@@ -95,9 +95,11 @@ class AskAgent:
     def __init__(self, llm: LLM, executor: Executor, *, cache_size: int = 128,
                  cache_ttl_s: float = 3600, clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep, llm_attempts: int = 3,
-                 sql_system: str | None = None, answer_llm: LLM | None = None):
+                 sql_system: str | None = None, answer_llm: LLM | None = None,
+                 answer_retry_llm: LLM | None = None):
         self.llm = llm
         self.answer_llm = answer_llm or llm
+        self.answer_retry_llm = answer_retry_llm  # e.g. a different NIM model, tried once
         self.executor = executor
         self.cache_size = cache_size
         self.cache_ttl_s = cache_ttl_s
@@ -156,25 +158,34 @@ class AskAgent:
                 raw = self.generate_sql(question, feedback=msg, previous_sql=raw)
         raise AssertionError("unreachable")
 
-    def answer_from_rows(self, question: str, cols: list[str], rows: list[list[Any]]) -> str:
+    def answer_from_rows(self, question: str, cols: list[str], rows: list[list[Any]],
+                         llm: LLM | None = None) -> str:
         data = [dict(zip(cols, map(_jsonable, r))) for r in rows[:ROWS_IN_PROMPT]]
         blob = json.dumps(data, ensure_ascii=False)[:ROWS_JSON_MAX_CHARS]
         note = f" (εμφανίζονται {len(data)} από {len(rows)})" if len(rows) > len(data) else ""
         msgs = [{"role": "system", "content": ANSWER_SYSTEM},
                 {"role": "user", "content": f"Ερώτηση: {question}\nΓραμμές{note}:\n{blob}"}]
-        return self._llm(msgs, ANSWER_MAX_TOKENS, llm=self.answer_llm).strip()
+        return strip_reasoning(self._llm(msgs, ANSWER_MAX_TOKENS, llm=llm or self.answer_llm))
 
     def safe_answer(self, question: str, cols: list[str], rows: list[list[Any]]) -> tuple[str, bool]:
-        """(answer, ok). Falls back to the rows when the LLM fails, is empty or degenerates."""
-        try:
-            text = self.answer_from_rows(question, cols, rows)
-        except Exception as exc:  # noqa: BLE001 — the rows are still worth sending
-            logger.warning("/ask answer step failed: %s", type(exc).__name__)
-            return fallback_answer(cols, rows), False
-        if not text or is_degenerate(text):
-            logger.warning("/ask answer degenerate or empty (%d chars); using row fallback", len(text))
-            return fallback_answer(cols, rows), False
-        return text, True
+        """(answer, ok). Tries the answer LLM, then the retry LLM once; falls back to the rows
+        when both fail, return nothing, or return runaway/looping/corrupted text."""
+        tries = [("primary", self.answer_llm)]
+        if self.answer_retry_llm is not None:
+            tries.append(("retry", self.answer_retry_llm))
+        for label, llm in tries:
+            try:
+                text = self.answer_from_rows(question, cols, rows, llm=llm)
+            except Exception as exc:  # noqa: BLE001 — the rows are still worth sending
+                logger.warning("/ask answer (%s) failed: %s", label, type(exc).__name__)
+                continue
+            reason = degenerate_reason(text)
+            if reason is None:
+                return text, True
+            logger.warning("/ask answer (%s) rejected: %s; %d chars; preview=%r",
+                           label, reason, len(text), text[:200])
+        logger.warning("/ask using row fallback")
+        return fallback_answer(cols, rows), False
 
     # ── public ───────────────────────────────────────────────────────────
     def ask(self, question: str) -> AskResult:
