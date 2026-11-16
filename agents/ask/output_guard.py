@@ -14,28 +14,63 @@ from typing import Any, Sequence
 SUMMARY_FAILED = "⚠️ Η σύνοψη απέτυχε· δες τα δεδομένα από τη βάση:"
 MAX_ANSWER_CHARS = 1500   # ANSWER_SYSTEM asks for <= 5 lines; anything far longer is runaway
 MAX_NGRAM = 4             # look for loops of 1..4 tokens
-MAX_REPEATS = 6           # the same n-gram 6+ times in a row is a loop
+MAX_REPEATS = 6           # the same word n-gram 6+ times in a row is a loop ("dao dao dao ...")
+# Units with no letters (numbers, €, |, -, .) repeat legitimately in data answers
+# ("10.00, 10.00, ...", "|------|", "......"); only a far longer run counts. Kept above
+# ROWS_IN_PROMPT (30) so listing one identical value for every row is never flagged.
+MAX_REPEATS_NON_WORD = 32
 FALLBACK_ROWS = 10
 FALLBACK_LINE_CHARS = 200
 
 _TOKEN = re.compile(r"\w+|[^\w\s]")
+_THINK_CLOSED = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
+_THINK_OPEN = re.compile(r"<think>.*\Z", re.IGNORECASE | re.DOTALL)
+_GREEK = re.compile(r"[\u0370-\u03ff\u1f00-\u1fff]")
+_LATIN = re.compile(r"[a-zA-Z]")
 
 
-def is_degenerate(text: str) -> bool:
-    """True when the text is too long for a short answer or loops on an n-gram."""
+def strip_reasoning(text: str) -> str:
+    """Drop <think>...</think> blocks (and an unclosed one cut off by max_tokens)."""
+    return _THINK_OPEN.sub("", _THINK_CLOSED.sub("", text or "")).strip()
+
+
+def _has_letter(tokens: list[str]) -> bool:
+    return any(any(ch.isalpha() for ch in t) for t in tokens)
+
+
+def degenerate_reason(text: str) -> str | None:
+    """Why the text is unusable as an answer, or None when it looks fine.
+
+    Rules: empty; too long for a short answer; U+FFFD replacement char (broken decoding);
+    a word mixing Latin and Greek letters ("daoflouktuάει"); a word n-gram looping 6+ times;
+    a non-word unit (digits/punctuation) looping 32+ times."""
+    if not text or not text.strip():
+        return "empty"
     if len(text) > MAX_ANSWER_CHARS:
-        return True
+        return f"too_long({len(text)}>{MAX_ANSWER_CHARS})"
+    if "\ufffd" in text:
+        return "replacement_char"
     toks = _TOKEN.findall(text.lower())
+    for t in toks:
+        if _GREEK.search(t) and _LATIN.search(t):
+            return f"mixed_script({t[:40]})"
     for n in range(1, MAX_NGRAM + 1):
         run = 0  # consecutive positions where the sequence repeats with period n
         for i in range(n, len(toks)):
-            if toks[i] == toks[i - n]:
-                run += 1
-                if run >= n * (MAX_REPEATS - 1):
-                    return True
-            else:
+            if toks[i] != toks[i - n]:
                 run = 0
-    return False
+                continue
+            run += 1
+            unit = toks[i - n + 1:i + 1]
+            limit = MAX_REPEATS if _has_letter(unit) else MAX_REPEATS_NON_WORD
+            if run >= n * (limit - 1):
+                return f"loop(n={n}, unit={' '.join(unit)[:40]!r})"
+    return None
+
+
+def is_degenerate(text: str) -> bool:
+    """True when the text is runaway, looping or corrupted (see degenerate_reason)."""
+    return degenerate_reason(text) is not None
 
 
 def _cell(v: Any) -> str:

@@ -79,6 +79,10 @@ def get_agent():
     global _AGENT
     if _AGENT is None:
         from agents.ask.agent import ANSWER_SAMPLING, AskAgent
+        from alerts.nim_client import FALLBACK_CHAIN
+        # Nemotron 3 Ultra (FALLBACK_CHAIN[0]) corrupted Greek answers on 2026-11-16
+        # ("dao dao", U+FFFD); a bad answer is retried once on the next model in the chain.
         _AGENT = AskAgent(make_nim_llm(), make_pg_executor(), llm_attempts=1,
-                          answer_llm=make_nim_llm(**ANSWER_SAMPLING))
+                          answer_llm=make_nim_llm(**ANSWER_SAMPLING),
+                          answer_retry_llm=make_nim_llm(model=FALLBACK_CHAIN[1].value, **ANSWER_SAMPLING))
     return _AGENT
