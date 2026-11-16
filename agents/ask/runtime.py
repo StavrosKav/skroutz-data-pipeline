@@ -84,5 +84,6 @@ def get_agent():
         # ("dao dao", U+FFFD); a bad answer is retried once on the next model in the chain.
         _AGENT = AskAgent(make_nim_llm(), make_pg_executor(), llm_attempts=1,
                           answer_llm=make_nim_llm(**ANSWER_SAMPLING),
-                          answer_retry_llm=make_nim_llm(model=FALLBACK_CHAIN[1].value, **ANSWER_SAMPLING))
+                          answer_retry_llm=make_nim_llm(model=FALLBACK_CHAIN[1].value, **ANSWER_SAMPLING),
+                          answer_primary_tries=2)
     return _AGENT

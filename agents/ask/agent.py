@@ -96,9 +96,10 @@ class AskAgent:
                  cache_ttl_s: float = 3600, clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep, llm_attempts: int = 3,
                  sql_system: str | None = None, answer_llm: LLM | None = None,
-                 answer_retry_llm: LLM | None = None):
+                 answer_retry_llm: LLM | None = None, answer_primary_tries: int = 1):
         self.llm = llm
         self.answer_llm = answer_llm or llm
+        self.answer_primary_tries = answer_primary_tries  # Ultra garbles ~half its answers
         self.answer_retry_llm = answer_retry_llm  # e.g. a different NIM model, tried once
         self.executor = executor
         self.cache_size = cache_size
@@ -168,9 +169,11 @@ class AskAgent:
         return strip_reasoning(self._llm(msgs, ANSWER_MAX_TOKENS, llm=llm or self.answer_llm))
 
     def safe_answer(self, question: str, cols: list[str], rows: list[list[Any]]) -> tuple[str, bool]:
-        """(answer, ok). Tries the answer LLM, then the retry LLM once; falls back to the rows
-        when both fail, return nothing, or return runaway/looping/corrupted text."""
-        tries = [("primary", self.answer_llm)]
+        """(answer, ok). Tries the answer LLM `answer_primary_tries` times, then the retry LLM
+        once; falls back to the rows when all fail, return nothing, or return
+        runaway/looping/corrupted text."""
+        tries = [("primary" if i == 0 else f"primary#{i + 1}", self.answer_llm)
+                 for i in range(max(1, self.answer_primary_tries))]
         if self.answer_retry_llm is not None:
             tries.append(("retry", self.answer_retry_llm))
         for label, llm in tries:
@@ -179,7 +182,7 @@ class AskAgent:
             except Exception as exc:  # noqa: BLE001 — the rows are still worth sending
                 logger.warning("/ask answer (%s) failed: %s", label, type(exc).__name__)
                 continue
-            reason = degenerate_reason(text)
+            reason = degenerate_reason(text, question=question, cols=cols, rows=rows)
             if reason is None:
                 return text, True
             logger.warning("/ask answer (%s) rejected: %s; %d chars; preview=%r",
