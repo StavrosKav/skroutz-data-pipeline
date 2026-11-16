@@ -151,6 +151,7 @@ class NIMResponse:
     usage: dict
     latency_ms: int
     cost_usd: float = 0.0
+    finish_reason: Optional[str] = None  # "length" = hit max_tokens (possible runaway output)
 
 
 class NIMClient:
@@ -306,6 +307,7 @@ class NIMClient:
             usage=response.usage.model_dump(),
             latency_ms=latency_ms,
             cost_usd=cost,
+            finish_reason=response.choices[0].finish_reason,
         )
 
     async def _stream_chat(self, request: ChatCompletionRequest) -> httpx.ByteStream:

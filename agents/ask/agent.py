@@ -12,12 +12,14 @@ Flow
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
 from agents.ask.guard import SQLGuardError, validate_sql
+from agents.ask.output_guard import fallback_answer, is_degenerate
 from agents.ask.retry import call_with_retry
 from agents.ask.schema import SCHEMA_CONTEXT
 
@@ -34,6 +36,12 @@ SQL_MAX_TOKENS = 400
 ANSWER_MAX_TOKENS = 350
 ROWS_IN_PROMPT = 30
 ROWS_JSON_MAX_CHARS = 6000
+# Sampling for the Greek answer step only (SQL stays greedy/deterministic).
+# Greedy decoding (temperature 0) with no repetition penalty is what let the
+# 2026-11-16 answer loop on "dao"; a mild frequency penalty discourages that.
+ANSWER_SAMPLING = {"temperature": 0.3, "frequency_penalty": 0.5}
+
+logger = logging.getLogger(__name__)
 
 SQL_SYSTEM = (
     "You translate Greek or English questions about Greek electronics prices (skroutz.gr) "
@@ -65,6 +73,7 @@ class AskResult:
     attempts: int = 0
     cached: bool = False
     latency_ms: int = 0
+    summary_failed: bool = False
 
 
 def extract_sql(text: str) -> str:
@@ -86,8 +95,9 @@ class AskAgent:
     def __init__(self, llm: LLM, executor: Executor, *, cache_size: int = 128,
                  cache_ttl_s: float = 3600, clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep, llm_attempts: int = 3,
-                 sql_system: str | None = None):
+                 sql_system: str | None = None, answer_llm: LLM | None = None):
         self.llm = llm
+        self.answer_llm = answer_llm or llm
         self.executor = executor
         self.cache_size = cache_size
         self.cache_ttl_s = cache_ttl_s
@@ -116,8 +126,9 @@ class AskAgent:
         self._cache[self._key(q)] = (self._clock(), r)
 
     # ── steps ────────────────────────────────────────────────────────────
-    def _llm(self, messages: list[dict], max_tokens: int) -> str:
-        return call_with_retry(lambda: self.llm(messages, max_tokens),
+    def _llm(self, messages: list[dict], max_tokens: int, llm: LLM | None = None) -> str:
+        fn = llm or self.llm
+        return call_with_retry(lambda: fn(messages, max_tokens),
                                attempts=self.llm_attempts, sleep=self._sleep)
 
     def generate_sql(self, question: str, feedback: str | None = None,
@@ -151,7 +162,19 @@ class AskAgent:
         note = f" (εμφανίζονται {len(data)} από {len(rows)})" if len(rows) > len(data) else ""
         msgs = [{"role": "system", "content": ANSWER_SYSTEM},
                 {"role": "user", "content": f"Ερώτηση: {question}\nΓραμμές{note}:\n{blob}"}]
-        return self._llm(msgs, ANSWER_MAX_TOKENS).strip()
+        return self._llm(msgs, ANSWER_MAX_TOKENS, llm=self.answer_llm).strip()
+
+    def safe_answer(self, question: str, cols: list[str], rows: list[list[Any]]) -> tuple[str, bool]:
+        """(answer, ok). Falls back to the rows when the LLM fails, is empty or degenerates."""
+        try:
+            text = self.answer_from_rows(question, cols, rows)
+        except Exception as exc:  # noqa: BLE001 — the rows are still worth sending
+            logger.warning("/ask answer step failed: %s", type(exc).__name__)
+            return fallback_answer(cols, rows), False
+        if not text or is_degenerate(text):
+            logger.warning("/ask answer degenerate or empty (%d chars); using row fallback", len(text))
+            return fallback_answer(cols, rows), False
+        return text, True
 
     # ── public ───────────────────────────────────────────────────────────
     def ask(self, question: str) -> AskResult:
@@ -175,10 +198,11 @@ class AskAgent:
         elif not rows:
             res = AskResult(question, NO_DATA, sql, cols, rows, attempts=attempts)
         else:
-            res = AskResult(question, self.answer_from_rows(question, cols, rows), sql, cols, rows,
-                            attempts=attempts)
+            answer, ok = self.safe_answer(question, cols, rows)
+            res = AskResult(question, answer, sql, cols, rows, attempts=attempts, summary_failed=not ok)
         res.latency_ms = int((self._clock() - t0) * 1000)
-        self._cache_put(question, res)
+        if not res.summary_failed:  # let the next ask retry the summary
+            self._cache_put(question, res)
         return res
 
 

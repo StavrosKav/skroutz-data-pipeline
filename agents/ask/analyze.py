@@ -120,6 +120,9 @@ def analyze(execute: Executor, llm: LLM | None, category: str, max_tokens: int =
             ], max_tokens).strip()
         except Exception:  # noqa: BLE001 — LLM backend can fail in many ways; the facts are still returned without a summary
             summary = ""
+        from agents.ask.output_guard import is_degenerate
+        if summary and is_degenerate(summary):  # runaway/looping summary: send the facts only
+            summary = ""
     head = f"📊 <b>{category}</b>\n"
     if summary:
         return f"{head}{html.escape(summary)}\n\n<b>Δεδομένα</b> (από τη βάση):\n{fact_block}"

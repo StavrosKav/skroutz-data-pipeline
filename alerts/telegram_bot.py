@@ -95,20 +95,87 @@ def _post(method: str, payload: dict) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=35) as r:
             return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        # Keep Telegram's error code/description (e.g. "message is too long") so _send can react.
+        desc = ""
+        try:
+            desc = str(json.loads(e.read()).get("description", ""))
+        except (OSError, ValueError, AttributeError):
+            pass
+        logger.warning(f"{method} failed: HTTP {e.code} {desc}".rstrip())
+        return {"ok": False, "error_code": e.code, "description": desc}
     except (OSError, ValueError, http.client.HTTPException) as e:
         logger.warning(f"{method} failed: {e}")
         return {}
 
 
-def _send(text_: str, chat_id: str = None, reply_markup=None) -> None:
+# Telegram rejects messages longer than 4096 characters (UTF-16 code units) with HTTP 400.
+TG_MAX_CHARS = 4096
+_CUT_NOTE = "\n…(κόπηκε)"
+_HTML_PIECE = re.compile(r"<[^>]*>|&#?\w+;|[\s\S]")
+_HTML_TAG = re.compile(r"<(/?)([a-zA-Z][\w-]*)")
+
+
+def _tg_len(s: str) -> int:
+    return len(s.encode("utf-16-le")) // 2
+
+
+def _fit_html(text_: str, limit: int = TG_MAX_CHARS) -> str:
+    """Cut Telegram HTML to `limit` without splitting a tag or entity; close open tags."""
+    if _tg_len(text_) <= limit:
+        return text_
+    out: list[str] = []
+    stack: list[str] = []
+    used = 0
+    for m in _HTML_PIECE.finditer(text_):
+        piece = m.group(0)
+        new_stack = stack
+        tag = _HTML_TAG.match(piece) if piece.startswith("<") and piece.endswith(">") else None
+        if tag:
+            closing, name = tag.group(1) == "/", tag.group(2).lower()
+            if closing:
+                new_stack = stack[:-1] if stack and stack[-1] == name else stack
+            else:
+                new_stack = stack + [name]
+        closers = "".join(f"</{t}>" for t in reversed(new_stack))
+        if used + _tg_len(piece) + _tg_len(closers) + _tg_len(_CUT_NOTE) > limit:
+            break
+        out.append(piece)
+        used += _tg_len(piece)
+        stack = new_stack
+    return "".join(out) + "".join(f"</{t}>" for t in reversed(stack)) + _CUT_NOTE
+
+
+def _plain(text_: str, limit: int = TG_MAX_CHARS) -> str:
+    """HTML -> plain text, capped to `limit` (fallback when Telegram rejects the HTML)."""
+    s = html.unescape(re.sub(r"<[^>]+>", "", text_))
+    if _tg_len(s) <= limit:
+        return s
+    out, used = [], 0
+    for ch in s:
+        used += _tg_len(ch)
+        if used > limit - 1:
+            break
+        out.append(ch)
+    return "".join(out) + "…"
+
+
+def _send(text_: str, chat_id: str = None, reply_markup=None) -> dict:
     payload = {
         "chat_id":    chat_id or CHAT_ID,
-        "text":       text_,
+        "text":       _fit_html(text_),
         "parse_mode": "HTML",
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    _post("sendMessage", payload)
+    resp = _post("sendMessage", payload)
+    if resp.get("error_code") == 400:
+        # Bad HTML or still too long: send plain text once so the user always gets an answer.
+        logger.warning("sendMessage rejected (400); retrying once as plain text")
+        plain = {k: v for k, v in payload.items() if k != "parse_mode"}
+        plain["text"] = _plain(text_)
+        resp = _post("sendMessage", plain)
+    return resp
 
 
 def _get_updates(offset: int) -> list:

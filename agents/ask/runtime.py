@@ -6,8 +6,11 @@ Only this file touches the network/DB; agents.ask.agent stays pure.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Any, Sequence
+
+logger = logging.getLogger(__name__)
 
 STATEMENT_TIMEOUT_MS = int(os.getenv("ASK_STATEMENT_TIMEOUT_MS", "5000"))
 
@@ -41,10 +44,11 @@ REASONING_HEADROOM = 2500
 LAST_MODEL: dict[str, str] = {}
 
 
-def make_nim_llm(task=None, temperature: float = 0.0, model: str | None = None):
+def make_nim_llm(task=None, temperature: float = 0.0, model: str | None = None, **sampling):
     """Sync LLM callable backed by NIMClient (NIMClient retries 429/5xx/timeouts).
 
-    model pins one NIM model and turns fallback off (used by the model comparison eval)."""
+    model pins one NIM model and turns fallback off (used by the model comparison eval).
+    sampling: extra OpenAI-compatible params NIMClient sends (frequency_penalty, presence_penalty)."""
     from alerts.nim_client import NIMClient, TaskType
 
     task = task or TaskType.CODE_GENERATION
@@ -52,10 +56,14 @@ def make_nim_llm(task=None, temperature: float = 0.0, model: str | None = None):
     async def _call(messages: list[dict], max_tokens: int) -> str:
         async with NIMClient() as client:
             extra = {"fallback": False} if model else {}
+            extra.update(sampling)
             resp = await client.chat(messages, task=model or task, temperature=temperature,
                                      max_tokens=max_tokens + REASONING_HEADROOM, **extra)
             LAST_MODEL["model"] = resp.model
             LAST_MODEL["latency_ms"] = str(resp.latency_ms)
+            if getattr(resp, "finish_reason", None) == "length":
+                logger.warning("NIM hit max_tokens (finish_reason=length, model=%s, %d chars)",
+                               resp.model, len(resp.content or ""))
             return resp.content
 
     def llm(messages: list[dict], max_tokens: int) -> str:
@@ -70,6 +78,7 @@ _AGENT = None
 def get_agent():
     global _AGENT
     if _AGENT is None:
-        from agents.ask.agent import AskAgent
-        _AGENT = AskAgent(make_nim_llm(), make_pg_executor(), llm_attempts=1)
+        from agents.ask.agent import ANSWER_SAMPLING, AskAgent
+        _AGENT = AskAgent(make_nim_llm(), make_pg_executor(), llm_attempts=1,
+                          answer_llm=make_nim_llm(**ANSWER_SAMPLING))
     return _AGENT
