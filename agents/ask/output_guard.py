@@ -27,6 +27,9 @@ _THINK_CLOSED = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
 _THINK_OPEN = re.compile(r"<think>.*\Z", re.IGNORECASE | re.DOTALL)
 _GREEK = re.compile(r"[\u0370-\u03ff\u1f00-\u1fff]")
 _LATIN = re.compile(r"[a-zA-Z]")
+_LATIN_WORD = re.compile(r"[a-z]+")
+# Latin words that may appear in a Greek answer without being in the question or rows.
+SAFE_LATIN = frozenset({"gb", "tb", "mb", "mah", "hz", "ghz", "mp", "sql", "eur", "skroutz", "vs"})
 
 
 def strip_reasoning(text: str) -> str:
@@ -38,18 +41,39 @@ def _has_letter(tokens: list[str]) -> bool:
     return any(any(ch.isalpha() for ch in t) for t in tokens)
 
 
-def degenerate_reason(text: str) -> str | None:
+def _stray_latin(toks: list[str], question: str, cols: Sequence[str],
+                 rows: Sequence[Sequence[Any]]) -> str | None:
+    """First all-Latin word in a mainly Greek answer that is not grounded in the question,
+    the column names or the row values (live 2026-11-16: "κινητών dao", "daofluctuated")."""
+    text = "".join(toks)
+    if len(_GREEK.findall(text)) <= len(_LATIN.findall(text)):
+        return None  # English (or mostly Latin) answer: nothing to compare against
+    source = " ".join([question, *map(str, cols), *(str(v) for r in rows for v in r)]).lower()
+    allowed = SAFE_LATIN | set(_LATIN_WORD.findall(source))
+    for t in toks:
+        if _LATIN_WORD.fullmatch(t) and t not in allowed:
+            return t
+    return None
+
+
+def degenerate_reason(text: str, question: str | None = None, cols: Sequence[str] | None = None,
+                      rows: Sequence[Sequence[Any]] | None = None) -> str | None:
     """Why the text is unusable as an answer, or None when it looks fine.
 
     Rules: empty; too long for a short answer; U+FFFD replacement char (broken decoding);
-    a word mixing Latin and Greek letters ("daoflouktuάει"); a word n-gram looping 6+ times;
-    a non-word unit (digits/punctuation) looping 32+ times."""
+    a digit outside ASCII 0-9 ("~۱۰۵۰"); a word mixing Latin and Greek letters ("daoflouktuάει");
+    a word n-gram looping 6+ times; a non-word unit (digits/punctuation) looping 32+ times;
+    and, only when the question/cols/rows context is given, an all-Latin word in a mainly
+    Greek answer that appears nowhere in that context ("κινητών dao")."""
     if not text or not text.strip():
         return "empty"
     if len(text) > MAX_ANSWER_CHARS:
         return f"too_long({len(text)}>{MAX_ANSWER_CHARS})"
     if "\ufffd" in text:
         return "replacement_char"
+    for ch in text:
+        if ch.isdecimal() and ch not in "0123456789":
+            return f"foreign_digits({ch!r} U+{ord(ch):04X})"
     toks = _TOKEN.findall(text.lower())
     for t in toks:
         if _GREEK.search(t) and _LATIN.search(t):
@@ -65,6 +89,10 @@ def degenerate_reason(text: str) -> str | None:
             limit = MAX_REPEATS if _has_letter(unit) else MAX_REPEATS_NON_WORD
             if run >= n * (limit - 1):
                 return f"loop(n={n}, unit={' '.join(unit)[:40]!r})"
+    if question is not None or cols is not None or rows is not None:
+        word = _stray_latin(toks, question or "", cols or [], rows or [])
+        if word is not None:
+            return f"stray_latin({word[:40]})"
     return None
 
 
