@@ -21,7 +21,7 @@ flowchart TD
   X -- SQL error --> F
   F --> V
   X -- 0 rows --> N["'Δεν υπάρχει στα δεδομένα.'"]
-  X -- rows --> A["LLM: Greek answer\nfrom rows only (≤30 rows, token cap)"]
+  X -- rows --> A["LLM: English summary\nfrom rows only (≤30 rows, token cap)"]
   A --> R
   N --> R
 ```
