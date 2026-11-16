@@ -1,4 +1,4 @@
-"""AskAgent: question -> guarded SQL -> rows -> grounded Greek answer.
+"""AskAgent: question -> guarded SQL -> rows -> grounded English summary (bot texts stay Greek).
 
 Flow
   1. LLM writes one SELECT using SCHEMA_CONTEXT (prompt kept small).
@@ -36,7 +36,7 @@ SQL_MAX_TOKENS = 400
 ANSWER_MAX_TOKENS = 350
 ROWS_IN_PROMPT = 30
 ROWS_JSON_MAX_CHARS = 6000
-# Sampling for the Greek answer step only (SQL stays greedy/deterministic).
+# Sampling for the answer (summary) step only (SQL stays greedy/deterministic).
 # Greedy decoding (temperature 0) with no repetition penalty is what let the
 # 2026-11-16 answer loop on "dao"; a mild frequency penalty discourages that.
 ANSWER_SAMPLING = {"temperature": 0.3, "frequency_penalty": 0.5}
@@ -53,12 +53,16 @@ SQL_SYSTEM = (
     "these tables, output exactly: SELECT 'NO_DATA' AS no_data WHERE false"
 )
 
+# The summary is written in English: in the 2026-11-16 live test (same rows, same model)
+# English summaries were 6/6 clean, Greek 0/6 (broke after "κινητών"). All other bot
+# texts (OFF_TOPIC, NO_DATA, errors, fallback note) stay Greek.
+ANSWER_NOT_IN_DATA = "Not in the data."
 ANSWER_SYSTEM = (
-    "Απαντάς στα ελληνικά, σύντομα (έως 5 γραμμές), ΜΟΝΟ από τις γραμμές αποτελέσματος "
-    "που σου δίνονται. Μην προσθέτεις γνώση εκτός δεδομένων, μην μαντεύεις. Τιμές σε €. "
-    "Οι γραμμές προέρχονται από αναζήτηση στη βάση για αυτή την ερώτηση: αν περιέχουν τιμές, απάντησε "
-    "με αυτές και ανέφερε το ακριβές προϊόν/παραλλαγή (π.χ. FE, χωρητικότητα) όπως εμφανίζεται στις γραμμές. "
-    "Μόνο αν δεν υπάρχουν γραμμές ή δεν σχετίζονται καθόλου με την ερώτηση, γράψε: 'Δεν υπάρχει στα δεδομένα.'"
+    "Answer in English, briefly (up to 5 lines), ONLY from the result rows given. "
+    "Do not add outside knowledge, do not guess. Prices in EUR. "
+    "The rows come from a database search for this question: if they contain prices, answer "
+    "with them and name the exact product/variant (e.g. FE, storage) as it appears in the rows. "
+    f"Only if there are no rows or they are unrelated to the question, write: '{ANSWER_NOT_IN_DATA}'"
 )
 
 
@@ -163,9 +167,9 @@ class AskAgent:
                          llm: LLM | None = None) -> str:
         data = [dict(zip(cols, map(_jsonable, r))) for r in rows[:ROWS_IN_PROMPT]]
         blob = json.dumps(data, ensure_ascii=False)[:ROWS_JSON_MAX_CHARS]
-        note = f" (εμφανίζονται {len(data)} από {len(rows)})" if len(rows) > len(data) else ""
+        note = f" (shown {len(data)} of {len(rows)})" if len(rows) > len(data) else ""
         msgs = [{"role": "system", "content": ANSWER_SYSTEM},
-                {"role": "user", "content": f"Ερώτηση: {question}\nΓραμμές{note}:\n{blob}"}]
+                {"role": "user", "content": f"Question: {question}\nRows{note}:\n{blob}"}]
         return strip_reasoning(self._llm(msgs, ANSWER_MAX_TOKENS, llm=llm or self.answer_llm))
 
     def safe_answer(self, question: str, cols: list[str], rows: list[list[Any]]) -> tuple[str, bool]:

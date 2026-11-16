@@ -7,7 +7,7 @@
 - When a name search returned a variant (e.g. "... FE ..."), the answer step
   replied "no data" although the row answered the question.
 """
-from agents.ask.agent import ANSWER_SYSTEM
+from agents.ask.agent import ANSWER_NOT_IN_DATA, ANSWER_SYSTEM
 from agents.ask.schema import SCHEMA_CONTEXT
 
 
@@ -21,5 +21,6 @@ def test_current_aggregates_never_come_from_brand_summary():
 
 
 def test_answer_names_the_variant_instead_of_no_data():
-    assert "παραλλαγή" in ANSWER_SYSTEM
-    assert "Δεν υπάρχει στα δεδομένα." in ANSWER_SYSTEM
+    # The summary prompt is English since 2026-11-16 (see test_ask_english_summary.py).
+    assert "variant" in ANSWER_SYSTEM
+    assert ANSWER_NOT_IN_DATA in ANSWER_SYSTEM
