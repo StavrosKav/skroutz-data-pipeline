@@ -34,6 +34,7 @@ import html
 import http.client
 import json
 import logging
+import logging.handlers
 import os
 import re
 import time
@@ -55,12 +56,28 @@ except ImportError:
 
 load_dotenv()
 
-logging.basicConfig(
-    level  = logging.INFO,
-    format = "%(asctime)s [%(levelname)s] %(message)s",
-    datefmt= "%Y-%m-%d %H:%M:%S",
-)
 logger = logging.getLogger(__name__)
+
+_LOG_FORMAT = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+                                datefmt="%Y-%m-%d %H:%M:%S")
+
+
+def _setup_logging(log_dir: str, max_bytes: int = 5 * 1024 * 1024, backups: int = 3) -> None:
+    """Log to logs/telegram_bot.app.log (rotating); send only ERROR+ to stderr.
+
+    The launcher appends stderr to telegram_bot.err.log, which nothing rotates,
+    so routine INFO/WARNING lines go to the rotating file instead."""
+    os.makedirs(log_dir, exist_ok=True)
+    file_h = logging.handlers.RotatingFileHandler(
+        os.path.join(log_dir, "telegram_bot.app.log"),
+        maxBytes=max_bytes, backupCount=backups, encoding="utf-8")
+    err_h = logging.StreamHandler()
+    err_h.setLevel(logging.ERROR)
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    for h in (file_h, err_h):
+        h.setFormatter(_LOG_FORMAT)
+        root.addHandler(h)
 
 BASE = str(ROOT)  # anchored via core.paths — not dirname(__file__)
 TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -179,11 +196,16 @@ def _send(text_: str, chat_id: str = None, reply_markup=None) -> dict:
 
 
 def _get_updates(offset: int) -> list:
-    return _post("getUpdates", {
+    resp = _post("getUpdates", {
         "offset":          offset,
         "timeout":         30,
         "allowed_updates": ["message"],
-    }).get("result", [])
+    })
+    if not resp.get("ok"):
+        # _post already logged why. Raise so run() backs off instead of
+        # retrying in a tight loop while the network is down.
+        raise RuntimeError(f"getUpdates failed (error_code={resp.get('error_code')})")
+    return resp.get("result", [])
 
 
 # ── Watchlist I/O ──────────────────────────────────────────────────────────────
@@ -843,4 +865,5 @@ def run() -> None:
 
 
 if __name__ == "__main__":
+    _setup_logging(os.path.join(BASE, "logs"))
     run()
